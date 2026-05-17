@@ -9,6 +9,8 @@ const TEAM_COLORS = {
   "Bチーム": "#2a7a2a",
   "Cチーム": "#c25000",
   "サンプルチーム": "#7a2a7a",
+  "外注": "#888",
+  "未割当": "#bbb",
 };
 const STATUSES = ["未着手", "受注確認", "裁断待ち", "製作中", "完了"];
 
@@ -20,12 +22,21 @@ function diffDays(a, b) {
   return Math.ceil((new Date(b) - new Date(a)) / 86400000);
 }
 
+// 担当の表示名
+function assigneeLabel(part, vendors) {
+  if (!part.assignee || part.assignee === "未割当") return "未割当";
+  if (part.assigneeType === "outsource") {
+    const v = vendors.find((v) => v.id === part.assignee);
+    return v ? "外注: " + v.name : "外注";
+  }
+  return part.assignee;
+}
+
 const EMPTY_DATA = {
-  parts: [],
-  outsources: [],
-  records: [],
-  members: [],
-  vendors: [],
+  parts: [],      // 品番マスター
+  records: [],    // 作業記録
+  members: [],    // 全社共通メンバー
+  vendors: [],    // 外注先
   monthlyTargets: {},
 };
 
@@ -33,30 +44,30 @@ const INIT_UI = {
   screen: "home",
   selectedTeam: null,
   userRole: null,
+  // フォーム
+  addPartForm: { partNo: "", partName: "", unitPrice: "", qty: "", estHoursPerUnit: "", deadline: "", status: "未着手", note: "", assignee: "未割当", assigneeType: "team", vendorId: "", sellPrice: "", vendorPrice: "" },
   memberForm: { memberId: "", partId: "", hours: "", date: today() },
-  addPartForm: { partNo: "", partName: "", unitPrice: "", qty: "", estHoursPerUnit: "", deadline: "", assignee: "", status: "未着手", note: "" },
-  addOutsourceForm: { partNo: "", partName: "", vendorId: "", qty: "", sellPrice: "", vendorPrice: "", deadline: "", note: "", status: "未着手" },
   addMemberForm: { name: "" },
   addVendorForm: { name: "" },
-  targetForm: { month: today().slice(0, 7), sales: "", hourlyRate: "" },
+  targetForm: { month: today().slice(0, 7), team: TEAMS[0], sales: "", hourlyRate: "" },
+  // 詳細
   activePartId: null,
-  activeOutsourceId: null,
+  // 集計
   summaryFilter: "all",
   summaryMonth: today().slice(0, 7),
-  summaryTab: "parts",
-  editMemberId: null,
-  editMemberName: "",
-  editVendorId: null,
-  editVendorName: "",
+  summaryTab: "workload",
+  // 編集
+  editMemberId: null, editMemberName: "",
+  editVendorId: null, editVendorName: "",
+  // マスター絞り込み
+  masterFilter: "all",
 };
 
 async function gasSave(data) {
   const json = JSON.stringify(data);
   const encoded = encodeURIComponent(json);
-  const url = GAS_URL + "?action=save&data=" + encoded;
-  await fetch(url, { mode: "no-cors" });
+  await fetch(GAS_URL + "?action=save&data=" + encoded, { mode: "no-cors" });
 }
-
 async function gasLoad() {
   const res = await fetch(GAS_URL);
   return await res.json();
@@ -69,9 +80,8 @@ function App() {
   const [saving, setSaving] = useState(false);
 
   const set = (patch) => setUi((p) => Object.assign({}, p, patch));
-  const setMF = (patch) => setUi((p) => Object.assign({}, p, { memberForm: Object.assign({}, p.memberForm, patch) }));
   const setAP = (patch) => setUi((p) => Object.assign({}, p, { addPartForm: Object.assign({}, p.addPartForm, patch) }));
-  const setAO = (patch) => setUi((p) => Object.assign({}, p, { addOutsourceForm: Object.assign({}, p.addOutsourceForm, patch) }));
+  const setMF = (patch) => setUi((p) => Object.assign({}, p, { memberForm: Object.assign({}, p.memberForm, patch) }));
   const setTF = (patch) => setUi((p) => Object.assign({}, p, { targetForm: Object.assign({}, p.targetForm, patch) }));
 
   useEffect(() => {
@@ -79,82 +89,105 @@ function App() {
       const merged = Object.assign({}, EMPTY_DATA, d);
       if (!Array.isArray(merged.members)) merged.members = [];
       if (!Array.isArray(merged.vendors)) merged.vendors = [];
-      if (!Array.isArray(merged.outsources)) merged.outsources = [];
+      if (!Array.isArray(merged.parts)) merged.parts = [];
+      if (!Array.isArray(merged.records)) merged.records = [];
       setData(merged);
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  const save = useCallback(async (newData) => {
+  const save = useCallback(async (nd) => {
     setSaving(true);
-    try { await gasSave(newData); } catch(e) {}
+    try { await gasSave(nd); } catch(e) {}
     finally { setSaving(false); }
   }, []);
 
   function updateData(patch) {
-    const newData = Object.assign({}, data, patch);
-    setData(newData);
-    save(newData);
+    const nd = Object.assign({}, data, patch);
+    setData(nd);
+    save(nd);
   }
 
-  const openParts = useMemo(() => data.parts.filter((p) => p.team === ui.selectedTeam && !p.closedAt), [data.parts, ui.selectedTeam]);
-
+  // ── computed ─────────────────────────────────────────────────────
   const partSummary = useMemo(() => data.parts.map((part) => {
     const recs = data.records.filter((r) => r.partId === part.id);
     const totalHours = recs.reduce((a, r) => a + r.hours, 0);
-    const totalSales = part.unitPrice * part.qty;
+    const totalSales = (part.unitPrice || 0) * (part.qty || 0);
     const hourlyRate = totalHours > 0 ? totalSales / totalHours : 0;
-    const estTotalHours = part.estHoursPerUnit * part.qty;
+    const estTotalHours = (part.estHoursPerUnit || 0) * (part.qty || 0);
     const progress = estTotalHours > 0 ? Math.min(totalHours / estTotalHours, 1) : null;
-    const estUnitsCompleted = part.estHoursPerUnit > 0 ? Math.floor(totalHours / part.estHoursPerUnit) : 0;
     const workerMap = {};
     for (const r of recs) workerMap[r.memberName] = (workerMap[r.memberName] || 0) + r.hours;
     const remainDays = diffDays(today(), part.deadline);
     const remainHours = estTotalHours - totalHours;
     const dailyNeeded = (remainDays && remainDays > 0 && remainHours > 0) ? remainHours / remainDays : null;
-    return Object.assign({}, part, { totalHours, totalSales, hourlyRate, estTotalHours, progress, estUnitsCompleted, workerMap, recs, remainDays, dailyNeeded });
-  }), [data.parts, data.records]);
-
-  const outsourceSummary = useMemo(() => data.outsources.map((o) => {
-    const vendor = data.vendors.find((v) => v.id === o.vendorId);
-    const profit = (o.sellPrice - o.vendorPrice) * o.qty;
-    const profitRate = o.sellPrice > 0 ? ((o.sellPrice - o.vendorPrice) / o.sellPrice) * 100 : 0;
-    const remainDays = diffDays(today(), o.deadline);
-    return Object.assign({}, o, { vendorName: vendor ? vendor.name : "未設定", profit, profitRate, remainDays });
-  }), [data.outsources, data.vendors]);
+    // 外注利益
+    const profit = part.assigneeType === "outsource" && part.sellPrice && part.vendorPrice
+      ? (part.sellPrice - part.vendorPrice) * part.qty : null;
+    const profitRate = profit !== null && part.sellPrice > 0
+      ? ((part.sellPrice - part.vendorPrice) / part.sellPrice) * 100 : null;
+    const vendorName = part.assigneeType === "outsource"
+      ? (data.vendors.find((v) => v.id === part.assignee) || {}).name || "未設定" : null;
+    return Object.assign({}, part, { totalHours, totalSales, hourlyRate, estTotalHours, progress, workerMap, recs, remainDays, dailyNeeded, profit, profitRate, vendorName });
+  }), [data.parts, data.records, data.vendors]);
 
   const activePart = partSummary.find((p) => p.id === ui.activePartId);
-  const activeOutsource = outsourceSummary.find((o) => o.id === ui.activeOutsourceId);
 
-  const dashboardItems = useMemo(() => {
-    const internalItems = partSummary.filter((p) => !p.closedAt).map((p) => Object.assign({}, p, { type: "internal" }));
-    const outsourceItems = outsourceSummary.filter((o) => !o.closedAt).map((o) => Object.assign({}, o, { type: "outsource" }));
-    return internalItems.concat(outsourceItems).sort((a, b) => {
+  // チーム別品番
+  const teamParts = useMemo(() => {
+    if (!ui.selectedTeam) return [];
+    return partSummary.filter((p) => p.assigneeType === "team" && p.assignee === ui.selectedTeam && !p.closedAt);
+  }, [partSummary, ui.selectedTeam]);
+
+  // ダッシュボード: 進行中全品番を納期順
+  const dashItems = useMemo(() => {
+    return partSummary.filter((p) => !p.closedAt).sort((a, b) => {
       if (!a.deadline) return 1;
       if (!b.deadline) return -1;
       return a.deadline.localeCompare(b.deadline);
     });
-  }, [partSummary, outsourceSummary]);
+  }, [partSummary]);
 
+  // マスター絞り込み
+  const filteredMaster = useMemo(() => {
+    if (ui.masterFilter === "all") return partSummary;
+    if (ui.masterFilter === "未割当") return partSummary.filter((p) => !p.assignee || p.assignee === "未割当");
+    if (ui.masterFilter === "外注") return partSummary.filter((p) => p.assigneeType === "outsource");
+    return partSummary.filter((p) => p.assignee === ui.masterFilter);
+  }, [partSummary, ui.masterFilter]);
+
+  // ── actions ──────────────────────────────────────────────────────
   function addPart() {
     const f = ui.addPartForm;
-    if (!f.partNo || !f.unitPrice || !f.qty || !f.estHoursPerUnit) return;
-    const np = { id: genId(), team: ui.selectedTeam, partNo: f.partNo.trim(), partName: f.partName.trim(), unitPrice: parseFloat(f.unitPrice), qty: parseFloat(f.qty), estHoursPerUnit: parseFloat(f.estHoursPerUnit), deadline: f.deadline || null, assignee: f.assignee.trim(), status: f.status || "未着手", note: f.note.trim(), createdAt: today(), closedAt: null };
+    if (!f.partNo) return;
+    const isOut = f.assigneeType === "outsource";
+    const np = {
+      id: genId(),
+      partNo: f.partNo.trim(),
+      partName: f.partName.trim(),
+      unitPrice: parseFloat(f.unitPrice) || 0,
+      qty: parseFloat(f.qty) || 0,
+      estHoursPerUnit: isOut ? 0 : (parseFloat(f.estHoursPerUnit) || 0),
+      deadline: f.deadline || null,
+      status: f.status || "未着手",
+      note: f.note.trim(),
+      assignee: isOut ? f.vendorId : (f.assignee || "未割当"),
+      assigneeType: f.assigneeType || "team",
+      sellPrice: isOut ? (parseFloat(f.sellPrice) || 0) : 0,
+      vendorPrice: isOut ? (parseFloat(f.vendorPrice) || 0) : 0,
+      createdAt: today(),
+      closedAt: null,
+    };
     updateData({ parts: data.parts.concat([np]) });
-    set({ addPartForm: { partNo: "", partName: "", unitPrice: "", qty: "", estHoursPerUnit: "", deadline: "", assignee: "", status: "未着手", note: "" }, screen: "leader_menu" });
+    set({ addPartForm: { partNo: "", partName: "", unitPrice: "", qty: "", estHoursPerUnit: "", deadline: "", status: "未着手", note: "", assignee: "未割当", assigneeType: "team", vendorId: "", sellPrice: "", vendorPrice: "" }, screen: "master" });
   }
 
-  function addOutsource() {
-    const f = ui.addOutsourceForm;
-    if (!f.partNo || !f.qty || !f.sellPrice || !f.vendorPrice) return;
-    const no = { id: genId(), partNo: f.partNo.trim(), partName: f.partName.trim(), vendorId: f.vendorId, qty: parseFloat(f.qty), sellPrice: parseFloat(f.sellPrice), vendorPrice: parseFloat(f.vendorPrice), deadline: f.deadline || null, note: f.note.trim(), status: f.status || "未着手", createdAt: today(), closedAt: null };
-    updateData({ outsources: data.outsources.concat([no]) });
-    set({ addOutsourceForm: { partNo: "", partName: "", vendorId: "", qty: "", sellPrice: "", vendorPrice: "", deadline: "", note: "", status: "未着手" }, screen: "outsource_menu" });
+  function updatePartAssignee(id, assignee, assigneeType) {
+    updateData({ parts: data.parts.map((p) => p.id === id ? Object.assign({}, p, { assignee, assigneeType }) : p) });
   }
 
   function closePart(id) { updateData({ parts: data.parts.map((p) => p.id === id ? Object.assign({}, p, { closedAt: today() }) : p) }); }
   function reopenPart(id) { updateData({ parts: data.parts.map((p) => p.id === id ? Object.assign({}, p, { closedAt: null }) : p) }); }
-  function closeOutsource(id) { updateData({ outsources: data.outsources.map((o) => o.id === id ? Object.assign({}, o, { closedAt: today() }) : o) }); }
-  function reopenOutsource(id) { updateData({ outsources: data.outsources.map((o) => o.id === id ? Object.assign({}, o, { closedAt: null }) : o) }); }
+  function deletePart(id) { updateData({ parts: data.parts.filter((p) => p.id !== id), records: data.records.filter((r) => r.partId !== id) }); }
 
   function addRecord() {
     const f = ui.memberForm;
@@ -195,12 +228,12 @@ function App() {
 
   function saveTarget() {
     const f = ui.targetForm;
-    if (!f.month || !ui.selectedTeam) return;
+    if (!f.month || !f.team) return;
     const prev = data.monthlyTargets[f.month] || {};
-    const newTargets = Object.assign({}, data.monthlyTargets);
-    newTargets[f.month] = Object.assign({}, prev);
-    newTargets[f.month][ui.selectedTeam] = { sales: parseFloat(f.sales) || 0, hourlyRate: parseFloat(f.hourlyRate) || 0 };
-    updateData({ monthlyTargets: newTargets });
+    const nt = Object.assign({}, data.monthlyTargets);
+    nt[f.month] = Object.assign({}, prev);
+    nt[f.month][f.team] = { sales: parseFloat(f.sales) || 0, hourlyRate: parseFloat(f.hourlyRate) || 0 };
+    updateData({ monthlyTargets: nt });
     setTF({ sales: "", hourlyRate: "" });
   }
 
@@ -209,244 +242,471 @@ function App() {
     React.createElement("div", { style: { color: "#aaa", fontSize: 14 } }, "読み込み中...")
   );
 
-  const SI = () => saving ? React.createElement("div", { style: { position: "fixed", bottom: 16, right: 16, zIndex: 100 } },
-    React.createElement("div", { style: st.saveBadge }, "💾 保存中...")
-  ) : null;
+  const SI = () => saving ? React.createElement("div", { style: { position: "fixed", bottom: 16, right: 16, zIndex: 100 } }, React.createElement("div", { style: st.saveBadge }, "💾 保存中...")) : null;
 
+  // ════════════════════════════════════════════════════════════════
   // HOME
-  if (ui.screen === "home") return React.createElement(Shell, null,
-    React.createElement(Header, { title: "作業実績管理", sub: "IQUTA PLEATS" }),
-    React.createElement(Body, null,
-      React.createElement(BigBtn, { icon: "🗂️", label: "ダッシュボード", sub: "納期・進捗を一目で確認", onClick: () => set({ screen: "dashboard" }) }),
-      React.createElement(Spacer, { h: 8 }),
-      React.createElement(BigBtn, { icon: "📊", label: "集計・予算管理", sub: "全体・チーム別・月次の実績", onClick: () => set({ screen: "summary", summaryFilter: "all" }) }),
-      React.createElement(Spacer, { h: 8 }),
-      React.createElement(BigBtn, { icon: "🏭", label: "外注管理", sub: "外注先・納期・利益を管理", onClick: () => set({ screen: "outsource_menu" }) }),
-      React.createElement(Spacer, { h: 12 }),
-      React.createElement(Divider, { label: "社内チームを選ぶ" }),
-      TEAMS.map((team) => React.createElement("div", { key: team, style: { marginBottom: 12 } },
-        React.createElement(TeamBadge, { team }),
-        React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 6 } },
-          React.createElement(RoleBtn, { icon: "🔑", label: "リーダー", onClick: () => set({ selectedTeam: team, userRole: "leader", screen: "leader_menu" }) }),
-          React.createElement(RoleBtn, { icon: "✂️", label: "メンバー", onClick: () => set({ selectedTeam: team, userRole: "member", screen: "member_entry", memberForm: { memberId: "", partId: "", hours: "", date: today() } }) })
-        )
-      )),
-      React.createElement(Spacer, { h: 8 }),
-      React.createElement(Divider, { label: "管理設定" }),
-      React.createElement("div", { style: { display: "flex", gap: 8 } },
-        React.createElement(QuickBtn, { label: "👥 メンバー管理", onClick: () => set({ screen: "member_mgmt" }) }),
-        React.createElement(QuickBtn, { label: "🏢 外注先管理", onClick: () => set({ screen: "vendor_mgmt" }) })
-      )
-    ),
-    React.createElement(SI)
-  );
-
-  // DASHBOARD
-  if (ui.screen === "dashboard") {
-    const urgent = dashboardItems.filter((p) => p.remainDays !== null && p.remainDays <= 3);
-    const caution = dashboardItems.filter((p) => p.remainDays !== null && p.remainDays > 3 && p.remainDays <= 7);
-    const normal = dashboardItems.filter((p) => p.remainDays === null || p.remainDays > 7);
+  // ════════════════════════════════════════════════════════════════
+  if (ui.screen === "home") {
+    const unassigned = partSummary.filter((p) => (!p.assignee || p.assignee === "未割当") && !p.closedAt).length;
     return React.createElement(Shell, null,
-      React.createElement(Header, { title: "ダッシュボード", back: () => set({ screen: "home" }) }),
+      React.createElement(Header, { title: "作業実績管理", sub: "IQUTA PLEATS" }),
       React.createElement(Body, null,
-        React.createElement("div", { style: { fontSize: 12, color: "#aaa", marginBottom: 16 } }, "本日: " + today()),
-        urgent.length > 0 && React.createElement("div", null,
-          React.createElement("div", { style: Object.assign({}, st.alertBanner, { background: "#fff0f0", color: "#c00", borderColor: "#ffcccc" }) }, "🔴 緊急 — 納期まで3日以内"),
-          urgent.map((p) => React.createElement(DashCard, { key: p.id, item: p, level: "red", onClick: () => p.type === "outsource" ? set({ activeOutsourceId: p.id, screen: "outsource_detail" }) : set({ activePartId: p.id, screen: "part_detail" }) }))
-        ),
-        caution.length > 0 && React.createElement("div", null,
-          React.createElement("div", { style: Object.assign({}, st.alertBanner, { background: "#fffbf0", color: "#b07000", borderColor: "#ffe599" }) }, "🟡 要注意 — 納期まで7日以内"),
-          caution.map((p) => React.createElement(DashCard, { key: p.id, item: p, level: "yellow", onClick: () => p.type === "outsource" ? set({ activeOutsourceId: p.id, screen: "outsource_detail" }) : set({ activePartId: p.id, screen: "part_detail" }) }))
-        ),
-        normal.length > 0 && React.createElement("div", null,
-          React.createElement("div", { style: Object.assign({}, st.alertBanner, { background: "#f0f8f0", color: "#2a7a2a", borderColor: "#b8e6b8" }) }, "🟢 余裕あり"),
-          normal.map((p) => React.createElement(DashCard, { key: p.id, item: p, level: "green", onClick: () => p.type === "outsource" ? set({ activeOutsourceId: p.id, screen: "outsource_detail" }) : set({ activePartId: p.id, screen: "part_detail" }) }))
-        ),
-        dashboardItems.length === 0 && React.createElement(Empty, null, "進行中の品番がありません")
-      ),
-      React.createElement(SI)
-    );
-  }
-
-  // LEADER MENU
-  if (ui.screen === "leader_menu") {
-    const myParts = partSummary.filter((p) => p.team === ui.selectedTeam);
-    return React.createElement(Shell, null,
-      React.createElement(Header, { title: ui.selectedTeam + "　リーダー", back: () => set({ screen: "home" }) }),
-      React.createElement(Body, null,
-        React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 20 } },
-          React.createElement(QuickBtn, { label: "＋ 品番登録", onClick: () => set({ screen: "add_part", addPartForm: { partNo: "", partName: "", unitPrice: "", qty: "", estHoursPerUnit: "", deadline: "", assignee: "", status: "未着手", note: "" } }) }),
+        React.createElement(BigBtn, { icon: "📋", label: "品番マスター", sub: "全品番の登録・割当管理" + (unassigned > 0 ? "　⚠️ 未割当 " + unassigned + "件" : ""), onClick: () => set({ screen: "master", masterFilter: "all" }), alert: unassigned > 0 }),
+        React.createElement(Spacer, { h: 8 }),
+        React.createElement(BigBtn, { icon: "🗂️", label: "ダッシュボード", sub: "納期・進捗を一目で確認", onClick: () => set({ screen: "dashboard" }) }),
+        React.createElement(Spacer, { h: 8 }),
+        React.createElement(BigBtn, { icon: "📊", label: "集計・仕事量管理", sub: "全体・チーム別の実績と予算", onClick: () => set({ screen: "summary" }) }),
+        React.createElement(Spacer, { h: 12 }),
+        React.createElement(Divider, { label: "チームを選ぶ" }),
+        TEAMS.map((team) => {
+          const cnt = partSummary.filter((p) => p.assignee === team && !p.closedAt).length;
+          return React.createElement("div", { key: team, style: { marginBottom: 12 } },
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6 } },
+              React.createElement(TeamBadge, { team }),
+              cnt > 0 && React.createElement("span", { style: { fontSize: 11, color: "#aaa" } }, cnt + "品番進行中")
+            ),
+            React.createElement("div", { style: { display: "flex", gap: 8 } },
+              React.createElement(RoleBtn, { icon: "🔑", label: "リーダー", onClick: () => set({ selectedTeam: team, userRole: "leader", screen: "team_leader" }) }),
+              React.createElement(RoleBtn, { icon: "✂️", label: "メンバー", onClick: () => set({ selectedTeam: team, userRole: "member", screen: "member_entry", memberForm: { memberId: "", partId: "", hours: "", date: today() } }) })
+            )
+          );
+        }),
+        React.createElement(Spacer, { h: 8 }),
+        React.createElement(Divider, { label: "管理設定" }),
+        React.createElement("div", { style: { display: "flex", gap: 8 } },
+          React.createElement(QuickBtn, { label: "👥 メンバー管理", onClick: () => set({ screen: "member_mgmt" }) }),
+          React.createElement(QuickBtn, { label: "🏢 外注先管理", onClick: () => set({ screen: "vendor_mgmt" }) }),
           React.createElement(QuickBtn, { label: "🎯 目標設定", onClick: () => set({ screen: "target_setting" }) })
-        ),
-        React.createElement(SectionLabel, null, "進行中の品番"),
-        myParts.filter((p) => !p.closedAt).length === 0 && React.createElement(Empty, null, "進行中の品番はありません"),
-        myParts.filter((p) => !p.closedAt).map((p) => React.createElement(PartCard, { key: p.id, p, onDetail: () => set({ activePartId: p.id, screen: "part_detail" }), onClose: () => closePart(p.id) })),
-        React.createElement(SectionLabel, null, "完了済み"),
-        myParts.filter((p) => p.closedAt).length === 0 && React.createElement(Empty, null, "完了済みの品番はありません"),
-        myParts.filter((p) => p.closedAt).map((p) => React.createElement(PartCard, { key: p.id, p, done: true, onDetail: () => set({ activePartId: p.id, screen: "part_detail" }), onReopen: () => reopenPart(p.id) }))
+        )
       ),
       React.createElement(SI)
     );
   }
 
-  // ADD PART
-  if (ui.screen === "add_part") {
-    const f = ui.addPartForm;
-    const estTotal = (f.unitPrice && f.qty && f.estHoursPerUnit) ? { sales: parseFloat(f.unitPrice) * parseFloat(f.qty), hours: parseFloat(f.estHoursPerUnit) * parseFloat(f.qty) } : null;
-    const ready = f.partNo && f.unitPrice && f.qty && f.estHoursPerUnit;
+  // ════════════════════════════════════════════════════════════════
+  // 品番マスター
+  // ════════════════════════════════════════════════════════════════
+  if (ui.screen === "master") {
+    const filters = ["all", "未割当"].concat(TEAMS).concat(["外注"]);
+    const unassigned = partSummary.filter((p) => (!p.assignee || p.assignee === "未割当") && !p.closedAt);
     return React.createElement(Shell, null,
-      React.createElement(Header, { title: "品番を登録", back: () => set({ screen: "leader_menu" }) }),
+      React.createElement(Header, { title: "品番マスター", back: () => set({ screen: "home" }) }),
       React.createElement(Body, null,
-        React.createElement("div", { style: { marginBottom: 12 } }, React.createElement(TeamBadge, { team: ui.selectedTeam })),
-        React.createElement("div", { style: st.card },
-          React.createElement(FormRow, { label: "品番" }, React.createElement("input", { style: st.input, placeholder: "例: A-2024-001", value: f.partNo, onChange: (e) => setAP({ partNo: e.target.value }) })),
-          React.createElement(FormRow, { label: "品名" }, React.createElement("input", { style: st.input, placeholder: "例: プリーツスカート", value: f.partName, onChange: (e) => setAP({ partName: e.target.value }) })),
-          React.createElement(FormRow, { label: "担当者" }, React.createElement("input", { style: st.input, placeholder: "例: 生田", value: f.assignee, onChange: (e) => setAP({ assignee: e.target.value }) })),
-          React.createElement(FormRow, { label: "ステータス" }, React.createElement("select", { style: st.input, value: f.status, onChange: (e) => setAP({ status: e.target.value }) }, STATUSES.map((s) => React.createElement("option", { key: s }, s)))),
-          React.createElement(FormRow, { label: "製品単価（円）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3000", value: f.unitPrice, onChange: (e) => setAP({ unitPrice: e.target.value }) })),
-          React.createElement(FormRow, { label: "数量（枚）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 50", value: f.qty, onChange: (e) => setAP({ qty: e.target.value }) })),
-          React.createElement(FormRow, { label: "1着あたりの見積もり時間（h）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 0.5", min: "0", step: "0.1", value: f.estHoursPerUnit, onChange: (e) => setAP({ estHoursPerUnit: e.target.value }) })),
-          React.createElement(FormRow, { label: "納期（任意）" }, React.createElement("input", { style: st.input, type: "date", value: f.deadline, onChange: (e) => setAP({ deadline: e.target.value }) })),
-          React.createElement(FormRow, { label: "備考" }, React.createElement("input", { style: st.input, placeholder: "例: 急ぎ対応", value: f.note, onChange: (e) => setAP({ note: e.target.value }) })),
-          estTotal && React.createElement("div", { style: Object.assign({}, st.previewBox, { background: "#f0f8f0" }) },
-            React.createElement("div", { style: st.previewRow }, React.createElement("span", null, "合計売上予定"), React.createElement("b", null, "¥" + Math.round(estTotal.sales).toLocaleString())),
-            React.createElement("div", { style: st.previewRow }, React.createElement("span", null, "総見積もり時間"), React.createElement("b", null, estTotal.hours.toFixed(1) + "h")),
-            React.createElement("div", { style: st.previewRow }, React.createElement("span", null, "目標時間単価"), React.createElement("b", { style: { color: "#2a7a2a" } }, "¥" + Math.round(estTotal.sales / estTotal.hours).toLocaleString() + "/h"))
-          ),
-          React.createElement("button", { style: Object.assign({}, st.primaryBtn, { opacity: ready ? 1 : 0.35 }), disabled: !ready, onClick: addPart }, "登録する")
-        )
-      )
-    );
-  }
+        React.createElement("button", { style: st.dashedBtn, onClick: () => set({ screen: "add_part", addPartForm: { partNo: "", partName: "", unitPrice: "", qty: "", estHoursPerUnit: "", deadline: "", status: "未着手", note: "", assignee: "未割当", assigneeType: "team", vendorId: "", sellPrice: "", vendorPrice: "" } }) }, "＋ 新しい品番を登録する"),
 
-  // OUTSOURCE MENU
-  if (ui.screen === "outsource_menu") {
-    const openOut = outsourceSummary.filter((o) => !o.closedAt);
-    const doneOut = outsourceSummary.filter((o) => o.closedAt);
-    return React.createElement(Shell, null,
-      React.createElement(Header, { title: "外注管理", back: () => set({ screen: "home" }) }),
-      React.createElement(Body, null,
-        React.createElement("button", { style: st.dashedBtn, onClick: () => set({ screen: "add_outsource", addOutsourceForm: { partNo: "", partName: "", vendorId: "", qty: "", sellPrice: "", vendorPrice: "", deadline: "", note: "", status: "未着手" } }) }, "＋ 外注品番を登録する"),
-        React.createElement(SectionLabel, null, "進行中の外注品番"),
-        openOut.length === 0 && React.createElement(Empty, null, "進行中の外注品番はありません"),
-        openOut.map((o) => React.createElement("div", { key: o.id, style: st.leaderCard },
+        unassigned.length > 0 && React.createElement("div", { style: { background: "#fff8e0", border: "1px solid #ffe599", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#b07000" } },
+          "⚠️ 担当未割当の品番が " + unassigned.length + " 件あります"
+        ),
+
+        // フィルター
+        React.createElement("div", { style: Object.assign({}, st.filterRow, { flexWrap: "wrap" }) },
+          filters.map((f) => React.createElement("button", { key: f, style: Object.assign({}, st.filterBtn, ui.masterFilter === f ? st.filterBtnActive : {}), onClick: () => set({ masterFilter: f }) }, f === "all" ? "全体" : f))
+        ),
+
+        React.createElement("div", { style: { fontSize: 12, color: "#aaa", marginBottom: 12 } }, filteredMaster.length + "件"),
+
+        filteredMaster.length === 0 && React.createElement(Empty, null, "品番がありません"),
+        filteredMaster.map((p) => React.createElement("button", { key: p.id, style: Object.assign({}, st.summaryCard, { textAlign: "left" }), onClick: () => set({ activePartId: p.id, screen: "part_detail" }) },
           React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 } },
             React.createElement("div", null,
-              React.createElement("div", { style: st.partNoText }, o.partNo + (o.partName ? " (" + o.partName + ")" : "")),
-              React.createElement("div", { style: st.partMeta }, "外注先: " + o.vendorName),
-              o.deadline && React.createElement("div", { style: { fontSize: 12, color: o.remainDays <= 3 ? "#c00" : o.remainDays <= 7 ? "#c25000" : "#aaa", marginTop: 4 } }, "納期: " + fmt(o.deadline) + "（あと" + o.remainDays + "日）")
+              React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, p.partNo),
+              p.partName && React.createElement("div", { style: { fontSize: 12, color: "#888", marginTop: 2 } }, p.partName)
             ),
-            React.createElement("button", { style: st.detailLink, onClick: () => set({ activeOutsourceId: o.id, screen: "outsource_detail" }) }, "詳細 ›")
+            React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" } },
+              p.closedAt ? React.createElement(Badge, { type: "done" }) : React.createElement(Badge, { type: "open" }),
+              React.createElement(AssigneeBadge, { part: p, vendors: data.vendors }),
+              React.createElement("span", { style: { color: "#ccc" } }, "›")
+            )
           ),
-          React.createElement("div", { style: st.statsRow },
-            React.createElement("span", null, "利益 "),
-            React.createElement("b", { style: { color: o.profit >= 0 ? "#2a7a2a" : "#c00" } }, "¥" + Math.round(o.profit).toLocaleString()),
-            React.createElement("span", { style: { color: "#ddd" } }, "｜"),
-            React.createElement("span", null, "利益率 "),
-            React.createElement("b", null, o.profitRate.toFixed(1) + "%")
+          React.createElement("div", { style: { display: "flex", gap: 8, fontSize: 12, color: "#aaa", flexWrap: "wrap" } },
+            React.createElement("span", null, p.qty + "枚"),
+            p.deadline && React.createElement("span", { style: { color: p.remainDays !== null && p.remainDays <= 3 ? "#c00" : p.remainDays !== null && p.remainDays <= 7 ? "#c25000" : "#aaa" } }, "納期: " + fmt(p.deadline) + (p.remainDays !== null ? "（あと" + p.remainDays + "日）" : "")),
+            p.status && React.createElement("span", null, p.status)
           ),
-          React.createElement("button", { style: st.closeBtn, onClick: () => closeOutsource(o.id) }, "この品番を完了にする")
-        )),
-        React.createElement(SectionLabel, null, "完了済み"),
-        doneOut.length === 0 && React.createElement(Empty, null, "完了済みの外注品番はありません"),
-        doneOut.map((o) => React.createElement("div", { key: o.id, style: Object.assign({}, st.leaderCard, { opacity: 0.72 }) },
-          React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 } },
-            React.createElement("div", null,
-              React.createElement("div", { style: Object.assign({}, st.partNoText, { color: "#777" }) }, o.partNo + (o.partName ? " (" + o.partName + ")" : "")),
-              React.createElement("div", { style: st.partMeta }, "外注先: " + o.vendorName + " ／ 完了: " + fmt(o.closedAt))
+          !p.closedAt && p.progress !== null && p.assigneeType === "team" && React.createElement("div", { style: { marginTop: 8 } },
+            React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 3 } },
+              React.createElement("span", null, "進捗 " + Math.round(p.progress * 100) + "%"),
+              React.createElement("span", null, p.totalHours.toFixed(1) + "h / " + p.estTotalHours.toFixed(1) + "h")
             ),
-            React.createElement("button", { style: st.detailLink, onClick: () => set({ activeOutsourceId: o.id, screen: "outsource_detail" }) }, "詳細 ›")
-          ),
-          React.createElement("div", { style: Object.assign({}, st.statsRow, { background: "#eeecea" }) },
-            React.createElement("span", null, "利益 "),
-            React.createElement("b", { style: { color: "#2a7a2a" } }, "¥" + Math.round(o.profit).toLocaleString()),
-            React.createElement("span", null, " 確定")
-          ),
-          React.createElement("button", { style: Object.assign({}, st.closeBtn, { background: "#e8e6e0", color: "#777" }), onClick: () => reopenOutsource(o.id) }, "再開する")
+            React.createElement(ProgressBar, { value: p.progress })
+          )
         ))
       ),
       React.createElement(SI)
     );
   }
 
-  // ADD OUTSOURCE
-  if (ui.screen === "add_outsource") {
-    const f = ui.addOutsourceForm;
-    const profit = (f.sellPrice && f.vendorPrice && f.qty) ? (parseFloat(f.sellPrice) - parseFloat(f.vendorPrice)) * parseFloat(f.qty) : null;
-    const profitRate = (f.sellPrice && f.vendorPrice && parseFloat(f.sellPrice) > 0) ? ((parseFloat(f.sellPrice) - parseFloat(f.vendorPrice)) / parseFloat(f.sellPrice)) * 100 : null;
-    const ready = f.partNo && f.qty && f.sellPrice && f.vendorPrice;
+  // ════════════════════════════════════════════════════════════════
+  // 品番登録
+  // ════════════════════════════════════════════════════════════════
+  if (ui.screen === "add_part") {
+    const f = ui.addPartForm;
+    const isOut = f.assigneeType === "outsource";
+    const isUnassigned = !f.assigneeType || f.assigneeType === "team" && f.assignee === "未割当";
+    const estTotal = (!isOut && f.unitPrice && f.qty && f.estHoursPerUnit)
+      ? { sales: parseFloat(f.unitPrice) * parseFloat(f.qty), hours: parseFloat(f.estHoursPerUnit) * parseFloat(f.qty) } : null;
+    const profit = (isOut && f.sellPrice && f.vendorPrice && f.qty)
+      ? (parseFloat(f.sellPrice) - parseFloat(f.vendorPrice)) * parseFloat(f.qty) : null;
+    const ready = f.partNo;
+
     return React.createElement(Shell, null,
-      React.createElement(Header, { title: "外注品番を登録", back: () => set({ screen: "outsource_menu" }) }),
+      React.createElement(Header, { title: "品番を登録", back: () => set({ screen: "master" }) }),
       React.createElement(Body, null,
         React.createElement("div", { style: st.card },
-          React.createElement(FormRow, { label: "品番" }, React.createElement("input", { style: st.input, placeholder: "例: B-2024-010", value: f.partNo, onChange: (e) => setAO({ partNo: e.target.value }) })),
-          React.createElement(FormRow, { label: "品名" }, React.createElement("input", { style: st.input, placeholder: "例: プリーツパンツ", value: f.partName, onChange: (e) => setAO({ partName: e.target.value }) })),
-          React.createElement(FormRow, { label: "外注先" },
-            data.vendors.length === 0
-              ? React.createElement("div", { style: { color: "#bbb", fontSize: 13, padding: "8px 0" } }, "外注先が登録されていません（ホーム→外注先管理から登録）")
-              : React.createElement("select", { style: st.input, value: f.vendorId, onChange: (e) => setAO({ vendorId: e.target.value }) },
-                  React.createElement("option", { value: "" }, "選択してください"),
-                  data.vendors.map((v) => React.createElement("option", { key: v.id, value: v.id }, v.name))
-                )
+          React.createElement(FormRow, { label: "品番 ＊" }, React.createElement("input", { style: st.input, placeholder: "例: A-2024-001", value: f.partNo, onChange: (e) => setAP({ partNo: e.target.value }) })),
+          React.createElement(FormRow, { label: "品名" }, React.createElement("input", { style: st.input, placeholder: "例: プリーツスカート", value: f.partName, onChange: (e) => setAP({ partName: e.target.value }) })),
+          React.createElement(FormRow, { label: "ステータス" }, React.createElement("select", { style: st.input, value: f.status, onChange: (e) => setAP({ status: e.target.value }) }, STATUSES.map((s) => React.createElement("option", { key: s }, s)))),
+          React.createElement(FormRow, { label: "数量（枚）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 50", value: f.qty, onChange: (e) => setAP({ qty: e.target.value }) })),
+          React.createElement(FormRow, { label: "納期（任意）" }, React.createElement("input", { style: st.input, type: "date", value: f.deadline, onChange: (e) => setAP({ deadline: e.target.value }) })),
+
+          // 担当割当
+          React.createElement(FormRow, { label: "担当" },
+            React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 } },
+              React.createElement("button", { style: Object.assign({}, st.assignBtn, f.assigneeType === "team" && f.assignee === "未割当" ? st.assignBtnActive : {}), onClick: () => setAP({ assigneeType: "team", assignee: "未割当" }) }, "未割当"),
+              TEAMS.map((t) => React.createElement("button", { key: t, style: Object.assign({}, st.assignBtn, f.assigneeType === "team" && f.assignee === t ? st.assignBtnActive : {}), onClick: () => setAP({ assigneeType: "team", assignee: t }) }, t)),
+              React.createElement("button", { style: Object.assign({}, st.assignBtn, f.assigneeType === "outsource" ? st.assignBtnActive : {}), onClick: () => setAP({ assigneeType: "outsource" }) }, "外注")
+            ),
+            f.assigneeType === "outsource" && (
+              data.vendors.length === 0
+                ? React.createElement("div", { style: { color: "#bbb", fontSize: 13 } }, "外注先が登録されていません（ホーム→外注先管理）")
+                : React.createElement("select", { style: st.input, value: f.vendorId, onChange: (e) => setAP({ vendorId: e.target.value }) },
+                    React.createElement("option", { value: "" }, "外注先を選択"),
+                    data.vendors.map((v) => React.createElement("option", { key: v.id, value: v.id }, v.name))
+                  )
+            )
           ),
-          React.createElement(FormRow, { label: "ステータス" }, React.createElement("select", { style: st.input, value: f.status, onChange: (e) => setAO({ status: e.target.value }) }, STATUSES.map((s) => React.createElement("option", { key: s }, s)))),
-          React.createElement(FormRow, { label: "数量（枚）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 100", value: f.qty, onChange: (e) => setAO({ qty: e.target.value }) })),
-          React.createElement(FormRow, { label: "販売単価（円）— 得意先への売価" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 5000", value: f.sellPrice, onChange: (e) => setAO({ sellPrice: e.target.value }) })),
-          React.createElement(FormRow, { label: "外注単価（円）— 外注先への支払い" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3000", value: f.vendorPrice, onChange: (e) => setAO({ vendorPrice: e.target.value }) })),
-          React.createElement(FormRow, { label: "納期（任意）" }, React.createElement("input", { style: st.input, type: "date", value: f.deadline, onChange: (e) => setAO({ deadline: e.target.value }) })),
-          React.createElement(FormRow, { label: "備考" }, React.createElement("input", { style: st.input, placeholder: "メモなど", value: f.note, onChange: (e) => setAO({ note: e.target.value }) })),
+
+          // 社内の場合
+          !isOut && React.createElement("div", null,
+            React.createElement(FormRow, { label: "製品単価（円）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3000", value: f.unitPrice, onChange: (e) => setAP({ unitPrice: e.target.value }) })),
+            React.createElement(FormRow, { label: "1着あたりの見積もり時間（h）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 0.5", min: "0", step: "0.1", value: f.estHoursPerUnit, onChange: (e) => setAP({ estHoursPerUnit: e.target.value }) }))
+          ),
+
+          // 外注の場合
+          isOut && React.createElement("div", null,
+            React.createElement(FormRow, { label: "販売単価（円）— 得意先への売価" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 5000", value: f.sellPrice, onChange: (e) => setAP({ sellPrice: e.target.value }) })),
+            React.createElement(FormRow, { label: "外注単価（円）— 外注先への支払い" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3000", value: f.vendorPrice, onChange: (e) => setAP({ vendorPrice: e.target.value }) }))
+          ),
+
+          React.createElement(FormRow, { label: "備考" }, React.createElement("input", { style: st.input, placeholder: "メモなど", value: f.note, onChange: (e) => setAP({ note: e.target.value }) })),
+
+          // プレビュー
+          estTotal && React.createElement("div", { style: Object.assign({}, st.previewBox, { background: "#f0f8f0" }) },
+            React.createElement("div", { style: st.previewRow }, React.createElement("span", null, "合計売上予定"), React.createElement("b", null, "¥" + Math.round(estTotal.sales).toLocaleString())),
+            React.createElement("div", { style: st.previewRow }, React.createElement("span", null, "総見積もり時間"), React.createElement("b", null, estTotal.hours.toFixed(1) + "h")),
+            React.createElement("div", { style: st.previewRow }, React.createElement("span", null, "目標時間単価"), React.createElement("b", { style: { color: "#2a7a2a" } }, "¥" + Math.round(estTotal.sales / estTotal.hours).toLocaleString() + "/h"))
+          ),
           profit !== null && React.createElement("div", { style: Object.assign({}, st.previewBox, { background: profit >= 0 ? "#f0f8f0" : "#fff0f0" }) },
             React.createElement("div", { style: st.previewRow }, React.createElement("span", null, "売上合計"), React.createElement("b", null, "¥" + Math.round(parseFloat(f.sellPrice) * parseFloat(f.qty)).toLocaleString())),
             React.createElement("div", { style: st.previewRow }, React.createElement("span", null, "外注費合計"), React.createElement("b", null, "¥" + Math.round(parseFloat(f.vendorPrice) * parseFloat(f.qty)).toLocaleString())),
-            React.createElement("div", { style: st.previewRow }, React.createElement("span", null, "利益"), React.createElement("b", { style: { color: profit >= 0 ? "#2a7a2a" : "#c00" } }, "¥" + Math.round(profit).toLocaleString())),
-            profitRate !== null && React.createElement("div", { style: st.previewRow }, React.createElement("span", null, "利益率"), React.createElement("b", null, profitRate.toFixed(1) + "%"))
+            React.createElement("div", { style: st.previewRow }, React.createElement("span", null, "利益"), React.createElement("b", { style: { color: profit >= 0 ? "#2a7a2a" : "#c00" } }, "¥" + Math.round(profit).toLocaleString()))
           ),
-          React.createElement("button", { style: Object.assign({}, st.primaryBtn, { opacity: ready ? 1 : 0.35 }), disabled: !ready, onClick: addOutsource }, "登録する")
+
+          React.createElement("button", { style: Object.assign({}, st.primaryBtn, { opacity: ready ? 1 : 0.35 }), disabled: !ready, onClick: addPart }, "登録する")
         )
       )
     );
   }
 
-  // OUTSOURCE DETAIL
-  if (ui.screen === "outsource_detail" && activeOutsource) {
-    const o = activeOutsource;
+  // ════════════════════════════════════════════════════════════════
+  // 品番詳細
+  // ════════════════════════════════════════════════════════════════
+  if (ui.screen === "part_detail" && activePart) {
+    const p = activePart;
+    const isOut = p.assigneeType === "outsource";
+    const estRate = p.estTotalHours > 0 ? p.totalSales / p.estTotalHours : null;
+    const fromScreen = ui.prevScreen || "master";
+
     return React.createElement(Shell, null,
-      React.createElement(Header, { title: o.partNo, back: () => set({ screen: "outsource_menu" }) }),
+      React.createElement(Header, { title: p.partNo, back: () => set({ screen: fromScreen }) }),
       React.createElement(Body, null,
+        // ステータス・担当
         React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" } },
-          React.createElement(Badge, { type: o.closedAt ? "done" : "open" }),
-          React.createElement("span", { style: { fontSize: 12, color: "#888" } }, "外注"),
-          o.status && React.createElement(StatusBadge, { status: o.status })
+          p.closedAt ? React.createElement(Badge, { type: "done" }) : React.createElement(Badge, { type: "open" }),
+          React.createElement(AssigneeBadge, { part: p, vendors: data.vendors }),
+          p.status && React.createElement(StatusBadge, { status: p.status })
         ),
-        o.partName && React.createElement("div", { style: { fontSize: 15, color: "#555", marginBottom: 12 } }, o.partName),
+        p.partName && React.createElement("div", { style: { fontSize: 15, color: "#555", marginBottom: 12 } }, p.partName),
+
+        // 担当変更
+        React.createElement("div", { style: Object.assign({}, st.card, { padding: "12px 16px" }) },
+          React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginBottom: 8 } }, "担当を変更する"),
+          React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } },
+            React.createElement("button", { style: Object.assign({}, st.assignBtn, (!p.assignee || p.assignee === "未割当") ? st.assignBtnActive : {}), onClick: () => updatePartAssignee(p.id, "未割当", "team") }, "未割当"),
+            TEAMS.map((t) => React.createElement("button", { key: t, style: Object.assign({}, st.assignBtn, p.assignee === t && p.assigneeType === "team" ? st.assignBtnActive : {}), onClick: () => updatePartAssignee(p.id, t, "team") }, t)),
+            data.vendors.map((v) => React.createElement("button", { key: v.id, style: Object.assign({}, st.assignBtn, p.assignee === v.id && p.assigneeType === "outsource" ? st.assignBtnActive : {}), onClick: () => updatePartAssignee(p.id, v.id, "outsource") }, "外注: " + v.name))
+          )
+        ),
+
+        // 日程
         React.createElement("div", { style: Object.assign({}, st.card, { padding: "12px 16px", marginBottom: 16 }) },
           React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 13 } },
-            React.createElement("div", null, React.createElement("div", { style: st.cellLabel }, "登録日"), React.createElement("div", { style: { fontWeight: 700 } }, fmt(o.createdAt))),
-            o.deadline && React.createElement("div", null, React.createElement("div", { style: st.cellLabel }, "納期"), React.createElement("div", { style: { fontWeight: 700, color: o.closedAt ? "#aaa" : (o.remainDays <= 3 ? "#c00" : "#c25000") } }, fmt(o.deadline))),
-            React.createElement("div", null, React.createElement("div", { style: st.cellLabel }, "完了日"), React.createElement("div", { style: { fontWeight: 700, color: o.closedAt ? "#2a7a2a" : "#bbb" } }, o.closedAt ? fmt(o.closedAt) : "進行中"))
+            React.createElement("div", null, React.createElement("div", { style: st.cellLabel }, "登録日"), React.createElement("div", { style: { fontWeight: 700 } }, fmt(p.createdAt))),
+            p.deadline && React.createElement("div", null, React.createElement("div", { style: st.cellLabel }, "納期"), React.createElement("div", { style: { fontWeight: 700, color: p.closedAt ? "#aaa" : (p.remainDays <= 3 ? "#c00" : "#c25000") } }, fmt(p.deadline))),
+            React.createElement("div", null, React.createElement("div", { style: st.cellLabel }, "完了日"), React.createElement("div", { style: { fontWeight: 700, color: p.closedAt ? "#2a7a2a" : "#bbb" } }, p.closedAt ? fmt(p.closedAt) : "進行中"))
           ),
-          o.deadline && !o.closedAt && React.createElement("div", { style: { marginTop: 8, fontSize: 12, color: o.remainDays <= 3 ? "#c00" : "#888" } }, "納期まであと ", React.createElement("b", null, o.remainDays), " 日")
+          p.deadline && !p.closedAt && React.createElement("div", { style: { marginTop: 8, fontSize: 12, color: p.remainDays <= 3 ? "#c00" : "#888" } }, "納期まであと ", React.createElement("b", null, p.remainDays), " 日", p.dailyNeeded ? " ／ 1日あたり " + p.dailyNeeded.toFixed(1) + "h 必要" : "")
         ),
+
+        // KPI
         React.createElement("div", { style: st.grid2 },
-          React.createElement(SBox, { label: "外注先", value: o.vendorName }),
-          React.createElement(SBox, { label: "数量", value: o.qty + "枚" }),
-          React.createElement(SBox, { label: "販売単価", value: "¥" + o.sellPrice.toLocaleString() }),
-          React.createElement(SBox, { label: "外注単価", value: "¥" + o.vendorPrice.toLocaleString() })
+          React.createElement(SBox, { label: "数量", value: p.qty + "枚" }),
+          isOut
+            ? React.createElement(SBox, { label: "外注先", value: p.vendorName || "未設定" })
+            : React.createElement(SBox, { label: "製品単価", value: "¥" + (p.unitPrice || 0).toLocaleString() }),
+          isOut
+            ? React.createElement(SBox, { label: "見込み利益", value: p.profit !== null ? "¥" + Math.round(p.profit).toLocaleString() : "—", dark: p.profit > 0 })
+            : React.createElement(SBox, { label: "総売上", value: "¥" + Math.round(p.totalSales).toLocaleString() }),
+          isOut
+            ? React.createElement(SBox, { label: "利益率", value: p.profitRate !== null ? p.profitRate.toFixed(1) + "%" : "—" })
+            : React.createElement(SBox, { label: "総作業時間", value: p.totalHours.toFixed(1) + "h" })
         ),
-        React.createElement("div", { style: Object.assign({}, st.rateBox, { background: o.closedAt ? "#1a1a1a" : "#f0f0ec", color: o.closedAt ? "#fff" : "#1a1a1a", marginBottom: 16 }) },
-          React.createElement("div", { style: { fontSize: 11, opacity: 0.55, marginBottom: 4 } }, o.closedAt ? "利益（確定）" : "見込み利益"),
-          React.createElement("div", { style: { fontSize: 28, fontWeight: 700, color: o.profit >= 0 ? (o.closedAt ? "#7dff7d" : "#2a7a2a") : "#c00" } }, "¥" + Math.round(o.profit).toLocaleString()),
-          React.createElement("div", { style: { fontSize: 13, opacity: 0.7, marginTop: 4 } }, "利益率 " + o.profitRate.toFixed(1) + "% ／ 売上合計 ¥" + Math.round(o.sellPrice * o.qty).toLocaleString() + " ／ 外注費 ¥" + Math.round(o.vendorPrice * o.qty).toLocaleString())
+
+        // 外注詳細
+        isOut && p.sellPrice > 0 && React.createElement("div", { style: Object.assign({}, st.card, { marginBottom: 16 }) },
+          React.createElement("div", { style: st.previewRow }, React.createElement("span", null, "販売単価"), React.createElement("b", null, "¥" + p.sellPrice.toLocaleString())),
+          React.createElement("div", { style: st.previewRow }, React.createElement("span", null, "外注単価"), React.createElement("b", null, "¥" + p.vendorPrice.toLocaleString())),
+          React.createElement("div", { style: st.previewRow }, React.createElement("span", null, "売上合計"), React.createElement("b", null, "¥" + Math.round(p.sellPrice * p.qty).toLocaleString())),
+          React.createElement("div", { style: st.previewRow }, React.createElement("span", null, "外注費合計"), React.createElement("b", null, "¥" + Math.round(p.vendorPrice * p.qty).toLocaleString()))
         ),
-        o.note && React.createElement("div", { style: Object.assign({}, st.card, { fontSize: 13, color: "#555" }) }, "📝 " + o.note),
-        !o.closedAt && React.createElement("button", { style: Object.assign({}, st.closeBtn, { marginTop: 8 }), onClick: () => { closeOutsource(o.id); set({ screen: "outsource_menu" }); } }, "この品番を完了にする"),
-        o.closedAt && React.createElement("button", { style: Object.assign({}, st.closeBtn, { background: "#e8e6e0", color: "#777", marginTop: 8 }), onClick: () => reopenOutsource(o.id) }, "再開する")
+
+        // 社内: 進捗・時間単価
+        !isOut && p.progress !== null && React.createElement("div", { style: Object.assign({}, st.card, { marginBottom: 16 }) },
+          React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 6 } },
+            React.createElement("span", { style: { fontSize: 13, fontWeight: 700 } }, "進捗"),
+            React.createElement("span", { style: { fontSize: 13, color: "#555" } }, Math.round(p.progress * 100) + "%")
+          ),
+          React.createElement(ProgressBar, { value: p.progress }),
+          React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginTop: 4 } },
+            React.createElement("span", null, "実績 " + p.totalHours.toFixed(1) + "h"),
+            React.createElement("span", null, "見積もり " + p.estTotalHours.toFixed(1) + "h")
+          )
+        ),
+
+        !isOut && React.createElement("div", { style: Object.assign({}, st.rateBox, { background: p.closedAt ? "#1a1a1a" : "#f0f0ec", color: p.closedAt ? "#fff" : "#1a1a1a", marginBottom: 16 }) },
+          React.createElement("div", { style: { fontSize: 11, opacity: 0.55, marginBottom: 4 } }, p.closedAt ? "時間あたり売上（確定）" : "現時点の時間あたり売上"),
+          React.createElement("div", { style: { fontSize: 28, fontWeight: 700 } }, p.totalHours > 0 ? "¥" + Math.round(p.hourlyRate).toLocaleString() + "/h" : "—"),
+          estRate && p.totalHours > 0 && React.createElement("div", { style: { fontSize: 12, opacity: 0.6, marginTop: 4 } }, "目標: ¥" + Math.round(estRate).toLocaleString() + "/h ",
+            React.createElement("span", { style: { color: p.hourlyRate >= estRate ? "#7dff7d" : "#ffaaaa" } }, p.hourlyRate >= estRate ? "▲ 目標超え" : "▼ 目標未達")
+          )
+        ),
+
+        p.note && React.createElement("div", { style: Object.assign({}, st.card, { fontSize: 13, color: "#555", marginBottom: 16 }) }, "📝 " + p.note),
+
+        // 縫製士別・明細（社内のみ）
+        !isOut && React.createElement("div", null,
+          React.createElement(SectionLabel, null, "縫製士別 作業時間"),
+          React.createElement("div", { style: st.card },
+            Object.keys(p.workerMap).length === 0 && React.createElement("div", { style: { color: "#bbb", fontSize: 13 } }, "まだ記録がありません"),
+            Object.entries(p.workerMap).map(([worker, hours]) => {
+              const pct = p.totalHours > 0 ? (hours / p.totalHours) * 100 : 0;
+              return React.createElement("div", { key: worker, style: { marginBottom: 14 } },
+                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 4 } },
+                  React.createElement("span", { style: { fontSize: 13 } }, worker),
+                  React.createElement("span", { style: { fontSize: 13, fontWeight: 700 } }, hours.toFixed(1) + "h")
+                ),
+                React.createElement(ProgressBar, { value: pct / 100 })
+              );
+            })
+          ),
+          React.createElement(SectionLabel, null, "作業明細"),
+          p.recs.length === 0 && React.createElement(Empty, null, "まだ記録がありません"),
+          p.recs.slice().sort((a, b) => a.date.localeCompare(b.date)).map((r) => React.createElement("div", { key: r.id, style: st.recRow },
+            React.createElement("span", { style: { fontSize: 12, color: "#aaa", minWidth: 42 } }, r.date.slice(5).replace("-", "/")),
+            React.createElement("span", { style: { fontSize: 13, fontWeight: 700, flex: 1 } }, r.memberName),
+            React.createElement("span", { style: { fontSize: 13, color: "#555" } }, r.hours + "h")
+          ))
+        ),
+
+        !p.closedAt && React.createElement("button", { style: Object.assign({}, st.closeBtn, { marginTop: 20 }), onClick: () => { closePart(p.id); set({ screen: "master" }); } }, "この品番を完了にする"),
+        p.closedAt && React.createElement("button", { style: Object.assign({}, st.closeBtn, { background: "#e8e6e0", color: "#777", marginTop: 16 }), onClick: () => reopenPart(p.id) }, "再開する"),
+        React.createElement("button", { style: Object.assign({}, st.closeBtn, { background: "#fff0f0", color: "#c00", marginTop: 8 }), onClick: () => { if (window.confirm("この品番を削除しますか？")) { deletePart(p.id); set({ screen: "master" }); } } }, "削除する")
       ),
       React.createElement(SI)
     );
   }
 
-  // MEMBER MGMT
+  // ════════════════════════════════════════════════════════════════
+  // ダッシュボード
+  // ════════════════════════════════════════════════════════════════
+  if (ui.screen === "dashboard") {
+    const urgent = dashItems.filter((p) => p.remainDays !== null && p.remainDays <= 3);
+    const caution = dashItems.filter((p) => p.remainDays !== null && p.remainDays > 3 && p.remainDays <= 7);
+    const normal = dashItems.filter((p) => p.remainDays === null || p.remainDays > 7);
+    return React.createElement(Shell, null,
+      React.createElement(Header, { title: "ダッシュボード", back: () => set({ screen: "home" }) }),
+      React.createElement(Body, null,
+        React.createElement("div", { style: { fontSize: 12, color: "#aaa", marginBottom: 16 } }, "本日: " + today() + "　進行中: " + dashItems.length + "件"),
+        urgent.length > 0 && React.createElement("div", null,
+          React.createElement("div", { style: Object.assign({}, st.alertBanner, { background: "#fff0f0", color: "#c00", borderColor: "#ffcccc" }) }, "🔴 緊急 — 納期まで3日以内"),
+          urgent.map((p) => React.createElement(DashCard, { key: p.id, item: p, vendors: data.vendors, level: "red", onClick: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "dashboard" }) }))
+        ),
+        caution.length > 0 && React.createElement("div", null,
+          React.createElement("div", { style: Object.assign({}, st.alertBanner, { background: "#fffbf0", color: "#b07000", borderColor: "#ffe599" }) }, "🟡 要注意 — 納期まで7日以内"),
+          caution.map((p) => React.createElement(DashCard, { key: p.id, item: p, vendors: data.vendors, level: "yellow", onClick: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "dashboard" }) }))
+        ),
+        normal.length > 0 && React.createElement("div", null,
+          React.createElement("div", { style: Object.assign({}, st.alertBanner, { background: "#f0f8f0", color: "#2a7a2a", borderColor: "#b8e6b8" }) }, "🟢 余裕あり"),
+          normal.map((p) => React.createElement(DashCard, { key: p.id, item: p, vendors: data.vendors, level: "green", onClick: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "dashboard" }) }))
+        ),
+        dashItems.length === 0 && React.createElement(Empty, null, "進行中の品番がありません")
+      ),
+      React.createElement(SI)
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // チームリーダー
+  // ════════════════════════════════════════════════════════════════
+  if (ui.screen === "team_leader") {
+    const myOpen = teamParts;
+    const myDone = partSummary.filter((p) => p.assignee === ui.selectedTeam && p.assigneeType === "team" && p.closedAt);
+    return React.createElement(Shell, null,
+      React.createElement(Header, { title: ui.selectedTeam + "　リーダー", back: () => set({ screen: "home" }) }),
+      React.createElement(Body, null,
+        React.createElement("div", { style: { fontSize: 12, color: "#aaa", marginBottom: 16 } }, "品番の割当は品番マスターから行ってください"),
+        React.createElement(SectionLabel, null, "進行中の品番"),
+        myOpen.length === 0 && React.createElement(Empty, null, "進行中の品番はありません"),
+        myOpen.map((p) => React.createElement(PartCard, { key: p.id, p, onDetail: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "team_leader" }), onClose: () => closePart(p.id) })),
+        React.createElement(SectionLabel, null, "完了済み"),
+        myDone.length === 0 && React.createElement(Empty, null, "完了済みの品番はありません"),
+        myDone.map((p) => React.createElement(PartCard, { key: p.id, p, done: true, onDetail: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "team_leader" }), onReopen: () => reopenPart(p.id) }))
+      ),
+      React.createElement(SI)
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // メンバー入力
+  // ════════════════════════════════════════════════════════════════
+  if (ui.screen === "member_entry") {
+    const f = ui.memberForm;
+    const todayRecs = data.records.filter((r) => {
+      const part = data.parts.find((p) => p.id === r.partId);
+      return r.date === f.date && part && part.assignee === ui.selectedTeam;
+    });
+    const ready = f.memberId && f.partId && f.hours;
+    return React.createElement(Shell, null,
+      React.createElement(Header, { title: ui.selectedTeam + "　作業記録", back: () => set({ screen: "home" }) }),
+      React.createElement(Body, null,
+        data.members.length === 0
+          ? React.createElement("div", { style: Object.assign({}, st.card, { textAlign: "center", color: "#aaa", padding: 24 }) }, "メンバーが登録されていません。", React.createElement("br"), "ホーム→メンバー管理から登録してください。")
+          : React.createElement("div", { style: st.card },
+              React.createElement(FormRow, { label: "日付" }, React.createElement("input", { style: st.input, type: "date", value: f.date, onChange: (e) => setMF({ date: e.target.value }) })),
+              React.createElement(FormRow, { label: "自分の名前" }, React.createElement("select", { style: st.input, value: f.memberId, onChange: (e) => setMF({ memberId: e.target.value }) },
+                React.createElement("option", { value: "" }, "選択してください"),
+                data.members.map((m) => React.createElement("option", { key: m.id, value: m.id }, m.name))
+              )),
+              React.createElement(FormRow, { label: "品番を選ぶ" },
+                teamParts.length === 0
+                  ? React.createElement("div", { style: { color: "#bbb", fontSize: 13, padding: "8px 0" } }, "進行中の品番がありません")
+                  : React.createElement("select", { style: st.input, value: f.partId, onChange: (e) => setMF({ partId: e.target.value }) },
+                      React.createElement("option", { value: "" }, "選択してください"),
+                      teamParts.map((p) => React.createElement("option", { key: p.id, value: p.id }, p.partNo + (p.partName ? " (" + p.partName + ")" : "")))
+                    )
+              ),
+              React.createElement(FormRow, { label: "作業時間（h）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3.5", min: "0", step: "0.5", value: f.hours, onChange: (e) => setMF({ hours: e.target.value }) })),
+              React.createElement("button", { style: Object.assign({}, st.primaryBtn, { opacity: ready ? 1 : 0.35 }), disabled: !ready, onClick: addRecord }, "記録する")
+            ),
+        React.createElement(SectionLabel, null, "本日の入力 (" + f.date + ")"),
+        todayRecs.length === 0 && React.createElement(Empty, null, "まだ入力がありません"),
+        todayRecs.map((r) => {
+          const part = data.parts.find((x) => x.id === r.partId);
+          return React.createElement("div", { key: r.id, style: st.recRow },
+            React.createElement("span", { style: { fontSize: 12, color: "#888", minWidth: 64 } }, r.memberName),
+            React.createElement("span", { style: { fontSize: 13, fontWeight: 700, flex: 1 } }, part ? part.partNo : "?"),
+            React.createElement("span", { style: { fontSize: 13, color: "#555" } }, r.hours + "h"),
+            React.createElement("button", { style: st.deleteBtn, onClick: () => deleteRecord(r.id) }, "✕")
+          );
+        })
+      ),
+      React.createElement(SI)
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // 集計・仕事量管理
+  // ════════════════════════════════════════════════════════════════
+  if (ui.screen === "summary") {
+    const allParts = partSummary;
+    const totalQty = allParts.filter((p) => !p.closedAt).reduce((a, p) => a + (p.qty || 0), 0);
+    const totalEstHours = allParts.filter((p) => !p.closedAt && p.assigneeType === "team").reduce((a, p) => a + p.estTotalHours, 0);
+    const totalSales = allParts.reduce((a, p) => a + p.totalSales, 0);
+    const totalProfit = allParts.filter((p) => p.assigneeType === "outsource" && p.profit !== null).reduce((a, p) => a + p.profit, 0);
+    const unassigned = allParts.filter((p) => (!p.assignee || p.assignee === "未割当") && !p.closedAt).length;
+
+    return React.createElement(Shell, null,
+      React.createElement(Header, { title: "集計・仕事量管理", back: () => set({ screen: "home" }) }),
+      React.createElement(Body, null,
+        // 全体KPI
+        React.createElement("div", { style: st.grid2 },
+          React.createElement(SBox, { label: "進行中 総枚数", value: totalQty.toLocaleString() + "枚" }),
+          React.createElement(SBox, { label: "社内 総見積もり時間", value: totalEstHours.toFixed(1) + "h" }),
+          React.createElement(SBox, { label: "社内 総売上実績", value: "¥" + Math.round(totalSales).toLocaleString() }),
+          React.createElement(SBox, { label: "外注 利益合計", value: "¥" + Math.round(totalProfit).toLocaleString(), dark: true })
+        ),
+        unassigned > 0 && React.createElement("div", { style: { background: "#fff8e0", border: "1px solid #ffe599", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#b07000" } }, "⚠️ 未割当の品番が " + unassigned + " 件あります"),
+
+        // チーム別仕事量
+        React.createElement(SectionLabel, null, "チーム別 仕事量"),
+        TEAMS.map((team) => {
+          const tParts = partSummary.filter((p) => p.assignee === team && p.assigneeType === "team");
+          const tOpen = tParts.filter((p) => !p.closedAt);
+          const tHours = tParts.reduce((a, p) => a + p.totalHours, 0);
+          const tSales = tParts.reduce((a, p) => a + p.totalSales, 0);
+          const tEstHours = tOpen.reduce((a, p) => a + p.estTotalHours, 0);
+          const tDoneHours = tOpen.reduce((a, p) => a + p.totalHours, 0);
+          const tQty = tOpen.reduce((a, p) => a + (p.qty || 0), 0);
+          const tRate = tHours > 0 ? tSales / tHours : 0;
+          const target = data.monthlyTargets[ui.summaryMonth] && data.monthlyTargets[ui.summaryMonth][team];
+
+          return React.createElement("div", { key: team, style: st.monthlyCard },
+            React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
+              React.createElement(TeamBadge, { team, small: true }),
+              React.createElement("span", { style: { fontSize: 12, color: "#aaa" } }, tOpen.length + "品番 / " + tQty + "枚")
+            ),
+            React.createElement("div", { style: st.grid2 },
+              React.createElement(SBox, { label: "残り見積もり時間", value: (tEstHours - tDoneHours).toFixed(1) + "h" }),
+              React.createElement(SBox, { label: "累計作業時間", value: tHours.toFixed(1) + "h" }),
+              React.createElement(SBox, { label: "売上実績", value: "¥" + Math.round(tSales).toLocaleString() }),
+              React.createElement(SBox, { label: "時間単価", value: tHours > 0 ? "¥" + Math.round(tRate).toLocaleString() + "/h" : "—", dark: target && tRate >= target.hourlyRate })
+            ),
+            tEstHours > 0 && React.createElement("div", null,
+              React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 3 } },
+                React.createElement("span", null, "全体進捗"),
+                React.createElement("span", null, tDoneHours.toFixed(1) + "h / " + tEstHours.toFixed(1) + "h")
+              ),
+              React.createElement(ProgressBar, { value: tEstHours > 0 ? tDoneHours / tEstHours : 0 })
+            )
+          );
+        }),
+
+        // 外注サマリー
+        React.createElement(SectionLabel, null, "外注 サマリー"),
+        React.createElement("div", { style: st.monthlyCard },
+          React.createElement("div", { style: st.grid2 },
+            React.createElement(SBox, { label: "外注品番数", value: partSummary.filter((p) => p.assigneeType === "outsource" && !p.closedAt).length + "件" }),
+            React.createElement(SBox, { label: "利益合計", value: "¥" + Math.round(totalProfit).toLocaleString(), dark: totalProfit > 0 })
+          ),
+          data.vendors.map((v) => {
+            const vParts = partSummary.filter((p) => p.assignee === v.id && p.assigneeType === "outsource" && !p.closedAt);
+            const vProfit = vParts.reduce((a, p) => a + (p.profit || 0), 0);
+            if (vParts.length === 0) return null;
+            return React.createElement("div", { key: v.id, style: { display: "flex", justifyContent: "space-between", fontSize: 13, color: "#555", marginBottom: 6 } },
+              React.createElement("span", null, v.name),
+              React.createElement("span", null, vParts.length + "件 ／ 利益 ¥" + Math.round(vProfit).toLocaleString())
+            );
+          })
+        )
+      ),
+      React.createElement(SI)
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // メンバー管理
+  // ════════════════════════════════════════════════════════════════
   if (ui.screen === "member_mgmt") return React.createElement(Shell, null,
     React.createElement(Header, { title: "メンバー管理（全社共通）", back: () => set({ screen: "home" }) }),
     React.createElement(Body, null,
@@ -477,7 +737,9 @@ function App() {
     React.createElement(SI)
   );
 
-  // VENDOR MGMT
+  // ════════════════════════════════════════════════════════════════
+  // 外注先管理
+  // ════════════════════════════════════════════════════════════════
   if (ui.screen === "vendor_mgmt") return React.createElement(Shell, null,
     React.createElement(Header, { title: "外注先管理", back: () => set({ screen: "home" }) }),
     React.createElement(Body, null,
@@ -508,211 +770,21 @@ function App() {
     React.createElement(SI)
   );
 
-  // MEMBER ENTRY
-  if (ui.screen === "member_entry") {
-    const f = ui.memberForm;
-    const todayRecs = data.records.filter((r) => { const part = data.parts.find((p) => p.id === r.partId); return r.date === f.date && part && part.team === ui.selectedTeam; });
-    const ready = f.memberId && f.partId && f.hours;
-    return React.createElement(Shell, null,
-      React.createElement(Header, { title: ui.selectedTeam + "　作業記録", back: () => set({ screen: "home" }) }),
-      React.createElement(Body, null,
-        data.members.length === 0
-          ? React.createElement("div", { style: Object.assign({}, st.card, { textAlign: "center", color: "#aaa", padding: 24 }) }, "メンバーが登録されていません。", React.createElement("br"), "ホーム→メンバー管理から登録してください。")
-          : React.createElement("div", { style: st.card },
-              React.createElement(FormRow, { label: "日付" }, React.createElement("input", { style: st.input, type: "date", value: f.date, onChange: (e) => setMF({ date: e.target.value }) })),
-              React.createElement(FormRow, { label: "自分の名前" }, React.createElement("select", { style: st.input, value: f.memberId, onChange: (e) => setMF({ memberId: e.target.value }) },
-                React.createElement("option", { value: "" }, "選択してください"),
-                data.members.map((m) => React.createElement("option", { key: m.id, value: m.id }, m.name))
-              )),
-              React.createElement(FormRow, { label: "品番を選ぶ" },
-                openParts.length === 0
-                  ? React.createElement("div", { style: { color: "#bbb", fontSize: 13, padding: "8px 0" } }, "進行中の品番がありません")
-                  : React.createElement("select", { style: st.input, value: f.partId, onChange: (e) => setMF({ partId: e.target.value }) },
-                      React.createElement("option", { value: "" }, "選択してください"),
-                      openParts.map((p) => React.createElement("option", { key: p.id, value: p.id }, p.partNo + (p.partName ? " (" + p.partName + ")" : "")))
-                    )
-              ),
-              React.createElement(FormRow, { label: "作業時間（h）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3.5", min: "0", step: "0.5", value: f.hours, onChange: (e) => setMF({ hours: e.target.value }) })),
-              React.createElement("button", { style: Object.assign({}, st.primaryBtn, { opacity: ready ? 1 : 0.35 }), disabled: !ready, onClick: addRecord }, "記録する")
-            ),
-        React.createElement(SectionLabel, null, "本日の入力 (" + f.date + ")"),
-        todayRecs.length === 0 && React.createElement(Empty, null, "まだ入力がありません"),
-        todayRecs.map((r) => { const part = data.parts.find((x) => x.id === r.partId); return React.createElement("div", { key: r.id, style: st.recRow },
-          React.createElement("span", { style: { fontSize: 12, color: "#888", minWidth: 64 } }, r.memberName),
-          React.createElement("span", { style: { fontSize: 13, fontWeight: 700, flex: 1 } }, part ? part.partNo : "?"),
-          React.createElement("span", { style: { fontSize: 13, color: "#555" } }, r.hours + "h"),
-          React.createElement("button", { style: st.deleteBtn, onClick: () => deleteRecord(r.id) }, "✕")
-        ); })
-      ),
-      React.createElement(SI)
-    );
-  }
-
-  // TARGET SETTING
+  // ════════════════════════════════════════════════════════════════
+  // 目標設定
+  // ════════════════════════════════════════════════════════════════
   if (ui.screen === "target_setting") {
     const f = ui.targetForm;
-    const existing = data.monthlyTargets[f.month] && data.monthlyTargets[f.month][ui.selectedTeam];
     return React.createElement(Shell, null,
-      React.createElement(Header, { title: ui.selectedTeam + "　月次目標設定", back: () => set({ screen: "leader_menu" }) }),
+      React.createElement(Header, { title: "月次目標設定", back: () => set({ screen: "home" }) }),
       React.createElement(Body, null,
         React.createElement("div", { style: st.card },
           React.createElement(FormRow, { label: "対象月" }, React.createElement("input", { style: st.input, type: "month", value: f.month, onChange: (e) => setTF({ month: e.target.value }) })),
-          React.createElement(FormRow, { label: "売上目標（円）" }, React.createElement("input", { style: st.input, type: "number", placeholder: existing ? "現在: ¥" + existing.sales.toLocaleString() : "例: 500000", value: f.sales, onChange: (e) => setTF({ sales: e.target.value }) })),
-          React.createElement(FormRow, { label: "目標時間単価（円/h）" }, React.createElement("input", { style: st.input, type: "number", placeholder: existing ? "現在: ¥" + existing.hourlyRate.toLocaleString() + "/h" : "例: 2000", value: f.hourlyRate, onChange: (e) => setTF({ hourlyRate: e.target.value }) })),
+          React.createElement(FormRow, { label: "チーム" }, React.createElement("select", { style: st.input, value: f.team, onChange: (e) => setTF({ team: e.target.value }) }, TEAMS.map((t) => React.createElement("option", { key: t }, t)))),
+          React.createElement(FormRow, { label: "売上目標（円）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 500000", value: f.sales, onChange: (e) => setTF({ sales: e.target.value }) })),
+          React.createElement(FormRow, { label: "目標時間単価（円/h）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 2000", value: f.hourlyRate, onChange: (e) => setTF({ hourlyRate: e.target.value }) })),
           React.createElement("button", { style: st.primaryBtn, onClick: saveTarget }, "保存する")
         )
-      ),
-      React.createElement(SI)
-    );
-  }
-
-  // SUMMARY
-  if (ui.screen === "summary") {
-    const filtered = ui.summaryFilter === "all" ? partSummary : partSummary.filter((p) => p.team === ui.summaryFilter);
-    const totalSales = filtered.reduce((a, p) => a + p.totalSales, 0);
-    const totalHours = filtered.reduce((a, p) => a + p.totalHours, 0);
-    const overallRate = totalHours > 0 ? totalSales / totalHours : 0;
-    const outTotal = outsourceSummary.reduce((a, o) => a + o.profit, 0);
-    return React.createElement(Shell, null,
-      React.createElement(Header, { title: "集計・予算管理", back: () => set({ screen: "home" }) }),
-      React.createElement(Body, null,
-        React.createElement("div", { style: st.tabRow },
-          React.createElement(TabBtn, { label: "社内実績", active: ui.summaryTab !== "monthly", onClick: () => set({ summaryTab: "parts" }) }),
-          React.createElement(TabBtn, { label: "月次管理", active: ui.summaryTab === "monthly", onClick: () => set({ summaryTab: "monthly" }) })
-        ),
-        ui.summaryTab !== "monthly"
-          ? React.createElement("div", null,
-              React.createElement("div", { style: st.filterRow },
-                ["all"].concat(TEAMS).map((f2) => React.createElement("button", { key: f2, style: Object.assign({}, st.filterBtn, ui.summaryFilter === f2 ? st.filterBtnActive : {}), onClick: () => set({ summaryFilter: f2 }) }, f2 === "all" ? "全体" : f2))
-              ),
-              React.createElement("div", { style: st.grid2 },
-                React.createElement(SBox, { label: "社内総売上", value: "¥" + Math.round(totalSales).toLocaleString() }),
-                React.createElement(SBox, { label: "総作業時間", value: totalHours.toFixed(1) + "h" }),
-                React.createElement(SBox, { label: "平均時間単価", value: "¥" + Math.round(overallRate).toLocaleString() + "/h", dark: true }),
-                React.createElement(SBox, { label: "外注利益合計", value: "¥" + Math.round(outTotal).toLocaleString() })
-              ),
-              React.createElement(SectionLabel, null, "品番別実績"),
-              filtered.length === 0 && React.createElement(Empty, null, "データがありません"),
-              filtered.map((p) => React.createElement("button", { key: p.id, style: st.summaryCard, onClick: () => set({ activePartId: p.id, screen: "part_detail" }) },
-                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 } },
-                  React.createElement("div", null,
-                    React.createElement("span", { style: st.partNoText }, p.partNo),
-                    p.partName && React.createElement("span", { style: { fontSize: 11, color: "#bbb", marginLeft: 6 } }, p.partName),
-                    React.createElement("span", { style: { fontSize: 11, color: "#bbb", marginLeft: 6 } }, p.team)
-                  ),
-                  React.createElement("span", { style: { display: "flex", gap: 6, alignItems: "center" } },
-                    React.createElement(Badge, { type: p.closedAt ? "done" : "open" }),
-                    React.createElement("span", { style: { color: "#ccc" } }, "›")
-                  )
-                ),
-                React.createElement("div", { style: st.dateRow },
-                  React.createElement("span", null, "開始: " + fmt(p.createdAt)),
-                  React.createElement("span", { style: { color: "#ddd" } }, "→"),
-                  React.createElement("span", { style: { color: p.closedAt ? "#2a7a2a" : (p.deadline ? "#c25000" : "#bbb") } }, p.closedAt ? "完了: " + fmt(p.closedAt) : (p.deadline ? "納期: " + fmt(p.deadline) : "納期未設定"))
-                ),
-                React.createElement("div", { style: { display: "flex", gap: 20, marginTop: 8 } },
-                  React.createElement(MiniCell, { label: "総時間", val: p.totalHours.toFixed(1) + "h" }),
-                  React.createElement(MiniCell, { label: "売上", val: "¥" + Math.round(p.totalSales).toLocaleString() }),
-                  React.createElement(MiniCell, { label: "時間単価", val: p.totalHours > 0 ? "¥" + Math.round(p.hourlyRate).toLocaleString() + "/h" : "—", accent: true })
-                )
-              ))
-            )
-          : React.createElement("div", null,
-              React.createElement(FormRow, { label: "対象月" }, React.createElement("input", { style: st.input, type: "month", value: ui.summaryMonth, onChange: (e) => set({ summaryMonth: e.target.value }) })),
-              React.createElement(Spacer, { h: 8 }),
-              TEAMS.map((team) => {
-                const tParts = partSummary.filter((p) => p.team === team);
-                const tRecs = data.records.filter((r) => { const part = data.parts.find((p) => p.id === r.partId); return part && part.team === team && r.date.startsWith(ui.summaryMonth); });
-                const mHours = tRecs.reduce((a, r) => a + r.hours, 0);
-                const mSales = tParts.filter((p) => p.closedAt && p.closedAt.startsWith(ui.summaryMonth)).reduce((a, p) => a + p.totalSales, 0);
-                const mRate = mHours > 0 ? mSales / mHours : 0;
-                const target = data.monthlyTargets[ui.summaryMonth] && data.monthlyTargets[ui.summaryMonth][team];
-                return React.createElement("div", { key: team, style: st.monthlyCard },
-                  React.createElement("div", { style: { marginBottom: 10 } }, React.createElement(TeamBadge, { team, small: true })),
-                  React.createElement("div", { style: st.grid2 },
-                    React.createElement(SBox, { label: "実績売上", value: "¥" + Math.round(mSales).toLocaleString() }),
-                    React.createElement(SBox, { label: "実績時間", value: mHours.toFixed(1) + "h" }),
-                    target ? React.createElement(SBox, { label: "売上達成率", value: Math.round((mSales / target.sales) * 100) + "%", dark: mSales >= target.sales }) : React.createElement(SBox, { label: "売上目標", value: "未設定" }),
-                    target ? React.createElement(SBox, { label: "時間単価 vs 目標", value: mHours > 0 ? "¥" + Math.round(mRate).toLocaleString() + "/h" : "—", dark: mRate >= target.hourlyRate }) : React.createElement(SBox, { label: "時間単価目標", value: "未設定" })
-                  )
-                );
-              })
-            )
-      ),
-      React.createElement(SI)
-    );
-  }
-
-  // PART DETAIL
-  if (ui.screen === "part_detail" && activePart) {
-    const p = activePart;
-    const estRate = p.estTotalHours > 0 ? p.totalSales / p.estTotalHours : null;
-    return React.createElement(Shell, null,
-      React.createElement(Header, { title: p.partNo, back: () => set({ screen: ui.userRole === "leader" ? "leader_menu" : "summary" }) }),
-      React.createElement(Body, null,
-        React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" } },
-          React.createElement(Badge, { type: p.closedAt ? "done" : "open" }),
-          React.createElement(TeamBadge, { team: p.team, small: true }),
-          p.status && React.createElement(StatusBadge, { status: p.status })
-        ),
-        p.partName && React.createElement("div", { style: { fontSize: 15, color: "#555", marginBottom: 4 } }, p.partName),
-        p.assignee && React.createElement("div", { style: { fontSize: 12, color: "#aaa", marginBottom: 12 } }, "担当: " + p.assignee),
-        React.createElement("div", { style: Object.assign({}, st.card, { padding: "12px 16px", marginBottom: 16 }) },
-          React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 13 } },
-            React.createElement("div", null, React.createElement("div", { style: st.cellLabel }, "開始日"), React.createElement("div", { style: { fontWeight: 700 } }, fmt(p.createdAt))),
-            p.deadline && React.createElement("div", null, React.createElement("div", { style: st.cellLabel }, "納期"), React.createElement("div", { style: { fontWeight: 700, color: p.closedAt ? "#aaa" : (p.remainDays <= 3 ? "#c00" : "#c25000") } }, fmt(p.deadline))),
-            React.createElement("div", null, React.createElement("div", { style: st.cellLabel }, "完了日"), React.createElement("div", { style: { fontWeight: 700, color: p.closedAt ? "#2a7a2a" : "#bbb" } }, p.closedAt ? fmt(p.closedAt) : "進行中"))
-          ),
-          p.deadline && !p.closedAt && React.createElement("div", { style: { marginTop: 8, fontSize: 12, color: p.remainDays <= 3 ? "#c00" : "#888" } }, "納期まであと ", React.createElement("b", null, p.remainDays), " 日", p.dailyNeeded ? " ／ 1日あたり " + p.dailyNeeded.toFixed(1) + "h 必要" : "")
-        ),
-        React.createElement("div", { style: st.grid2 },
-          React.createElement(SBox, { label: "製品単価", value: "¥" + p.unitPrice.toLocaleString() }),
-          React.createElement(SBox, { label: "数量", value: p.qty + "枚" }),
-          React.createElement(SBox, { label: "総売上", value: "¥" + Math.round(p.totalSales).toLocaleString() }),
-          React.createElement(SBox, { label: "総作業時間", value: p.totalHours.toFixed(1) + "h" })
-        ),
-        p.progress !== null && React.createElement("div", { style: Object.assign({}, st.card, { marginBottom: 16 }) },
-          React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 6 } },
-            React.createElement("span", { style: { fontSize: 13, fontWeight: 700 } }, "進捗"),
-            React.createElement("span", { style: { fontSize: 13, color: "#555" } }, Math.round(p.progress * 100) + "%（約" + p.estUnitsCompleted + "着完了）")
-          ),
-          React.createElement(ProgressBar, { value: p.progress }),
-          React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginTop: 4 } },
-            React.createElement("span", null, "実績 " + p.totalHours.toFixed(1) + "h"),
-            React.createElement("span", null, "見積もり " + p.estTotalHours.toFixed(1) + "h（" + p.estHoursPerUnit + "h/着）")
-          )
-        ),
-        React.createElement("div", { style: Object.assign({}, st.rateBox, { background: p.closedAt ? "#1a1a1a" : "#f0f0ec", color: p.closedAt ? "#fff" : "#1a1a1a", marginBottom: 16 }) },
-          React.createElement("div", { style: { fontSize: 11, opacity: 0.55, marginBottom: 4 } }, p.closedAt ? "時間あたり売上（確定）" : "現時点の時間あたり売上"),
-          React.createElement("div", { style: { fontSize: 28, fontWeight: 700 } }, p.totalHours > 0 ? "¥" + Math.round(p.hourlyRate).toLocaleString() + "/h" : "—"),
-          estRate && p.totalHours > 0 && React.createElement("div", { style: { fontSize: 12, opacity: 0.6, marginTop: 4 } }, "見積もり目標: ¥" + Math.round(estRate).toLocaleString() + "/h ",
-            React.createElement("span", { style: { color: p.hourlyRate >= estRate ? "#7dff7d" : "#ffaaaa" } }, p.hourlyRate >= estRate ? "▲ 目標超え" : "▼ 目標未達")
-          )
-        ),
-        p.note && React.createElement("div", { style: Object.assign({}, st.card, { fontSize: 13, color: "#555", marginBottom: 16 }) }, "📝 " + p.note),
-        React.createElement(SectionLabel, null, "縫製士別 作業時間"),
-        React.createElement("div", { style: st.card },
-          Object.keys(p.workerMap).length === 0 && React.createElement("div", { style: { color: "#bbb", fontSize: 13 } }, "まだ記録がありません"),
-          Object.entries(p.workerMap).map(([worker, hours]) => {
-            const pct = p.totalHours > 0 ? (hours / p.totalHours) * 100 : 0;
-            return React.createElement("div", { key: worker, style: { marginBottom: 14 } },
-              React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 4 } },
-                React.createElement("span", { style: { fontSize: 13 } }, worker),
-                React.createElement("span", { style: { fontSize: 13, fontWeight: 700 } }, hours.toFixed(1) + "h")
-              ),
-              React.createElement(ProgressBar, { value: pct / 100 })
-            );
-          })
-        ),
-        React.createElement(SectionLabel, null, "作業明細"),
-        p.recs.length === 0 && React.createElement(Empty, null, "まだ記録がありません"),
-        p.recs.slice().sort((a, b) => a.date.localeCompare(b.date)).map((r) => React.createElement("div", { key: r.id, style: st.recRow },
-          React.createElement("span", { style: { fontSize: 12, color: "#aaa", minWidth: 42 } }, r.date.slice(5).replace("-", "/")),
-          React.createElement("span", { style: { fontSize: 13, fontWeight: 700, flex: 1 } }, r.memberName),
-          React.createElement("span", { style: { fontSize: 13, color: "#555" } }, r.hours + "h")
-        )),
-        !p.closedAt && React.createElement("button", { style: Object.assign({}, st.closeBtn, { marginTop: 20 }), onClick: () => { closePart(p.id); set({ screen: "leader_menu" }); } }, "この品番を完了にする"),
-        p.closedAt && React.createElement("button", { style: Object.assign({}, st.closeBtn, { background: "#e8e6e0", color: "#777", marginTop: 16 }), onClick: () => reopenPart(p.id) }, "再開する")
       ),
       React.createElement(SI)
     );
@@ -722,92 +794,94 @@ function App() {
 }
 
 // ── Sub-components ──────────────────────────────────────────────────
-function Shell(props) { return React.createElement("div", { style: st.root }, props.children); }
-function Header(props) {
+function Shell(p) { return React.createElement("div", { style: st.root }, p.children); }
+function Header(p) {
   return React.createElement("div", { style: st.header },
-    props.back && React.createElement("button", { style: st.backBtn, onClick: props.back }, "‹ 戻る"),
-    props.sub && React.createElement("div", { style: { fontSize: 10, letterSpacing: "0.2em", color: "#555", marginBottom: 2 } }, props.sub),
-    React.createElement("div", { style: st.headerTitle }, props.title)
+    p.back && React.createElement("button", { style: st.backBtn, onClick: p.back }, "‹ 戻る"),
+    p.sub && React.createElement("div", { style: { fontSize: 10, letterSpacing: "0.2em", color: "#555", marginBottom: 2 } }, p.sub),
+    React.createElement("div", { style: st.headerTitle }, p.title)
   );
 }
-function Body(props) { return React.createElement("div", { style: st.body }, props.children); }
-function Spacer(props) { return React.createElement("div", { style: { height: props.h || 8 } }); }
-function Divider(props) {
+function Body(p) { return React.createElement("div", { style: st.body }, p.children); }
+function Spacer(p) { return React.createElement("div", { style: { height: p.h || 8 } }); }
+function Divider(p) {
   return React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, margin: "4px 0 14px" } },
     React.createElement("div", { style: { flex: 1, height: 1, background: "#e0deda" } }),
-    React.createElement("span", { style: { fontSize: 11, color: "#bbb" } }, props.label),
+    React.createElement("span", { style: { fontSize: 11, color: "#bbb" } }, p.label),
     React.createElement("div", { style: { flex: 1, height: 1, background: "#e0deda" } })
   );
 }
-function BigBtn(props) {
-  return React.createElement("button", { style: st.bigBtn, onClick: props.onClick },
-    React.createElement("span", { style: { fontSize: 22 } }, props.icon),
+function BigBtn(p) {
+  return React.createElement("button", { style: Object.assign({}, st.bigBtn, p.alert ? { border: "1px solid #ffe599" } : {}), onClick: p.onClick },
+    React.createElement("span", { style: { fontSize: 22 } }, p.icon),
     React.createElement("div", { style: { textAlign: "left" } },
-      React.createElement("div", { style: { fontSize: 16, fontWeight: 700 } }, props.label),
-      React.createElement("div", { style: { fontSize: 11, color: "#999", marginTop: 2 } }, props.sub)
+      React.createElement("div", { style: { fontSize: 16, fontWeight: 700 } }, p.label),
+      React.createElement("div", { style: { fontSize: 11, color: "#999", marginTop: 2 } }, p.sub)
     )
   );
 }
-function RoleBtn(props) {
-  return React.createElement("button", { style: st.roleBtn, onClick: props.onClick },
-    React.createElement("span", { style: { fontSize: 16 } }, props.icon),
-    React.createElement("span", { style: { fontSize: 13, fontWeight: 700 } }, props.label)
+function RoleBtn(p) {
+  return React.createElement("button", { style: st.roleBtn, onClick: p.onClick },
+    React.createElement("span", { style: { fontSize: 16 } }, p.icon),
+    React.createElement("span", { style: { fontSize: 13, fontWeight: 700 } }, p.label)
   );
 }
-function QuickBtn(props) { return React.createElement("button", { style: st.quickBtn, onClick: props.onClick }, props.label); }
-function TabBtn(props) { return React.createElement("button", { style: Object.assign({}, st.tabBtn, props.active ? st.tabBtnActive : {}), onClick: props.onClick }, props.label); }
-function TeamBadge(props) {
-  const c = TEAM_COLORS[props.team] || "#888";
-  return React.createElement("span", { style: { background: c + "18", color: c, fontSize: props.small ? 11 : 13, padding: props.small ? "2px 8px" : "4px 12px", borderRadius: 20, fontWeight: 700, border: "1px solid " + c + "44", display: "inline-block" } }, props.team);
+function QuickBtn(p) { return React.createElement("button", { style: st.quickBtn, onClick: p.onClick }, p.label); }
+function TeamBadge(p) {
+  const c = TEAM_COLORS[p.team] || "#888";
+  return React.createElement("span", { style: { background: c + "18", color: c, fontSize: p.small ? 11 : 13, padding: p.small ? "2px 8px" : "4px 12px", borderRadius: 20, fontWeight: 700, border: "1px solid " + c + "44", display: "inline-block" } }, p.team);
 }
-function StatusBadge(props) {
+function AssigneeBadge(p) {
+  const part = p.part;
+  const vendors = p.vendors;
+  if (!part.assignee || part.assignee === "未割当") return React.createElement("span", { style: { background: "#f0f0f0", color: "#aaa", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700 } }, "未割当");
+  if (part.assigneeType === "outsource") {
+    const v = vendors.find((v) => v.id === part.assignee);
+    return React.createElement("span", { style: { background: "#88888818", color: "#555", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700, border: "1px solid #88888844" } }, "外注: " + (v ? v.name : "?"));
+  }
+  const c = TEAM_COLORS[part.assignee] || "#888";
+  return React.createElement("span", { style: { background: c + "18", color: c, fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700, border: "1px solid " + c + "44" } }, part.assignee);
+}
+function StatusBadge(p) {
   const colors = { "未着手": "#aaa", "受注確認": "#3b6fd4", "裁断待ち": "#c25000", "製作中": "#7a2a7a", "完了": "#2a7a2a" };
-  const c = colors[props.status] || "#aaa";
-  return React.createElement("span", { style: { background: c + "18", color: c, fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700, border: "1px solid " + c + "44" } }, props.status);
+  const c = colors[p.status] || "#aaa";
+  return React.createElement("span", { style: { background: c + "18", color: c, fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700, border: "1px solid " + c + "44" } }, p.status);
 }
-function SectionLabel(props) { return React.createElement("div", { style: st.sectionLabel }, props.children); }
-function Empty(props) { return React.createElement("div", { style: st.empty }, props.children); }
-function FormRow(props) {
-  return React.createElement("div", { style: { marginBottom: 14 } },
-    React.createElement("div", { style: { fontSize: 11, color: "#888", marginBottom: 4 } }, props.label),
-    props.children
+function SectionLabel(p) { return React.createElement("div", { style: st.sectionLabel }, p.children); }
+function Empty(p) { return React.createElement("div", { style: st.empty }, p.children); }
+function FormRow(p) { return React.createElement("div", { style: { marginBottom: 14 } }, React.createElement("div", { style: { fontSize: 11, color: "#888", marginBottom: 4 } }, p.label), p.children); }
+function SBox(p) {
+  return React.createElement("div", { style: Object.assign({}, st.sBox, { background: p.dark ? "#1a1a1a" : "#fff" }) },
+    React.createElement("div", { style: { fontSize: 10, color: p.dark ? "#777" : "#aaa", marginBottom: 5 } }, p.label),
+    React.createElement("div", { style: { fontSize: 15, fontWeight: 700, color: p.dark ? "#fff" : "#1a1a1a" } }, p.value)
   );
 }
-function SBox(props) {
-  return React.createElement("div", { style: Object.assign({}, st.sBox, { background: props.dark ? "#1a1a1a" : "#fff" }) },
-    React.createElement("div", { style: { fontSize: 10, color: props.dark ? "#777" : "#aaa", marginBottom: 5 } }, props.label),
-    React.createElement("div", { style: { fontSize: 15, fontWeight: 700, color: props.dark ? "#fff" : "#1a1a1a" } }, props.value)
-  );
-}
-function MiniCell(props) {
+function MiniCell(p) {
   return React.createElement("div", null,
-    React.createElement("div", { style: { fontSize: 10, color: "#bbb", marginBottom: 2 } }, props.label),
-    React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: props.accent ? "#2a7a2a" : "#1a1a1a" } }, props.val)
+    React.createElement("div", { style: { fontSize: 10, color: "#bbb", marginBottom: 2 } }, p.label),
+    React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: p.accent ? "#2a7a2a" : "#1a1a1a" } }, p.val)
   );
 }
-function Badge(props) {
-  const done = props.type === "done";
+function Badge(p) {
+  const done = p.type === "done";
   return React.createElement("span", { style: { background: done ? "#e8f5e8" : "#fff3e0", color: done ? "#2a7a2a" : "#c25000", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700 } }, done ? "完了" : "進行中");
 }
-function ProgressBar(props) {
-  const pct = Math.min(Math.max(props.value || 0, 0), 1) * 100;
-  const c = props.color || (pct >= 100 ? "#2a7a2a" : "#3b6fd4");
+function ProgressBar(p) {
+  const pct = Math.min(Math.max(p.value || 0, 0), 1) * 100;
+  const c = p.color || (pct >= 100 ? "#2a7a2a" : "#3b6fd4");
   return React.createElement("div", { style: st.barBg }, React.createElement("div", { style: Object.assign({}, st.barFill, { width: pct + "%", background: c }) }));
 }
-function DashCard(props) {
-  const item = props.item;
+function DashCard(p) {
+  const item = p.item;
   const colors = { red: "#c00", yellow: "#b07000", green: "#2a7a2a" };
-  const c = colors[props.level];
-  const isOut = item.type === "outsource";
-  return React.createElement("button", { style: Object.assign({}, st.dashCard, { borderLeft: "4px solid " + c }), onClick: props.onClick },
+  const c = colors[p.level];
+  const isOut = item.assigneeType === "outsource";
+  const assigneeLabel = isOut ? ("外注: " + (item.vendorName || "?")) : (item.assignee || "未割当");
+  return React.createElement("button", { style: Object.assign({}, st.dashCard, { borderLeft: "4px solid " + c }), onClick: p.onClick },
     React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } },
       React.createElement("div", null,
         React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, item.partNo + (item.partName ? " (" + item.partName + ")" : "")),
-        React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginTop: 2 } },
-          (isOut ? "外注: " + item.vendorName : item.team) +
-          (item.assignee ? " ／ 担当: " + item.assignee : "") +
-          (item.status ? " ／ " + item.status : "")
-        )
+        React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginTop: 2 } }, assigneeLabel + (item.status ? " ／ " + item.status : ""))
       ),
       React.createElement("div", { style: { textAlign: "right" } },
         item.deadline && React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: c } }, "あと" + item.remainDays + "日"),
@@ -817,42 +891,39 @@ function DashCard(props) {
     !isOut && item.progress !== null && React.createElement("div", { style: { marginTop: 8 } },
       React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 3 } },
         React.createElement("span", null, "進捗 " + Math.round(item.progress * 100) + "%"),
-        item.dailyNeeded && React.createElement("span", { style: { color: c } }, "1日あたり" + item.dailyNeeded.toFixed(1) + "h必要")
+        item.dailyNeeded && React.createElement("span", { style: { color: c } }, "1日" + item.dailyNeeded.toFixed(1) + "h必要")
       ),
       React.createElement(ProgressBar, { value: item.progress, color: c })
     ),
-    isOut && React.createElement("div", { style: { marginTop: 8, fontSize: 12, color: item.profit >= 0 ? "#2a7a2a" : "#c00" } }, "見込み利益: ¥" + Math.round(item.profit).toLocaleString() + " （" + item.profitRate.toFixed(1) + "%）")
+    isOut && item.profit !== null && React.createElement("div", { style: { marginTop: 8, fontSize: 12, color: item.profit >= 0 ? "#2a7a2a" : "#c00" } }, "見込み利益: ¥" + Math.round(item.profit).toLocaleString())
   );
 }
-function PartCard(props) {
-  const p = props.p;
-  return React.createElement("div", { style: Object.assign({}, st.leaderCard, { opacity: props.done ? 0.75 : 1 }) },
+function PartCard(p) {
+  const part = p.p;
+  return React.createElement("div", { style: Object.assign({}, st.leaderCard, { opacity: p.done ? 0.75 : 1 }) },
     React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 } },
       React.createElement("div", null,
-        React.createElement("div", { style: Object.assign({}, st.partNoText, { color: props.done ? "#777" : "#1a1a1a" }) }, p.partNo + (p.partName ? " " : ""), p.partName && React.createElement("span", { style: { fontSize: 12, color: "#aaa", fontWeight: 400 } }, p.partName)),
-        React.createElement("div", { style: st.partMeta }, props.done ? "完了日: " + (p.closedAt ? p.closedAt.slice(5).replace("-", "/") : "") : "¥" + p.unitPrice.toLocaleString() + " × " + p.qty + "枚"),
-        React.createElement("div", { style: { display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" } },
-          p.status && React.createElement(StatusBadge, { status: p.status }),
-          p.deadline && !props.done && React.createElement("span", { style: { fontSize: 11, color: p.remainDays <= 3 ? "#c00" : p.remainDays <= 7 ? "#c25000" : "#aaa" } }, "納期: " + fmt(p.deadline) + "（あと" + p.remainDays + "日）")
-        )
+        React.createElement("div", { style: Object.assign({}, st.partNoText, { color: p.done ? "#777" : "#1a1a1a" }) }, part.partNo, part.partName && React.createElement("span", { style: { fontSize: 12, color: "#aaa", fontWeight: 400, marginLeft: 6 } }, part.partName)),
+        React.createElement("div", { style: st.partMeta }, p.done ? "完了日: " + fmt(part.closedAt) : "¥" + (part.unitPrice || 0).toLocaleString() + " × " + part.qty + "枚"),
+        part.deadline && !p.done && React.createElement("div", { style: { fontSize: 11, color: part.remainDays <= 3 ? "#c00" : part.remainDays <= 7 ? "#c25000" : "#aaa", marginTop: 4 } }, "納期: " + fmt(part.deadline) + "（あと" + part.remainDays + "日）")
       ),
-      React.createElement("button", { style: st.detailLink, onClick: props.onDetail }, "詳細 ›")
+      React.createElement("button", { style: st.detailLink, onClick: p.onDetail }, "詳細 ›")
     ),
-    !props.done && p.progress !== null && React.createElement("div", { style: { marginBottom: 8 } },
+    !p.done && part.progress !== null && React.createElement("div", { style: { marginBottom: 8 } },
       React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 3 } },
-        React.createElement("span", null, "進捗 " + Math.round(p.progress * 100) + "%"),
-        React.createElement("span", null, p.totalHours.toFixed(1) + "h / " + p.estTotalHours.toFixed(1) + "h")
+        React.createElement("span", null, "進捗 " + Math.round(part.progress * 100) + "%"),
+        React.createElement("span", null, part.totalHours.toFixed(1) + "h / " + part.estTotalHours.toFixed(1) + "h")
       ),
-      React.createElement(ProgressBar, { value: p.progress })
+      React.createElement(ProgressBar, { value: part.progress })
     ),
-    React.createElement("div", { style: Object.assign({}, st.statsRow, { background: props.done ? "#eeecea" : "#f5f4f0" }) },
+    React.createElement("div", { style: Object.assign({}, st.statsRow, { background: p.done ? "#eeecea" : "#f5f4f0" }) },
       React.createElement("span", null, "累計 "),
-      React.createElement("b", null, p.totalHours.toFixed(1) + "h"),
+      React.createElement("b", null, part.totalHours.toFixed(1) + "h"),
       React.createElement("span", { style: { color: "#ddd" } }, "｜"),
-      React.createElement("span", { style: { color: props.done ? "#2a7a2a" : "#555", fontWeight: props.done ? 700 : 400 } }, p.totalHours > 0 ? "¥" + Math.round(p.hourlyRate).toLocaleString() + "/h" : "—", props.done ? " 確定" : "")
+      React.createElement("span", { style: { color: p.done ? "#2a7a2a" : "#555", fontWeight: p.done ? 700 : 400 } }, part.totalHours > 0 ? "¥" + Math.round(part.hourlyRate).toLocaleString() + "/h" : "—", p.done ? " 確定" : "")
     ),
-    !props.done && React.createElement("button", { style: st.closeBtn, onClick: props.onClose }, "この品番を完了にする"),
-    props.done && React.createElement("button", { style: Object.assign({}, st.closeBtn, { background: "#e8e6e0", color: "#777" }), onClick: props.onReopen }, "再開する")
+    !p.done && React.createElement("button", { style: st.closeBtn, onClick: p.onClose }, "この品番を完了にする"),
+    p.done && React.createElement("button", { style: Object.assign({}, st.closeBtn, { background: "#e8e6e0", color: "#777" }), onClick: p.onReopen }, "再開する")
   );
 }
 
@@ -862,16 +933,10 @@ const st = {
   headerTitle: { fontSize: 18, fontWeight: 700 },
   backBtn: { background: "none", border: "none", color: "#777", fontSize: 14, padding: "0 0 4px", cursor: "pointer", display: "block" },
   body: { padding: "16px", maxWidth: 680, margin: "0 auto" },
-  bigBtn: { display: "flex", alignItems: "center", gap: 16, width: "100%", background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 12, padding: "16px 20px", cursor: "pointer", marginBottom: 0 },
+  bigBtn: { display: "flex", alignItems: "center", gap: 16, width: "100%", background: "#1a1a1a", color: "#fff", border: "1px solid transparent", borderRadius: 12, padding: "16px 20px", cursor: "pointer", marginBottom: 0 },
   roleBtn: { display: "flex", alignItems: "center", gap: 8, flex: 1, background: "#fff", border: "1px solid #e0deda", borderRadius: 10, padding: "12px 14px", cursor: "pointer", justifyContent: "center" },
   quickBtn: { flex: 1, background: "#fff", border: "1px solid #e0deda", borderRadius: 10, padding: "10px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer", color: "#333" },
-  tabRow: { display: "flex", gap: 0, marginBottom: 16, background: "#e8e6e0", borderRadius: 10, padding: 3 },
-  tabBtn: { flex: 1, background: "none", border: "none", borderRadius: 8, padding: "8px", fontSize: 13, cursor: "pointer", color: "#888", fontWeight: 600 },
-  tabBtnActive: { background: "#fff", color: "#1a1a1a", boxShadow: "0 1px 3px rgba(0,0,0,.1)" },
-  filterRow: { display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" },
-  filterBtn: { background: "#fff", border: "1px solid #e0deda", borderRadius: 20, padding: "6px 14px", fontSize: 12, cursor: "pointer", color: "#888" },
-  filterBtnActive: { background: "#1a1a1a", color: "#fff", border: "1px solid #1a1a1a" },
-  dashedBtn: { display: "block", width: "100%", background: "#fff", border: "2px dashed #d0cec8", borderRadius: 12, padding: "14px", fontSize: 15, fontWeight: 700, color: "#555", cursor: "pointer", marginBottom: 20 },
+  dashedBtn: { display: "block", width: "100%", background: "#fff", border: "2px dashed #d0cec8", borderRadius: 12, padding: "14px", fontSize: 15, fontWeight: 700, color: "#555", cursor: "pointer", marginBottom: 16 },
   card: { background: "#fff", borderRadius: 12, padding: "16px", marginBottom: 16, boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
   sectionLabel: { fontSize: 11, color: "#aaa", letterSpacing: "0.1em", marginBottom: 8, marginTop: 16 },
   empty: { textAlign: "center", color: "#ccc", fontSize: 13, padding: "18px 0" },
@@ -879,12 +944,16 @@ const st = {
   primaryBtn: { width: "100%", background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 10, padding: "14px", fontSize: 15, fontWeight: 700, cursor: "pointer", marginTop: 4 },
   inlineBtn: { background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
   ghostBtn: { background: "none", border: "1px solid #e0deda", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer", color: "#666" },
+  assignBtn: { background: "#fff", border: "1px solid #e0deda", borderRadius: 20, padding: "5px 12px", fontSize: 12, cursor: "pointer", color: "#666" },
+  assignBtnActive: { background: "#1a1a1a", color: "#fff", border: "1px solid #1a1a1a" },
+  filterRow: { display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" },
+  filterBtn: { background: "#fff", border: "1px solid #e0deda", borderRadius: 20, padding: "6px 14px", fontSize: 12, cursor: "pointer", color: "#888" },
+  filterBtnActive: { background: "#1a1a1a", color: "#fff", border: "1px solid #1a1a1a" },
   previewBox: { borderRadius: 8, padding: "12px 14px", marginBottom: 12 },
   previewRow: { display: "flex", justifyContent: "space-between", fontSize: 13, color: "#555", marginBottom: 4 },
   leaderCard: { background: "#fff", borderRadius: 12, padding: "14px 16px", marginBottom: 10, boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
   partNoText: { fontSize: 16, fontWeight: 700 },
   partMeta: { fontSize: 11, color: "#bbb", marginTop: 2 },
-  dateRow: { display: "flex", gap: 8, alignItems: "center", fontSize: 12, color: "#aaa" },
   cellLabel: { fontSize: 10, color: "#aaa", marginBottom: 2 },
   detailLink: { background: "none", border: "none", color: "#aaa", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" },
   statsRow: { display: "flex", gap: 10, fontSize: 13, color: "#555", borderRadius: 8, padding: "8px 12px", marginBottom: 10 },
@@ -894,16 +963,15 @@ const st = {
   deleteBtn: { background: "none", border: "none", color: "#ccc", fontSize: 16, cursor: "pointer", padding: "4px 8px" },
   grid2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 },
   sBox: { borderRadius: 12, padding: "14px", boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
-  summaryCard: { display: "block", width: "100%", background: "#fff", border: "none", borderRadius: 12, padding: "14px 16px", marginBottom: 10, cursor: "pointer", textAlign: "left", boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
+  summaryCard: { display: "block", width: "100%", background: "#fff", border: "none", borderRadius: 12, padding: "14px 16px", marginBottom: 10, cursor: "pointer", boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
   monthlyCard: { background: "#fff", borderRadius: 12, padding: "16px", marginBottom: 14, boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
-  rateBox: { borderRadius: 14, padding: "18px 20px" },
+  rateBox: { borderRadius: 14, padding: "18px 20px", marginBottom: 16 },
   barBg: { background: "#f0eeea", borderRadius: 4, height: 6, overflow: "hidden" },
   barFill: { height: "100%", borderRadius: 4, transition: "width 0.4s" },
   saveBadge: { background: "#1a1a1a", color: "#fff", fontSize: 12, padding: "8px 14px", borderRadius: 20, boxShadow: "0 2px 8px rgba(0,0,0,.2)" },
   spinner: { width: 32, height: 32, border: "3px solid #e0deda", borderTop: "3px solid #1a1a1a", borderRadius: "50%", animation: "spin 0.8s linear infinite" },
   alertBanner: { fontSize: 12, fontWeight: 700, padding: "8px 12px", borderRadius: 8, border: "1px solid", marginBottom: 8, marginTop: 8 },
   dashCard: { display: "block", width: "100%", background: "#fff", border: "none", borderRadius: 12, padding: "14px 16px", marginBottom: 10, cursor: "pointer", textAlign: "left", boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
-  teamSummaryCard: { display: "block", width: "100%", background: "#fff", border: "none", borderRadius: 12, padding: "14px 16px", marginBottom: 10, cursor: "pointer", textAlign: "left", boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
 };
 
 const styleEl = document.createElement("style");
