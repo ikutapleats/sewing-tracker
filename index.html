@@ -14,14 +14,9 @@
 </head>
 <body>
   <div id="root"></div>
-  <script type="text/babel" src="sewing-tracker.jsx?v=5"></script>
-  <script>
-    window.addEventListener('load', function() {
-      setTimeout(function() {
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(React.createElement(App));
-      }, 2000);
-    });
+  <script type="text/babel" src="sewing-tracker.jsx"></script>
+  <script type="text/babel">
+    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
   </script>
 </body>
 </html>
