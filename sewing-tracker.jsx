@@ -629,6 +629,36 @@ function App() {
   // 集計・仕事量管理
   // ════════════════════════════════════════════════════════════════
   if (ui.screen === "summary") {
+    // CSVダウンロード
+    function downloadCSV() {
+      let csv = "\uFEFF品番,品名,担当,数量,納期,総作業時間,売上,時間単価,ステータス,登録日,完了日\n";
+      partSummary.forEach((p) => {
+        const assignee = p.assigneeType === "outsource"
+          ? "外注:" + (p.vendorName || "?")
+          : (p.assignee || "未割当");
+        csv += [p.partNo, p.partName || "", assignee, p.qty, p.deadline || "", p.totalHours.toFixed(1), Math.round(p.totalSales), p.totalHours > 0 ? Math.round(p.hourlyRate) : "", p.status || "", p.createdAt || "", p.closedAt || ""].join(",") + "\n";
+      });
+      csv += "\n\nメンバー別作業記録\n氏名,品番,日付,作業時間\n";
+      data.records.forEach((r) => {
+        const part = data.parts.find((p) => p.id === r.partId);
+        csv += [r.memberName, part ? part.partNo : "?", r.date, r.hours].join(",") + "\n";
+      });
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "作業実績_" + today() + ".csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // スプレッドシート出力
+    function exportToSheet() {
+      const month = ui.summaryMonth;
+      const encoded = encodeURIComponent(JSON.stringify(data));
+      const url = GAS_URL + "?action=report&month=" + month + "&data=" + encoded;
+      fetch(url).then(() => alert("スプレッドシートに出力しました！\nGoogleスプレッドシートの「月次レポート」シートを確認してください。")).catch(() => alert("出力に失敗しました。"));
+    }
     const allParts = partSummary;
     const totalQty = allParts.filter((p) => !p.closedAt).reduce((a, p) => a + (p.qty || 0), 0);
     const totalEstHours = allParts.filter((p) => !p.closedAt && p.assigneeType === "team").reduce((a, p) => a + p.estTotalHours, 0);
@@ -639,6 +669,10 @@ function App() {
     return React.createElement(Shell, null,
       React.createElement(Header, { title: "集計・仕事量管理", back: () => set({ screen: "home" }) }),
       React.createElement(Body, null,
+          React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 16 } },
+          React.createElement("button", { style: Object.assign({}, st.quickBtn, { background: "#1a1a1a", color: "#fff" }), onClick: downloadCSV }, "📥 CSVダウンロード"),
+          React.createElement("button", { style: Object.assign({}, st.quickBtn, { background: "#2a7a2a", color: "#fff" }), onClick: exportToSheet }, "📊 スプレッドシートに出力")
+        ),
         // 全体KPI
         React.createElement("div", { style: st.grid2 },
           React.createElement(SBox, { label: "進行中 総枚数", value: totalQty.toLocaleString() + "枚" }),
