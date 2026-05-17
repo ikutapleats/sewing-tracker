@@ -14,12 +14,14 @@
 </head>
 <body>
   <div id="root"></div>
-<script type="text/babel" data-type="module" src="sewing-tracker.jsx?v=4"></script>
-  <script type="text/babel">
-    setTimeout(() => {
-      const root = ReactDOM.createRoot(document.getElementById('root'));
-      root.render(React.createElement(App));
-    }, 1000);
+  <script type="text/babel" src="sewing-tracker.jsx?v=5"></script>
+  <script>
+    window.addEventListener('load', function() {
+      setTimeout(function() {
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(React.createElement(App));
+      }, 2000);
+    });
   </script>
 </body>
 </html>
