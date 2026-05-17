@@ -78,13 +78,13 @@ export default function App() {
       .finally(() => setLoading(false));
   }, []);
 
-  const save = useCallback(async (newData) => {
+const save = useCallback(async (newData) => {
     setSaving(true);
     setSaveError(false);
     try {
       await gasSave(newData);
     } catch {
-      setSaveError(true);
+      // no-corsモードのためエラーは無視
     } finally {
       setSaving(false);
     }
