@@ -41,19 +41,21 @@ const INIT_UI = {
   editMemberName: "",
 };
 
-// GET経由でデータを保存（CORSを回避）
-async function gasSave(data) {
-  const json = JSON.stringify(data);
-  const encoded = encodeURIComponent(json);
-  const url = `${GAS_URL}?action=save&data=${encoded}`;
-  const res = await fetch(url);
-  const result = await res.json();
-  if (result.status !== "saved") throw new Error("save failed");
+// ── Google Apps Script 通信 ───────────────────────────────────────
+async function gasGet() {
+  const res = await fetch(GAS_URL);
+  const json = await res.json();
+  return json;
 }
 
-async function gasLoad() {
-  const res = await fetch(GAS_URL);
-  return await res.json();
+async function gasSave(data) {
+  const body = JSON.stringify(data);
+  await fetch(GAS_URL, {
+    method: "POST",
+    mode: "no-cors",
+    headers: { "Content-Type": "text/plain" },
+    body,
+  });
 }
 
 export default function App() {
@@ -68,10 +70,12 @@ export default function App() {
   const setAF = (patch) => setUi((p) => ({ ...p, addPartForm: { ...p.addPartForm, ...patch } }));
   const setTF = (patch) => setUi((p) => ({ ...p, targetForm: { ...p.targetForm, ...patch } }));
 
+  // ── 初回ロード ─────────────────────────────────────────────────
   useEffect(() => {
-    gasLoad()
+    gasGet()
       .then((d) => {
         const merged = { ...EMPTY_DATA, ...d };
+        // membersのチームキーが欠けている場合補完
         for (const t of TEAMS) {
           if (!merged.members[t]) merged.members[t] = [];
         }
@@ -81,6 +85,7 @@ export default function App() {
       .finally(() => setLoading(false));
   }, []);
 
+  // ── データ保存 ─────────────────────────────────────────────────
   const save = useCallback(async (newData) => {
     setSaving(true);
     setSaveError(false);
@@ -99,8 +104,13 @@ export default function App() {
     save(newData);
   }
 
+  // ── computed ────────────────────────────────────────────────────
   const teamMembers = useMemo(() => data.members[ui.selectedTeam] || [], [data.members, ui.selectedTeam]);
-  const openParts = useMemo(() => data.parts.filter((p) => p.team === ui.selectedTeam && !p.closedAt), [data.parts, ui.selectedTeam]);
+
+  const openParts = useMemo(
+    () => data.parts.filter((p) => p.team === ui.selectedTeam && !p.closedAt),
+    [data.parts, ui.selectedTeam]
+  );
 
   const partSummary = useMemo(() => {
     return data.parts.map((part) => {
@@ -121,13 +131,20 @@ export default function App() {
   }, [data.parts, data.records]);
 
   const activeSummary = partSummary.find((p) => p.id === ui.activePartId);
-  const filteredSummary = useMemo(() => ui.summaryFilter === "all" ? partSummary : partSummary.filter((p) => p.team === ui.summaryFilter), [partSummary, ui.summaryFilter]);
+
+  const filteredSummary = useMemo(() => {
+    if (ui.summaryFilter === "all") return partSummary;
+    return partSummary.filter((p) => p.team === ui.summaryFilter);
+  }, [partSummary, ui.summaryFilter]);
 
   const monthlySummary = useMemo(() => {
     const m = ui.summaryMonth;
     return TEAMS.map((team) => {
       const tParts = partSummary.filter((p) => p.team === team);
-      const tRecs = data.records.filter((r) => { const part = data.parts.find((p) => p.id === r.partId); return part?.team === team && r.date.startsWith(m); });
+      const tRecs = data.records.filter((r) => {
+        const part = data.parts.find((p) => p.id === r.partId);
+        return part?.team === team && r.date.startsWith(m);
+      });
       const mHours = tRecs.reduce((a, r) => a + r.hours, 0);
       const mSales = tParts.filter((p) => p.closedAt && p.closedAt.startsWith(m)).reduce((a, p) => a + p.totalSales, 0);
       const mRate = mHours > 0 ? mSales / mHours : 0;
@@ -136,6 +153,7 @@ export default function App() {
     });
   }, [ui.summaryMonth, partSummary, data.records, data.parts, data.monthlyTargets]);
 
+  // ── actions ─────────────────────────────────────────────────────
   function addPart() {
     const { partNo, unitPrice, qty, estHoursPerUnit, deadline } = ui.addPartForm;
     if (!partNo || !unitPrice || !qty || !estHoursPerUnit) return;
@@ -143,29 +161,37 @@ export default function App() {
     updateData({ parts: [...data.parts, np] });
     setUiP({ addPartForm: { partNo: "", unitPrice: "", qty: "", estHoursPerUnit: "", deadline: "" }, screen: "leader_menu" });
   }
+
   function closePart(id) { updateData({ parts: data.parts.map((p) => p.id === id ? { ...p, closedAt: today() } : p) }); }
   function reopenPart(id) { updateData({ parts: data.parts.map((p) => p.id === id ? { ...p, closedAt: null } : p) }); }
+
   function addRecord() {
     const { memberId, partId, hours, date } = ui.memberForm;
     const member = teamMembers.find((m) => m.id === memberId);
     if (!member || !partId || !hours) return;
-    updateData({ records: [...data.records, { id: genId(), partId, memberId, memberName: member.name, hours: parseFloat(hours), date }] });
+    const nr = { id: genId(), partId, memberId, memberName: member.name, hours: parseFloat(hours), date };
+    updateData({ records: [...data.records, nr] });
     setMF({ hours: "" });
   }
   function deleteRecord(id) { updateData({ records: data.records.filter((r) => r.id !== id) }); }
+
   function addMember() {
     const name = ui.addMemberForm.name.trim();
     if (!name) return;
-    updateData({ members: { ...data.members, [ui.selectedTeam]: [...(data.members[ui.selectedTeam] || []), { id: genId(), name }] } });
+    const nm = { id: genId(), name };
+    updateData({ members: { ...data.members, [ui.selectedTeam]: [...(data.members[ui.selectedTeam] || []), nm] } });
     setUiP({ addMemberForm: { name: "" } });
   }
-  function deleteMember(id) { updateData({ members: { ...data.members, [ui.selectedTeam]: data.members[ui.selectedTeam].filter((m) => m.id !== id) } }); }
+  function deleteMember(id) {
+    updateData({ members: { ...data.members, [ui.selectedTeam]: data.members[ui.selectedTeam].filter((m) => m.id !== id) } });
+  }
   function saveMemberName() {
     const name = ui.editMemberName.trim();
     if (!name) return;
     updateData({ members: { ...data.members, [ui.selectedTeam]: data.members[ui.selectedTeam].map((m) => m.id === ui.editMemberId ? { ...m, name } : m) } });
     setUiP({ editMemberId: null, editMemberName: "" });
   }
+
   function saveTarget() {
     const { month, sales, hourlyRate } = ui.targetForm;
     if (!month || !ui.selectedTeam) return;
@@ -174,6 +200,7 @@ export default function App() {
     setTF({ sales: "", hourlyRate: "" });
   }
 
+  // ── ローディング画面 ────────────────────────────────────────────
   if (loading) {
     return (
       <Shell>
@@ -186,6 +213,10 @@ export default function App() {
     );
   }
 
+  // ════════════════════════════════════════════════════════════════
+  // SCREENS
+  // ════════════════════════════════════════════════════════════════
+
   const SaveIndicator = () => (
     <div style={{ position: "fixed", bottom: 16, right: 16, zIndex: 100 }}>
       {saving && <div style={st.saveBadge}>💾 保存中...</div>}
@@ -193,6 +224,7 @@ export default function App() {
     </div>
   );
 
+  // ── HOME ─────────────────────────────────────────────────────────
   if (ui.screen === "home") {
     return (
       <Shell>
@@ -216,6 +248,7 @@ export default function App() {
     );
   }
 
+  // ── LEADER MENU ──────────────────────────────────────────────────
   if (ui.screen === "leader_menu") {
     const myParts = partSummary.filter((p) => p.team === ui.selectedTeam);
     return (
@@ -229,16 +262,21 @@ export default function App() {
           </div>
           <SectionLabel>進行中の品番</SectionLabel>
           {myParts.filter((p) => !p.closedAt).length === 0 && <Empty>進行中の品番はありません</Empty>}
-          {myParts.filter((p) => !p.closedAt).map((p) => <PartCard key={p.id} p={p} onDetail={() => setUiP({ activePartId: p.id, screen: "part_detail" })} onClose={() => closePart(p.id)} />)}
+          {myParts.filter((p) => !p.closedAt).map((p) => (
+            <PartCard key={p.id} p={p} onDetail={() => setUiP({ activePartId: p.id, screen: "part_detail" })} onClose={() => closePart(p.id)} />
+          ))}
           <SectionLabel>完了済み</SectionLabel>
           {myParts.filter((p) => p.closedAt).length === 0 && <Empty>完了済みの品番はありません</Empty>}
-          {myParts.filter((p) => p.closedAt).map((p) => <PartCard key={p.id} p={p} done onDetail={() => setUiP({ activePartId: p.id, screen: "part_detail" })} onReopen={() => reopenPart(p.id)} />)}
+          {myParts.filter((p) => p.closedAt).map((p) => (
+            <PartCard key={p.id} p={p} done onDetail={() => setUiP({ activePartId: p.id, screen: "part_detail" })} onReopen={() => reopenPart(p.id)} />
+          ))}
         </Body>
         <SaveIndicator />
       </Shell>
     );
   }
 
+  // ── ADD PART ─────────────────────────────────────────────────────
   if (ui.screen === "add_part") {
     const { partNo, unitPrice, qty, estHoursPerUnit, deadline } = ui.addPartForm;
     const estTotal = (unitPrice && qty && estHoursPerUnit) ? { sales: parseFloat(unitPrice) * parseFloat(qty), hours: parseFloat(estHoursPerUnit) * parseFloat(qty) } : null;
@@ -248,7 +286,7 @@ export default function App() {
       <Shell>
         <Header title="品番を登録" back={() => setUiP({ screen: "leader_menu" })} />
         <Body>
-          <div style={{ marginBottom: 12 }}><TeamBadge team={ui.selectedTeam} /></div>
+          <TeamBadgeInline team={ui.selectedTeam} />
           <div style={st.card}>
             <FormRow label="品番"><input style={st.input} placeholder="例: A-2024-001" value={partNo} onChange={(e) => setAF({ partNo: e.target.value })} /></FormRow>
             <FormRow label="製品単価（円）"><input style={st.input} type="number" placeholder="例: 3000" value={unitPrice} onChange={(e) => setAF({ unitPrice: e.target.value })} /></FormRow>
@@ -269,6 +307,7 @@ export default function App() {
     );
   }
 
+  // ── MEMBER MGMT ──────────────────────────────────────────────────
   if (ui.screen === "member_mgmt") {
     return (
       <Shell>
@@ -287,9 +326,17 @@ export default function App() {
           {teamMembers.map((m) => (
             <div key={m.id} style={st.memberRow}>
               {ui.editMemberId === m.id ? (
-                <><input style={{ ...st.input, flex: 1, fontSize: 14 }} value={ui.editMemberName} onChange={(e) => setUiP({ editMemberName: e.target.value })} /><button style={st.inlineBtn} onClick={saveMemberName}>保存</button><button style={st.ghostBtn} onClick={() => setUiP({ editMemberId: null })}>取消</button></>
+                <>
+                  <input style={{ ...st.input, flex: 1, fontSize: 14 }} value={ui.editMemberName} onChange={(e) => setUiP({ editMemberName: e.target.value })} />
+                  <button style={st.inlineBtn} onClick={saveMemberName}>保存</button>
+                  <button style={st.ghostBtn} onClick={() => setUiP({ editMemberId: null })}>取消</button>
+                </>
               ) : (
-                <><span style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{m.name}</span><button style={st.ghostBtn} onClick={() => setUiP({ editMemberId: m.id, editMemberName: m.name })}>編集</button><button style={{ ...st.ghostBtn, color: "#c00" }} onClick={() => deleteMember(m.id)}>削除</button></>
+                <>
+                  <span style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{m.name}</span>
+                  <button style={st.ghostBtn} onClick={() => setUiP({ editMemberId: m.id, editMemberName: m.name })}>編集</button>
+                  <button style={{ ...st.ghostBtn, color: "#c00" }} onClick={() => deleteMember(m.id)}>削除</button>
+                </>
               )}
             </div>
           ))}
@@ -299,6 +346,7 @@ export default function App() {
     );
   }
 
+  // ── TARGET SETTING ────────────────────────────────────────────────
   if (ui.screen === "target_setting") {
     const { month, sales, hourlyRate } = ui.targetForm;
     const existing = data.monthlyTargets[month]?.[ui.selectedTeam];
@@ -314,7 +362,11 @@ export default function App() {
           </div>
           <SectionLabel>設定済みの月次目標</SectionLabel>
           {Object.entries(data.monthlyTargets).filter(([, teams]) => teams[ui.selectedTeam]).map(([m, teams]) => (
-            <div key={m} style={st.targetRow}><span style={{ fontWeight: 700, minWidth: 64 }}>{m}</span><span style={{ fontSize: 13, color: "#555" }}>売上目標 ¥{teams[ui.selectedTeam].sales?.toLocaleString()}</span><span style={{ fontSize: 13, color: "#555" }}>時間単価 ¥{teams[ui.selectedTeam].hourlyRate?.toLocaleString()}/h</span></div>
+            <div key={m} style={st.targetRow}>
+              <span style={{ fontWeight: 700, minWidth: 64 }}>{m}</span>
+              <span style={{ fontSize: 13, color: "#555" }}>売上目標 ¥{teams[ui.selectedTeam].sales?.toLocaleString()}</span>
+              <span style={{ fontSize: 13, color: "#555" }}>時間単価 ¥{teams[ui.selectedTeam].hourlyRate?.toLocaleString()}/h</span>
+            </div>
           ))}
           {Object.keys(data.monthlyTargets).filter((m) => data.monthlyTargets[m][ui.selectedTeam]).length === 0 && <Empty>まだ設定がありません</Empty>}
         </Body>
@@ -323,34 +375,64 @@ export default function App() {
     );
   }
 
+  // ── MEMBER ENTRY ─────────────────────────────────────────────────
   if (ui.screen === "member_entry") {
     const { memberId, partId, hours, date } = ui.memberForm;
-    const todayRecs = data.records.filter((r) => { const part = data.parts.find((p) => p.id === r.partId); return r.date === date && part?.team === ui.selectedTeam; });
+    const todayRecs = data.records.filter((r) => {
+      const part = data.parts.find((p) => p.id === r.partId);
+      return r.date === date && part?.team === ui.selectedTeam;
+    });
     const ready = memberId && partId && hours;
     return (
       <Shell>
         <Header title={`${ui.selectedTeam}　作業記録`} back={() => setUiP({ screen: "home" })} />
         <Body>
           {teamMembers.length === 0 ? (
-            <div style={{ ...st.card, textAlign: "center", color: "#aaa", padding: 24 }}>メンバーが登録されていません。<br />リーダーにメンバー登録を依頼してください。</div>
+            <div style={{ ...st.card, textAlign: "center", color: "#aaa", padding: 24 }}>
+              メンバーが登録されていません。<br />リーダーにメンバー登録を依頼してください。
+            </div>
           ) : (
             <div style={st.card}>
               <FormRow label="日付"><input style={st.input} type="date" value={date} onChange={(e) => setMF({ date: e.target.value })} /></FormRow>
-              <FormRow label="自分の名前"><select style={st.input} value={memberId} onChange={(e) => setMF({ memberId: e.target.value })}><option value="">選択してください</option>{teamMembers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></FormRow>
-              <FormRow label="品番を選ぶ">{openParts.length === 0 ? <div style={{ color: "#bbb", fontSize: 13, padding: "8px 0" }}>進行中の品番がありません</div> : <select style={st.input} value={partId} onChange={(e) => setMF({ partId: e.target.value })}><option value="">選択してください</option>{openParts.map((p) => <option key={p.id} value={p.id}>{p.partNo}</option>)}</select>}</FormRow>
+              <FormRow label="自分の名前">
+                <select style={st.input} value={memberId} onChange={(e) => setMF({ memberId: e.target.value })}>
+                  <option value="">選択してください</option>
+                  {teamMembers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
+              </FormRow>
+              <FormRow label="品番を選ぶ">
+                {openParts.length === 0
+                  ? <div style={{ color: "#bbb", fontSize: 13, padding: "8px 0" }}>進行中の品番がありません</div>
+                  : <select style={st.input} value={partId} onChange={(e) => setMF({ partId: e.target.value })}>
+                      <option value="">選択してください</option>
+                      {openParts.map((p) => <option key={p.id} value={p.id}>{p.partNo}</option>)}
+                    </select>
+                }
+              </FormRow>
               <FormRow label="作業時間（h）"><input style={st.input} type="number" placeholder="例: 3.5" min="0" step="0.5" value={hours} onChange={(e) => setMF({ hours: e.target.value })} /></FormRow>
               <button style={{ ...st.primaryBtn, opacity: ready ? 1 : 0.35 }} disabled={!ready} onClick={addRecord}>記録する</button>
             </div>
           )}
           <SectionLabel>本日の入力 ({date})</SectionLabel>
           {todayRecs.length === 0 && <Empty>まだ入力がありません</Empty>}
-          {todayRecs.map((r) => { const part = data.parts.find((x) => x.id === r.partId); return (<div key={r.id} style={st.recRow}><span style={{ fontSize: 12, color: "#888", minWidth: 64 }}>{r.memberName}</span><span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{part?.partNo ?? "?"}</span><span style={{ fontSize: 13, color: "#555" }}>{r.hours}h</span><button style={st.deleteBtn} onClick={() => deleteRecord(r.id)}>✕</button></div>); })}
+          {todayRecs.map((r) => {
+            const part = data.parts.find((x) => x.id === r.partId);
+            return (
+              <div key={r.id} style={st.recRow}>
+                <span style={{ fontSize: 12, color: "#888", minWidth: 64 }}>{r.memberName}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{part?.partNo ?? "?"}</span>
+                <span style={{ fontSize: 13, color: "#555" }}>{r.hours}h</span>
+                <button style={st.deleteBtn} onClick={() => deleteRecord(r.id)}>✕</button>
+              </div>
+            );
+          })}
         </Body>
         <SaveIndicator />
       </Shell>
     );
   }
 
+  // ── SUMMARY ──────────────────────────────────────────────────────
   if (ui.screen === "summary") {
     const totalSales = filteredSummary.reduce((a, p) => a + p.totalSales, 0);
     const totalHours = filteredSummary.reduce((a, p) => a + p.totalHours, 0);
@@ -359,20 +441,78 @@ export default function App() {
       <Shell>
         <Header title="集計・予算管理" back={() => setUiP({ screen: "home" })} />
         <Body>
-          <div style={st.tabRow}><TabBtn label="品番別実績" active={ui.summaryTab !== "monthly"} onClick={() => setUiP({ summaryTab: "parts" })} /><TabBtn label="月次管理" active={ui.summaryTab === "monthly"} onClick={() => setUiP({ summaryTab: "monthly" })} /></div>
+          <div style={st.tabRow}>
+            <TabBtn label="品番別実績" active={ui.summaryTab !== "monthly"} onClick={() => setUiP({ summaryTab: "parts" })} />
+            <TabBtn label="月次管理" active={ui.summaryTab === "monthly"} onClick={() => setUiP({ summaryTab: "monthly" })} />
+          </div>
+
           {ui.summaryTab !== "monthly" ? (
             <>
-              <div style={st.filterRow}>{["all", ...TEAMS].map((f) => <button key={f} style={{ ...st.filterBtn, ...(ui.summaryFilter === f ? st.filterBtnActive : {}) }} onClick={() => setUiP({ summaryFilter: f })}>{f === "all" ? "全体" : f}</button>)}</div>
-              <div style={st.grid2}><SBox label="総売上合計" value={`¥${Math.round(totalSales).toLocaleString()}`} /><SBox label="総作業時間" value={`${totalHours.toFixed(1)}h`} /><SBox label="平均時間単価" value={`¥${Math.round(overallRate).toLocaleString()}/h`} dark /><SBox label="品番数" value={`${filteredSummary.length}品番`} /></div>
-              {ui.summaryFilter === "all" && (<><SectionLabel>チーム別サマリー</SectionLabel>{TEAMS.map((team) => { const tps = partSummary.filter((p) => p.team === team); const th = tps.reduce((a, p) => a + p.totalHours, 0); const ts = tps.reduce((a, p) => a + p.totalSales, 0); const tr = th > 0 ? ts / th : 0; return (<button key={team} style={st.teamSummaryCard} onClick={() => setUiP({ summaryFilter: team })}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}><TeamBadge team={team} small /><span style={{ fontSize: 12, color: "#aaa" }}>{tps.length}品番 ›</span></div><div style={{ display: "flex", gap: 20 }}><MiniCell label="総時間" val={`${th.toFixed(1)}h`} /><MiniCell label="売上" val={`¥${Math.round(ts).toLocaleString()}`} /><MiniCell label="時間単価" val={th > 0 ? `¥${Math.round(tr).toLocaleString()}/h` : "—"} accent /></div></button>); })}</>)}
+              <div style={st.filterRow}>
+                {["all", ...TEAMS].map((f) => (
+                  <button key={f} style={{ ...st.filterBtn, ...(ui.summaryFilter === f ? st.filterBtnActive : {}) }} onClick={() => setUiP({ summaryFilter: f })}>
+                    {f === "all" ? "全体" : f}
+                  </button>
+                ))}
+              </div>
+              <div style={st.grid2}>
+                <SBox label="総売上合計" value={`¥${Math.round(totalSales).toLocaleString()}`} />
+                <SBox label="総作業時間" value={`${totalHours.toFixed(1)}h`} />
+                <SBox label="平均時間単価" value={`¥${Math.round(overallRate).toLocaleString()}/h`} dark />
+                <SBox label="品番数" value={`${filteredSummary.length}品番`} />
+              </div>
+              {ui.summaryFilter === "all" && (
+                <>
+                  <SectionLabel>チーム別サマリー</SectionLabel>
+                  {TEAMS.map((team) => {
+                    const tps = partSummary.filter((p) => p.team === team);
+                    const th = tps.reduce((a, p) => a + p.totalHours, 0);
+                    const ts = tps.reduce((a, p) => a + p.totalSales, 0);
+                    const tr = th > 0 ? ts / th : 0;
+                    return (
+                      <button key={team} style={st.teamSummaryCard} onClick={() => setUiP({ summaryFilter: team })}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                          <TeamBadge team={team} small /><span style={{ fontSize: 12, color: "#aaa" }}>{tps.length}品番 ›</span>
+                        </div>
+                        <div style={{ display: "flex", gap: 20 }}>
+                          <MiniCell label="総時間" val={`${th.toFixed(1)}h`} />
+                          <MiniCell label="売上" val={`¥${Math.round(ts).toLocaleString()}`} />
+                          <MiniCell label="時間単価" val={th > 0 ? `¥${Math.round(tr).toLocaleString()}/h` : "—"} accent />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </>
+              )}
               <SectionLabel>品番別実績</SectionLabel>
               {filteredSummary.length === 0 && <Empty>データがありません</Empty>}
               {filteredSummary.map((p) => (
                 <button key={p.id} style={st.summaryCard} onClick={() => setUiP({ activePartId: p.id, screen: "part_detail" })}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}><div><span style={st.partNoText}>{p.partNo}</span><span style={{ fontSize: 11, color: "#bbb", marginLeft: 8 }}>{p.team}</span></div><span style={{ display: "flex", gap: 6, alignItems: "center" }}>{p.closedAt ? <Badge type="done" /> : <Badge type="open" />}<span style={{ color: "#ccc" }}>›</span></span></div>
-                  <div style={st.dateRow}><span>開始: {fmt(p.createdAt)}</span><span style={{ color: "#ddd" }}>→</span><span style={{ color: p.closedAt ? "#2a7a2a" : (p.deadline ? "#c25000" : "#bbb") }}>{p.closedAt ? `完了: ${fmt(p.closedAt)}` : (p.deadline ? `納期: ${fmt(p.deadline)}` : "納期未設定")}</span></div>
-                  {p.progress !== null && !p.closedAt && (<div style={{ marginTop: 8 }}><div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 3 }}><span>進捗 {Math.round(p.progress * 100)}%</span><span>{p.totalHours.toFixed(1)}h / {p.estTotalHours.toFixed(1)}h</span></div><ProgressBar value={p.progress} /></div>)}
-                  <div style={{ display: "flex", gap: 20, marginTop: 8 }}><MiniCell label="総時間" val={`${p.totalHours.toFixed(1)}h`} /><MiniCell label="売上" val={`¥${Math.round(p.totalSales).toLocaleString()}`} /><MiniCell label="時間単価" val={p.totalHours > 0 ? `¥${Math.round(p.hourlyRate).toLocaleString()}/h` : "—"} accent /></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                    <div><span style={st.partNoText}>{p.partNo}</span><span style={{ fontSize: 11, color: "#bbb", marginLeft: 8 }}>{p.team}</span></div>
+                    <span style={{ display: "flex", gap: 6, alignItems: "center" }}>{p.closedAt ? <Badge type="done" /> : <Badge type="open" />}<span style={{ color: "#ccc" }}>›</span></span>
+                  </div>
+                  <div style={st.dateRow}>
+                    <span>開始: {fmt(p.createdAt)}</span>
+                    <span style={{ color: "#ddd" }}>→</span>
+                    <span style={{ color: p.closedAt ? "#2a7a2a" : (p.deadline ? "#c25000" : "#bbb") }}>
+                      {p.closedAt ? `完了: ${fmt(p.closedAt)}` : (p.deadline ? `納期: ${fmt(p.deadline)}` : "納期未設定")}
+                    </span>
+                  </div>
+                  {p.progress !== null && !p.closedAt && (
+                    <div style={{ marginTop: 8 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 3 }}>
+                        <span>進捗 {Math.round(p.progress * 100)}%</span>
+                        <span>{p.totalHours.toFixed(1)}h / {p.estTotalHours.toFixed(1)}h</span>
+                      </div>
+                      <ProgressBar value={p.progress} />
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 20, marginTop: 8 }}>
+                    <MiniCell label="総時間" val={`${p.totalHours.toFixed(1)}h`} />
+                    <MiniCell label="売上" val={`¥${Math.round(p.totalSales).toLocaleString()}`} />
+                    <MiniCell label="時間単価" val={p.totalHours > 0 ? `¥${Math.round(p.hourlyRate).toLocaleString()}/h` : "—"} accent />
+                  </div>
                 </button>
               ))}
             </>
@@ -383,8 +523,20 @@ export default function App() {
               {monthlySummary.map(({ team, mHours, mSales, mRate, target }) => (
                 <div key={team} style={st.monthlyCard}>
                   <div style={{ marginBottom: 10 }}><TeamBadge team={team} small /></div>
-                  <div style={st.grid2}><SBox label="実績売上" value={`¥${Math.round(mSales).toLocaleString()}`} /><SBox label="実績時間" value={`${mHours.toFixed(1)}h`} />{target.sales ? <SBox label="売上目標達成率" value={`${Math.round((mSales / target.sales) * 100)}%`} dark={mSales >= target.sales} /> : <SBox label="売上目標" value="未設定" />}{target.hourlyRate ? <SBox label="時間単価 vs 目標" value={mHours > 0 ? `¥${Math.round(mRate).toLocaleString()}/h` : "—"} dark={mRate >= target.hourlyRate} /> : <SBox label="時間単価目標" value="未設定" />}</div>
-                  {target.sales > 0 && (<div style={{ marginTop: 4 }}><div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 3 }}><span>売上達成率</span><span>¥{Math.round(mSales).toLocaleString()} / ¥{target.sales.toLocaleString()}</span></div><ProgressBar value={Math.min(mSales / target.sales, 1)} color={mSales >= target.sales ? "#2a7a2a" : "#3b6fd4"} /></div>)}
+                  <div style={st.grid2}>
+                    <SBox label="実績売上" value={`¥${Math.round(mSales).toLocaleString()}`} />
+                    <SBox label="実績時間" value={`${mHours.toFixed(1)}h`} />
+                    {target.sales ? <SBox label="売上目標達成率" value={`${Math.round((mSales / target.sales) * 100)}%`} dark={mSales >= target.sales} /> : <SBox label="売上目標" value="未設定" />}
+                    {target.hourlyRate ? <SBox label="時間単価 vs 目標" value={mHours > 0 ? `¥${Math.round(mRate).toLocaleString()}/h` : "—"} dark={mRate >= target.hourlyRate} /> : <SBox label="時間単価目標" value="未設定" />}
+                  </div>
+                  {target.sales > 0 && (
+                    <div style={{ marginTop: 4 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 3 }}>
+                        <span>売上達成率</span><span>¥{Math.round(mSales).toLocaleString()} / ¥{target.sales.toLocaleString()}</span>
+                      </div>
+                      <ProgressBar value={Math.min(mSales / target.sales, 1)} color={mSales >= target.sales ? "#2a7a2a" : "#3b6fd4"} />
+                    </div>
+                  )}
                 </div>
               ))}
             </>
@@ -395,6 +547,7 @@ export default function App() {
     );
   }
 
+  // ── PART DETAIL ──────────────────────────────────────────────────
   if (ui.screen === "part_detail" && activeSummary) {
     const p = activeSummary;
     const src = data.parts.find((x) => x.id === p.id);
@@ -403,27 +556,77 @@ export default function App() {
       <Shell>
         <Header title={p.partNo} back={() => setUiP({ screen: ui.userRole === "leader" ? "leader_menu" : "summary" })} />
         <Body>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>{p.closedAt ? <Badge type="done" /> : <Badge type="open" />}<TeamBadge team={p.team} small /></div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+            {p.closedAt ? <Badge type="done" /> : <Badge type="open" />}
+            <TeamBadge team={p.team} small />
+          </div>
           <div style={{ ...st.card, padding: "12px 16px", marginBottom: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
               <div><div style={st.cellLabel}>開始日</div><div style={{ fontWeight: 700 }}>{fmt(p.createdAt)}</div></div>
               {p.deadline && <div><div style={st.cellLabel}>納期</div><div style={{ fontWeight: 700, color: p.closedAt ? "#aaa" : (diffDays(today(), p.deadline) <= 3 ? "#c00" : "#c25000") }}>{fmt(p.deadline)}</div></div>}
               <div><div style={st.cellLabel}>完了日</div><div style={{ fontWeight: 700, color: p.closedAt ? "#2a7a2a" : "#bbb" }}>{p.closedAt ? fmt(p.closedAt) : "進行中"}</div></div>
             </div>
-            {p.deadline && !p.closedAt && (<div style={{ marginTop: 8, fontSize: 12, color: diffDays(today(), p.deadline) <= 3 ? "#c00" : "#888" }}>納期まであと <b>{diffDays(today(), p.deadline)}</b> 日{p.dailyNeeded && ` ／ 1日あたり ${p.dailyNeeded.toFixed(1)}h 必要`}</div>)}
+            {p.deadline && !p.closedAt && (
+              <div style={{ marginTop: 8, fontSize: 12, color: diffDays(today(), p.deadline) <= 3 ? "#c00" : "#888" }}>
+                納期まであと <b>{diffDays(today(), p.deadline)}</b> 日
+                {p.dailyNeeded && ` ／ 1日あたり ${p.dailyNeeded.toFixed(1)}h 必要`}
+              </div>
+            )}
           </div>
-          <div style={st.grid2}><SBox label="製品単価" value={`¥${src.unitPrice.toLocaleString()}`} /><SBox label="数量" value={`${src.qty}枚`} /><SBox label="総売上" value={`¥${Math.round(p.totalSales).toLocaleString()}`} /><SBox label="総作業時間" value={`${p.totalHours.toFixed(1)}h`} /></div>
-          {p.progress !== null && (<div style={{ ...st.card, marginBottom: 16 }}><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 13, fontWeight: 700 }}>進捗</span><span style={{ fontSize: 13, color: "#555" }}>{Math.round(p.progress * 100)}%（約{p.estUnitsCompleted}着完了）</span></div><ProgressBar value={p.progress} /><div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginTop: 4 }}><span>実績 {p.totalHours.toFixed(1)}h</span><span>見積もり {p.estTotalHours.toFixed(1)}h（{p.estHoursPerUnit}h/着）</span></div></div>)}
+          <div style={st.grid2}>
+            <SBox label="製品単価" value={`¥${src.unitPrice.toLocaleString()}`} />
+            <SBox label="数量" value={`${src.qty}枚`} />
+            <SBox label="総売上" value={`¥${Math.round(p.totalSales).toLocaleString()}`} />
+            <SBox label="総作業時間" value={`${p.totalHours.toFixed(1)}h`} />
+          </div>
+          {p.progress !== null && (
+            <div style={{ ...st.card, marginBottom: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 700 }}>進捗</span>
+                <span style={{ fontSize: 13, color: "#555" }}>{Math.round(p.progress * 100)}%（約{p.estUnitsCompleted}着完了）</span>
+              </div>
+              <ProgressBar value={p.progress} />
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginTop: 4 }}>
+                <span>実績 {p.totalHours.toFixed(1)}h</span>
+                <span>見積もり {p.estTotalHours.toFixed(1)}h（{p.estHoursPerUnit}h/着）</span>
+              </div>
+            </div>
+          )}
           <div style={{ ...st.rateBox, background: p.closedAt ? "#1a1a1a" : "#f0f0ec", color: p.closedAt ? "#fff" : "#1a1a1a", marginBottom: 16 }}>
             <div style={{ fontSize: 11, opacity: 0.55, marginBottom: 4 }}>{p.closedAt ? "時間あたり売上（確定）" : "現時点の時間あたり売上"}</div>
             <div style={{ fontSize: 28, fontWeight: 700 }}>{p.totalHours > 0 ? `¥${Math.round(p.hourlyRate).toLocaleString()}/h` : "—"}</div>
-            {estRate && (<div style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>見積もり目標: ¥{Math.round(estRate).toLocaleString()}/h{p.totalHours > 0 && <span style={{ marginLeft: 8, color: p.hourlyRate >= estRate ? "#7dff7d" : "#ffaaaa" }}>{p.hourlyRate >= estRate ? "▲ 目標超え" : "▼ 目標未達"}</span>}</div>)}
+            {estRate && (
+              <div style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>
+                見積もり目標: ¥{Math.round(estRate).toLocaleString()}/h
+                {p.totalHours > 0 && <span style={{ marginLeft: 8, color: p.hourlyRate >= estRate ? "#7dff7d" : "#ffaaaa" }}>{p.hourlyRate >= estRate ? "▲ 目標超え" : "▼ 目標未達"}</span>}
+              </div>
+            )}
           </div>
           <SectionLabel>縫製士別 作業時間</SectionLabel>
-          <div style={st.card}>{Object.keys(p.workerMap).length === 0 && <div style={{ color: "#bbb", fontSize: 13 }}>まだ記録がありません</div>}{Object.entries(p.workerMap).map(([worker, hours]) => { const pct = p.totalHours > 0 ? (hours / p.totalHours) * 100 : 0; return (<div key={worker} style={{ marginBottom: 14 }}><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ fontSize: 13 }}>{worker}</span><span style={{ fontSize: 13, fontWeight: 700 }}>{hours.toFixed(1)}h</span></div><ProgressBar value={pct / 100} /></div>); })}</div>
+          <div style={st.card}>
+            {Object.keys(p.workerMap).length === 0 && <div style={{ color: "#bbb", fontSize: 13 }}>まだ記録がありません</div>}
+            {Object.entries(p.workerMap).map(([worker, hours]) => {
+              const pct = p.totalHours > 0 ? (hours / p.totalHours) * 100 : 0;
+              return (
+                <div key={worker} style={{ marginBottom: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ fontSize: 13 }}>{worker}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700 }}>{hours.toFixed(1)}h</span>
+                  </div>
+                  <ProgressBar value={pct / 100} />
+                </div>
+              );
+            })}
+          </div>
           <SectionLabel>作業明細</SectionLabel>
           {p.recs.length === 0 && <Empty>まだ記録がありません</Empty>}
-          {[...p.recs].sort((a, b) => a.date.localeCompare(b.date)).map((r) => (<div key={r.id} style={st.recRow}><span style={{ fontSize: 12, color: "#aaa", minWidth: 42 }}>{r.date.slice(5).replace("-", "/")}</span><span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{r.memberName}</span><span style={{ fontSize: 13, color: "#555" }}>{r.hours}h</span></div>))}
+          {[...p.recs].sort((a, b) => a.date.localeCompare(b.date)).map((r) => (
+            <div key={r.id} style={st.recRow}>
+              <span style={{ fontSize: 12, color: "#aaa", minWidth: 42 }}>{r.date.slice(5).replace("-", "/")}</span>
+              <span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{r.memberName}</span>
+              <span style={{ fontSize: 13, color: "#555" }}>{r.hours}h</span>
+            </div>
+          ))}
           {!p.closedAt && <button style={{ ...st.closeBtn, marginTop: 20 }} onClick={() => { closePart(p.id); setUiP({ screen: "leader_menu" }); }}>この品番を完了にする</button>}
           {p.closedAt && <button style={{ ...st.closeBtn, background: "#e8e6e0", color: "#777", marginTop: 16 }} onClick={() => reopenPart(p.id)}>再開する</button>}
         </Body>
@@ -435,23 +638,78 @@ export default function App() {
   return null;
 }
 
+// ── Sub-components ──────────────────────────────────────────────────
 function Shell({ children }) { return <div style={st.root}>{children}</div>; }
-function Header({ title, sub, back }) { return (<div style={st.header}>{back && <button style={st.backBtn} onClick={back}>‹ 戻る</button>}{sub && <div style={{ fontSize: 10, letterSpacing: "0.2em", color: "#555", marginBottom: 2 }}>{sub}</div>}<div style={st.headerTitle}>{title}</div></div>); }
+function Header({ title, sub, back }) {
+  return (
+    <div style={st.header}>
+      {back && <button style={st.backBtn} onClick={back}>‹ 戻る</button>}
+      {sub && <div style={{ fontSize: 10, letterSpacing: "0.2em", color: "#555", marginBottom: 2 }}>{sub}</div>}
+      <div style={st.headerTitle}>{title}</div>
+    </div>
+  );
+}
 function Body({ children }) { return <div style={st.body}>{children}</div>; }
 function Spacer({ h }) { return <div style={{ height: h || 8 }} />; }
-function Divider({ label }) { return (<div style={{ display: "flex", alignItems: "center", gap: 10, margin: "4px 0 14px" }}><div style={{ flex: 1, height: 1, background: "#e0deda" }} /><span style={{ fontSize: 11, color: "#bbb" }}>{label}</span><div style={{ flex: 1, height: 1, background: "#e0deda" }} /></div>); }
-function BigBtn({ icon, label, sub, onClick }) { return (<button style={st.bigBtn} onClick={onClick}><span style={{ fontSize: 22 }}>{icon}</span><div style={{ textAlign: "left" }}><div style={{ fontSize: 16, fontWeight: 700 }}>{label}</div><div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>{sub}</div></div></button>); }
-function RoleBtn({ icon, label, onClick }) { return <button style={st.roleBtn} onClick={onClick}><span style={{ fontSize: 16 }}>{icon}</span><span style={{ fontSize: 13, fontWeight: 700 }}>{label}</span></button>; }
-function QuickBtn({ label, onClick }) { return <button style={st.quickBtn} onClick={onClick}>{label}</button>; }
-function TabBtn({ label, active, onClick }) { return <button style={{ ...st.tabBtn, ...(active ? st.tabBtnActive : {}) }} onClick={onClick}>{label}</button>; }
-function TeamBadge({ team, small }) { const c = TEAM_COLORS[team]; return <span style={{ background: c + "18", color: c, fontSize: small ? 11 : 13, padding: small ? "2px 8px" : "4px 12px", borderRadius: 20, fontWeight: 700, border: `1px solid ${c}44`, display: "inline-block" }}>{team}</span>; }
+function Divider({ label }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "4px 0 14px" }}>
+      <div style={{ flex: 1, height: 1, background: "#e0deda" }} />
+      <span style={{ fontSize: 11, color: "#bbb" }}>{label}</span>
+      <div style={{ flex: 1, height: 1, background: "#e0deda" }} />
+    </div>
+  );
+}
+function BigBtn({ icon, label, sub, onClick }) {
+  return (
+    <button style={st.bigBtn} onClick={onClick}>
+      <span style={{ fontSize: 22 }}>{icon}</span>
+      <div style={{ textAlign: "left" }}>
+        <div style={{ fontSize: 16, fontWeight: 700 }}>{label}</div>
+        <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>{sub}</div>
+      </div>
+    </button>
+  );
+}
+function RoleBtn({ icon, label, onClick }) {
+  return <button style={st.roleBtn} onClick={onClick}><span style={{ fontSize: 16 }}>{icon}</span><span style={{ fontSize: 13, fontWeight: 700 }}>{label}</span></button>;
+}
+function QuickBtn({ label, onClick }) {
+  return <button style={st.quickBtn} onClick={onClick}>{label}</button>;
+}
+function TabBtn({ label, active, onClick }) {
+  return <button style={{ ...st.tabBtn, ...(active ? st.tabBtnActive : {}) }} onClick={onClick}>{label}</button>;
+}
+function TeamBadge({ team, small }) {
+  const c = TEAM_COLORS[team];
+  return <span style={{ background: c + "18", color: c, fontSize: small ? 11 : 13, padding: small ? "2px 8px" : "4px 12px", borderRadius: 20, fontWeight: 700, border: `1px solid ${c}44`, display: "inline-block" }}>{team}</span>;
+}
+function TeamBadgeInline({ team }) { return <div style={{ marginBottom: 12 }}><TeamBadge team={team} /></div>; }
 function SectionLabel({ children }) { return <div style={st.sectionLabel}>{children}</div>; }
 function Empty({ children }) { return <div style={st.empty}>{children}</div>; }
-function FormRow({ label, children }) { return <div style={{ marginBottom: 14 }}><div style={{ fontSize: 11, color: "#888", marginBottom: 4 }}>{label}</div>{children}</div>; }
-function SBox({ label, value, dark }) { return (<div style={{ ...st.sBox, background: dark ? "#1a1a1a" : "#fff" }}><div style={{ fontSize: 10, color: dark ? "#777" : "#aaa", marginBottom: 5 }}>{label}</div><div style={{ fontSize: 15, fontWeight: 700, color: dark ? "#fff" : "#1a1a1a" }}>{value}</div></div>); }
-function MiniCell({ label, val, accent }) { return <div><div style={{ fontSize: 10, color: "#bbb", marginBottom: 2 }}>{label}</div><div style={{ fontSize: 13, fontWeight: 700, color: accent ? "#2a7a2a" : "#1a1a1a" }}>{val}</div></div>; }
-function Badge({ type }) { const done = type === "done"; return <span style={{ background: done ? "#e8f5e8" : "#fff3e0", color: done ? "#2a7a2a" : "#c25000", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700 }}>{done ? "完了" : "進行中"}</span>; }
-function ProgressBar({ value, color }) { const pct = Math.min(Math.max(value || 0, 0), 1) * 100; const c = color || (pct >= 100 ? "#2a7a2a" : "#3b6fd4"); return <div style={st.barBg}><div style={{ ...st.barFill, width: `${pct}%`, background: c }} /></div>; }
+function FormRow({ label, children }) {
+  return <div style={{ marginBottom: 14 }}><div style={{ fontSize: 11, color: "#888", marginBottom: 4 }}>{label}</div>{children}</div>;
+}
+function SBox({ label, value, dark }) {
+  return (
+    <div style={{ ...st.sBox, background: dark ? "#1a1a1a" : "#fff" }}>
+      <div style={{ fontSize: 10, color: dark ? "#777" : "#aaa", marginBottom: 5 }}>{label}</div>
+      <div style={{ fontSize: 15, fontWeight: 700, color: dark ? "#fff" : "#1a1a1a" }}>{value}</div>
+    </div>
+  );
+}
+function MiniCell({ label, val, accent }) {
+  return <div><div style={{ fontSize: 10, color: "#bbb", marginBottom: 2 }}>{label}</div><div style={{ fontSize: 13, fontWeight: 700, color: accent ? "#2a7a2a" : "#1a1a1a" }}>{val}</div></div>;
+}
+function Badge({ type }) {
+  const done = type === "done";
+  return <span style={{ background: done ? "#e8f5e8" : "#fff3e0", color: done ? "#2a7a2a" : "#c25000", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700 }}>{done ? "完了" : "進行中"}</span>;
+}
+function ProgressBar({ value, color }) {
+  const pct = Math.min(Math.max(value || 0, 0), 1) * 100;
+  const c = color || (pct >= 100 ? "#2a7a2a" : "#3b6fd4");
+  return <div style={st.barBg}><div style={{ ...st.barFill, width: `${pct}%`, background: c }} /></div>;
+}
 function PartCard({ p, done, onDetail, onClose, onReopen }) {
   return (
     <div style={{ ...st.leaderCard, opacity: done ? 0.75 : 1 }}>
@@ -467,8 +725,20 @@ function PartCard({ p, done, onDetail, onClose, onReopen }) {
         </div>
         <button style={st.detailLink} onClick={onDetail}>詳細 ›</button>
       </div>
-      {!done && p.progress !== null && (<div style={{ marginBottom: 8 }}><div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 3 }}><span>進捗 {Math.round(p.progress * 100)}%</span><span>{p.totalHours.toFixed(1)}h / {p.estTotalHours.toFixed(1)}h</span></div><ProgressBar value={p.progress} /></div>)}
-      <div style={{ ...st.statsRow, background: done ? "#eeecea" : "#f5f4f0" }}><span>累計 <b>{p.totalHours.toFixed(1)}h</b></span><span style={{ color: "#ddd" }}>｜</span><span style={{ color: done ? "#2a7a2a" : "#555", fontWeight: done ? 700 : 400 }}>{p.totalHours > 0 ? `¥${Math.round(p.hourlyRate).toLocaleString()}/h` : "—"}{done ? " 確定" : ""}</span></div>
+      {!done && p.progress !== null && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 3 }}>
+            <span>進捗 {Math.round(p.progress * 100)}%</span>
+            <span>{p.totalHours.toFixed(1)}h / {p.estTotalHours.toFixed(1)}h</span>
+          </div>
+          <ProgressBar value={p.progress} />
+        </div>
+      )}
+      <div style={{ ...st.statsRow, background: done ? "#eeecea" : "#f5f4f0" }}>
+        <span>累計 <b>{p.totalHours.toFixed(1)}h</b></span>
+        <span style={{ color: "#ddd" }}>｜</span>
+        <span style={{ color: done ? "#2a7a2a" : "#555", fontWeight: done ? 700 : 400 }}>{p.totalHours > 0 ? `¥${Math.round(p.hourlyRate).toLocaleString()}/h` : "—"}{done ? " 確定" : ""}</span>
+      </div>
       {!done && <button style={st.closeBtn} onClick={onClose}>この品番を完了にする</button>}
       {done && <button style={{ ...st.closeBtn, background: "#e8e6e0", color: "#777" }} onClick={onReopen}>再開する</button>}
     </div>
@@ -490,6 +760,7 @@ const st = {
   filterRow: { display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" },
   filterBtn: { background: "#fff", border: "1px solid #e0deda", borderRadius: 20, padding: "6px 14px", fontSize: 12, cursor: "pointer", color: "#888" },
   filterBtnActive: { background: "#1a1a1a", color: "#fff", border: "1px solid #1a1a1a" },
+  dashedBtn: { display: "block", width: "100%", background: "#fff", border: "2px dashed #d0cec8", borderRadius: 12, padding: "14px", fontSize: 15, fontWeight: 700, color: "#555", cursor: "pointer", marginBottom: 20 },
   card: { background: "#fff", borderRadius: 12, padding: "16px", marginBottom: 16, boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
   sectionLabel: { fontSize: 11, color: "#aaa", letterSpacing: "0.1em", marginBottom: 8, marginTop: 16 },
   empty: { textAlign: "center", color: "#ccc", fontSize: 13, padding: "18px 0" },
@@ -523,6 +794,7 @@ const st = {
   spinner: { width: 32, height: 32, border: "3px solid #e0deda", borderTop: "3px solid #1a1a1a", borderRadius: "50%", animation: "spin 0.8s linear infinite" },
 };
 
+// spinner animation
 const styleTag = document.createElement("style");
 styleTag.textContent = "@keyframes spin { to { transform: rotate(360deg); } }";
 document.head.appendChild(styleTag);
