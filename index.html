@@ -14,15 +14,12 @@
 </head>
 <body>
   <div id="root"></div>
-  <script type="text/babel" src="sewing-tracker.jsx?v=3"></script>
-  <script>
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    const waitForApp = setInterval(() => {
-      if (typeof App !== 'undefined') {
-        clearInterval(waitForApp);
-        root.render(React.createElement(App));
-      }
-    }, 100);
+<script type="text/babel" data-type="module" src="sewing-tracker.jsx?v=4"></script>
+  <script type="text/babel">
+    setTimeout(() => {
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(React.createElement(App));
+    }, 1000);
   </script>
 </body>
 </html>
