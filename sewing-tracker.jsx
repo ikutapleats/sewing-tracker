@@ -46,11 +46,8 @@ async function gasSave(data) {
   const json = JSON.stringify(data);
   const encoded = encodeURIComponent(json);
   const url = `${GAS_URL}?action=save&data=${encoded}`;
-  const res = await fetch(url);
-  const result = await res.json();
-  if (result.status !== "saved") throw new Error("save failed");
+  await fetch(url, { mode: "no-cors" });
 }
-
 async function gasLoad() {
   const res = await fetch(GAS_URL);
   return await res.json();
