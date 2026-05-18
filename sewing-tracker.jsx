@@ -1,5 +1,5 @@
 // GitHub Pages用: importを使わずReactをグローバルから取得
-const { useState, useMemo, useEffect, useCallback } = React;
+const { useState, useMemo, useEffect, useCallback, useRef } = React;
 
 const GAS_URL = "https://script.google.com/macros/s/AKfycbxN7_GWK5xxPJm79eq2uvA1AIVRI6x_g0fD1HHng_Eyo51JEw5JVC3021iYYz_Y3yjxcw/exec";
 
@@ -48,26 +48,26 @@ const INIT_UI = {
   prevScreen: "master",
 };
 
+// ── 保存：チャンク分割してGETで送る ──────────────────────────────
 async function gasSave(data) {
   const json = JSON.stringify(data);
-  const chunkSize = 3000;
+  const chunkSize = 2000;
   const chunks = [];
   for (let i = 0; i < json.length; i += chunkSize) {
     chunks.push(json.slice(i, i + chunkSize));
   }
-  
-  try {
-    for (let i = 0; i < chunks.length; i++) {
-      const encoded = encodeURIComponent(chunks[i]);
-      const url = GAS_URL + "?action=savechunk&index=" + i + "&total=" + chunks.length + "&data=" + encoded;
-      const res = await fetch(url);
-      const result = await res.json();
-      console.log("chunk " + i + " result:", JSON.stringify(result));
-    }
-  } catch(err) {
-    console.error("gasSave error:", err);
-    alert("保存エラー: " + err.message);
+  for (let i = 0; i < chunks.length; i++) {
+    const encoded = encodeURIComponent(chunks[i]);
+    const url = GAS_URL + "?action=savechunk&index=" + i + "&total=" + chunks.length + "&data=" + encoded;
+    await fetch(url, { mode: "no-cors" });
+    // 少し待つ
+    await new Promise((r) => setTimeout(r, 200));
   }
+}
+
+async function gasLoad() {
+  const res = await fetch(GAS_URL);
+  return await res.json();
 }
 
 function App() {
@@ -75,6 +75,7 @@ function App() {
   const [ui, setUi] = useState(INIT_UI);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const saveQueue = useRef(null);
 
   const set = (patch) => setUi((p) => Object.assign({}, p, patch));
   const setAP = (patch) => setUi((p) => Object.assign({}, p, { addPartForm: Object.assign({}, p.addPartForm, patch) }));
@@ -95,10 +96,19 @@ function App() {
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  const save = useCallback(async (nd) => {
+  // デバウンス保存（1秒後に実行）
+  const save = useCallback((nd) => {
+    if (saveQueue.current) clearTimeout(saveQueue.current);
     setSaving(true);
-    try { await gasSave(nd); } catch(e) {}
-    finally { setSaving(false); }
+    saveQueue.current = setTimeout(async () => {
+      try {
+        await gasSave(nd);
+      } catch(e) {
+        console.error("save error", e);
+      } finally {
+        setSaving(false);
+      }
+    }, 1000);
   }, []);
 
   function updateData(patch) {
@@ -162,21 +172,15 @@ function App() {
     if (!f.partNo) return;
     const isOut = f.assigneeType === "outsource";
     const np = {
-      id: genId(),
-      partNo: f.partNo.trim(),
-      partName: f.partName.trim(),
-      unitPrice: parseFloat(f.unitPrice) || 0,
-      qty: parseFloat(f.qty) || 0,
+      id: genId(), partNo: f.partNo.trim(), partName: f.partName.trim(),
+      unitPrice: parseFloat(f.unitPrice) || 0, qty: parseFloat(f.qty) || 0,
       estMinPerUnit: isOut ? 0 : (parseFloat(f.estMinPerUnit) || 0),
-      deadline: f.deadline || null,
-      status: f.status || "未着手",
-      note: f.note.trim(),
+      deadline: f.deadline || null, status: f.status || "未着手", note: f.note.trim(),
       assignee: isOut ? f.vendorId : (f.assignee || "未割当"),
       assigneeType: f.assigneeType || "team",
       sellPrice: isOut ? (parseFloat(f.sellPrice) || 0) : 0,
       vendorPrice: isOut ? (parseFloat(f.vendorPrice) || 0) : 0,
-      createdAt: today(),
-      closedAt: null,
+      createdAt: today(), closedAt: null,
     };
     updateData({ parts: data.parts.concat([np]) });
     set({ addPartForm: { partNo: "", partName: "", unitPrice: "", qty: "", estMinPerUnit: "", deadline: "", status: "未着手", note: "", assignee: "未割当", assigneeType: "team", vendorId: "", sellPrice: "", vendorPrice: "" }, screen: "master" });
@@ -185,17 +189,11 @@ function App() {
   function startEdit(part) {
     set({
       editPartForm: {
-        id: part.id,
-        partName: part.partName || "",
-        unitPrice: part.unitPrice || "",
-        qty: part.qty || "",
-        estMinPerUnit: part.estMinPerUnit || "",
-        deadline: part.deadline || "",
-        status: part.status || "未着手",
-        note: part.note || "",
-        sellPrice: part.sellPrice || "",
-        vendorPrice: part.vendorPrice || "",
-        assigneeType: part.assigneeType || "team",
+        id: part.id, partName: part.partName || "", unitPrice: part.unitPrice || "",
+        qty: part.qty || "", estMinPerUnit: part.estMinPerUnit || "",
+        deadline: part.deadline || "", status: part.status || "未着手",
+        note: part.note || "", sellPrice: part.sellPrice || "",
+        vendorPrice: part.vendorPrice || "", assigneeType: part.assigneeType || "team",
       },
       screen: "edit_part",
     });
@@ -207,13 +205,10 @@ function App() {
     const isOut = f.assigneeType === "outsource";
     updateData({
       parts: data.parts.map((p) => p.id === f.id ? Object.assign({}, p, {
-        partName: f.partName.trim(),
-        unitPrice: parseFloat(f.unitPrice) || 0,
+        partName: f.partName.trim(), unitPrice: parseFloat(f.unitPrice) || 0,
         qty: parseFloat(f.qty) || 0,
         estMinPerUnit: isOut ? 0 : (parseFloat(f.estMinPerUnit) || 0),
-        deadline: f.deadline || null,
-        status: f.status || "未着手",
-        note: f.note.trim(),
+        deadline: f.deadline || null, status: f.status || "未着手", note: f.note.trim(),
         sellPrice: isOut ? (parseFloat(f.sellPrice) || 0) : (p.sellPrice || 0),
         vendorPrice: isOut ? (parseFloat(f.vendorPrice) || 0) : (p.vendorPrice || 0),
       }) : p)
@@ -294,11 +289,6 @@ function App() {
       const part = data.parts.find((p) => p.id === r.partId);
       csv += [r.memberName, part ? part.partNo : "?", r.date, r.hours].join(",") + "\n";
     });
-    csv += "\n\n完成枚数記録\n品番,完成枚数,日付\n";
-    (data.qtyRecords || []).forEach((r) => {
-      const part = data.parts.find((p) => p.id === r.partId);
-      csv += [part ? part.partNo : "?", r.qty, r.date].join(",") + "\n";
-    });
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -308,7 +298,7 @@ function App() {
     URL.revokeObjectURL(url);
   }
 
- function exportToSheet() {
+  function exportToSheet() {
     const month = ui.summaryMonth;
     fetch(GAS_URL, {
       method: "POST",
@@ -485,7 +475,6 @@ function App() {
       ? { sales: parseFloat(f.unitPrice) * parseFloat(f.qty), hours: estHoursPerUnit * parseFloat(f.qty) } : null;
     const profit = (isOut && f.sellPrice && f.vendorPrice && f.qty)
       ? (parseFloat(f.sellPrice) - parseFloat(f.vendorPrice)) * parseFloat(f.qty) : null;
-
     return React.createElement(Shell, null,
       React.createElement(Header, { title: "品番を編集", back: () => set({ screen: "part_detail", editPartForm: null }) }),
       React.createElement(Body, null,
@@ -527,7 +516,6 @@ function App() {
     const p = activePart;
     const isOut = p.assigneeType === "outsource";
     const estRate = p.estTotalHours > 0 ? p.totalSales / p.estTotalHours : null;
-
     return React.createElement(Shell, null,
       React.createElement(Header, { title: p.partNo, back: () => set({ screen: ui.prevScreen || "master" }) }),
       React.createElement(Body, null,
@@ -540,8 +528,6 @@ function App() {
           React.createElement("button", { style: st.editBtn, onClick: () => startEdit(p) }, "✏️ 編集")
         ),
         p.partName && React.createElement("div", { style: { fontSize: 15, color: "#555", marginBottom: 12 } }, p.partName),
-
-        // 担当変更
         React.createElement("div", { style: Object.assign({}, st.card, { padding: "12px 16px" }) },
           React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginBottom: 8 } }, "担当を変更する"),
           React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } },
@@ -550,8 +536,6 @@ function App() {
             data.vendors.map((v) => React.createElement("button", { key: v.id, style: Object.assign({}, st.assignBtn, p.assignee === v.id && p.assigneeType === "outsource" ? st.assignBtnActive : {}), onClick: () => updatePartAssignee(p.id, v.id, "outsource") }, "外注: " + v.name))
           )
         ),
-
-        // 日程
         React.createElement("div", { style: Object.assign({}, st.card, { padding: "12px 16px", marginBottom: 16 }) },
           React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 13 } },
             React.createElement("div", null, React.createElement("div", { style: st.cellLabel }, "登録日"), React.createElement("div", { style: { fontWeight: 700 } }, fmt(p.createdAt))),
@@ -560,8 +544,6 @@ function App() {
           ),
           p.deadline && !p.closedAt && React.createElement("div", { style: { marginTop: 8, fontSize: 12, color: p.remainDays <= 3 ? "#c00" : "#888" } }, "納期まであと ", React.createElement("b", null, p.remainDays), " 日", p.dailyNeeded ? " ／ 1日あたり " + p.dailyNeeded.toFixed(1) + "h 必要" : "")
         ),
-
-        // 枚数進捗
         p.qtyProgress !== null && React.createElement("div", { style: Object.assign({}, st.card, { marginBottom: 16 }) },
           React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 6 } },
             React.createElement("span", { style: { fontSize: 13, fontWeight: 700 } }, "📦 完成枚数"),
@@ -580,15 +562,12 @@ function App() {
             ))
           )
         ),
-
-        // KPI
         React.createElement("div", { style: st.grid2 },
           React.createElement(SBox, { label: "総数量", value: p.qty + "枚" }),
           isOut ? React.createElement(SBox, { label: "外注先", value: p.vendorName || "未設定" }) : React.createElement(SBox, { label: "製品単価", value: "¥" + (p.unitPrice || 0).toLocaleString() }),
           isOut ? React.createElement(SBox, { label: "見込み利益", value: p.profit !== null ? "¥" + Math.round(p.profit).toLocaleString() : "—", dark: p.profit > 0 }) : React.createElement(SBox, { label: "総売上", value: "¥" + Math.round(p.totalSales).toLocaleString() }),
           isOut ? React.createElement(SBox, { label: "利益率", value: p.profitRate !== null ? p.profitRate.toFixed(1) + "%" : "—" }) : React.createElement(SBox, { label: "総作業時間", value: p.totalHours.toFixed(1) + "h" })
         ),
-
         !isOut && p.progress !== null && React.createElement("div", { style: Object.assign({}, st.card, { marginBottom: 16 }) },
           React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 6 } },
             React.createElement("span", { style: { fontSize: 13, fontWeight: 700 } }, "⏱ 時間進捗"),
@@ -600,7 +579,6 @@ function App() {
             React.createElement("span", null, "見積もり " + p.estTotalHours.toFixed(1) + "h（" + (p.estMinPerUnit || 0) + "分/着）")
           )
         ),
-
         !isOut && React.createElement("div", { style: Object.assign({}, st.rateBox, { background: p.closedAt ? "#1a1a1a" : "#f0f0ec", color: p.closedAt ? "#fff" : "#1a1a1a", marginBottom: 16 }) },
           React.createElement("div", { style: { fontSize: 11, opacity: 0.55, marginBottom: 4 } }, p.closedAt ? "時間あたり売上（確定）" : "現時点の時間あたり売上"),
           React.createElement("div", { style: { fontSize: 28, fontWeight: 700 } }, p.totalHours > 0 ? "¥" + Math.round(p.hourlyRate).toLocaleString() + "/h" : "—"),
@@ -608,9 +586,7 @@ function App() {
             React.createElement("span", { style: { color: p.hourlyRate >= estRate ? "#7dff7d" : "#ffaaaa" } }, p.hourlyRate >= estRate ? "▲ 目標超え" : "▼ 目標未達")
           )
         ),
-
         p.note && React.createElement("div", { style: Object.assign({}, st.card, { fontSize: 13, color: "#555", marginBottom: 16 }) }, "📝 " + p.note),
-
         !isOut && React.createElement("div", null,
           React.createElement(SectionLabel, null, "縫製士別 作業時間"),
           React.createElement("div", { style: st.card },
@@ -634,7 +610,6 @@ function App() {
             React.createElement("span", { style: { fontSize: 13, color: "#555" } }, r.hours + "h")
           ))
         ),
-
         !p.closedAt && React.createElement("button", { style: Object.assign({}, st.closeBtn, { marginTop: 20 }), onClick: () => { closePart(p.id); set({ screen: "master" }); } }, "この品番を完了にする"),
         p.closedAt && React.createElement("button", { style: Object.assign({}, st.closeBtn, { background: "#e8e6e0", color: "#777", marginTop: 16 }), onClick: () => reopenPart(p.id) }, "再開する"),
         React.createElement("button", { style: Object.assign({}, st.closeBtn, { background: "#fff0f0", color: "#c00", marginTop: 8 }), onClick: () => { if (window.confirm("この品番を削除しますか？")) { deletePart(p.id); set({ screen: "master" }); } } }, "削除する")
@@ -693,12 +668,8 @@ function App() {
                   myOpen.map((p) => React.createElement("option", { key: p.id, value: p.id }, p.partNo + (p.partName ? " (" + p.partName + ")" : "")))
                 )
           ),
-          React.createElement(FormRow, { label: "完成枚数" },
-            React.createElement("input", { style: st.input, type: "number", placeholder: "例: 10", min: "0", value: qf.qty, onChange: (e) => setQF({ qty: e.target.value }) })
-          ),
-          React.createElement(FormRow, { label: "日付" },
-            React.createElement("input", { style: st.input, type: "date", value: qf.date, onChange: (e) => setQF({ date: e.target.value }) })
-          ),
+          React.createElement(FormRow, { label: "完成枚数" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 10", min: "0", value: qf.qty, onChange: (e) => setQF({ qty: e.target.value }) })),
+          React.createElement(FormRow, { label: "日付" }, React.createElement("input", { style: st.input, type: "date", value: qf.date, onChange: (e) => setQF({ date: e.target.value }) })),
           React.createElement("button", { style: Object.assign({}, st.primaryBtn, { opacity: qfReady ? 1 : 0.35 }), disabled: !qfReady, onClick: addQtyRecord }, "記録する")
         ),
         React.createElement(SectionLabel, null, "進行中の品番"),
@@ -769,7 +740,6 @@ function App() {
     const totalSales = partSummary.reduce((a, p) => a + p.totalSales, 0);
     const totalProfit = partSummary.filter((p) => p.assigneeType === "outsource" && p.profit !== null).reduce((a, p) => a + p.profit, 0);
     const unassigned = partSummary.filter((p) => (!p.assignee || p.assignee === "未割当") && !p.closedAt).length;
-
     return React.createElement(Shell, null,
       React.createElement(Header, { title: "集計・仕事量管理", back: () => set({ screen: "home" }) }),
       React.createElement(Body, null,
@@ -1001,12 +971,12 @@ function DashCard(p) {
   const colors = { red: "#c00", yellow: "#b07000", green: "#2a7a2a" };
   const c = colors[p.level];
   const isOut = item.assigneeType === "outsource";
-  const assigneeLabel = isOut ? ("外注: " + (item.vendorName || "?")) : (item.assignee || "未割当");
+  const aLabel = isOut ? ("外注: " + (item.vendorName || "?")) : (item.assignee || "未割当");
   return React.createElement("button", { style: Object.assign({}, st.dashCard, { borderLeft: "4px solid " + c }), onClick: p.onClick },
     React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } },
       React.createElement("div", null,
         React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, item.partNo + (item.partName ? " (" + item.partName + ")" : "")),
-        React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginTop: 2 } }, assigneeLabel + (item.status ? " ／ " + item.status : ""))
+        React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginTop: 2 } }, aLabel + (item.status ? " ／ " + item.status : ""))
       ),
       React.createElement("div", { style: { textAlign: "right" } },
         item.deadline && React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: c } }, "あと" + item.remainDays + "日"),
