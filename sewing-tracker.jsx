@@ -7,7 +7,7 @@ const TEAMS = ["Aチーム", "Bチーム", "Cチーム", "サンプルチーム"
 const TEAM_COLORS = {
   "Aチーム": "#3b6fd4",
   "Bチーム": "#2a7a2a",
-  "Cチーム": "#c25000",
+  "Cチーム": "#c25000",F
   "サンプルチーム": "#7a2a7a",
   "外注": "#888",
   "未割当": "#bbb",
@@ -127,7 +127,11 @@ function App() {
       ? ((part.sellPrice - part.vendorPrice) / part.sellPrice) * 100 : null;
     const vendorName = part.assigneeType === "outsource"
       ? (data.vendors.find((v) => v.id === part.assignee) || {}).name || "未設定" : null;
-    return Object.assign({}, part, { totalHours, totalSales, hourlyRate, estTotalHours, progress, workerMap, recs, remainDays, dailyNeeded, profit, profitRate, vendorName });
+    const qtyRecs = (data.qtyRecords || []).filter((r) => r.partId === part.id);
+    const completedQty = qtyRecs.reduce((a, r) => a + r.qty, 0);
+    const remainQty = Math.max((part.qty || 0) - completedQty, 0);
+    const qtyProgress = part.qty > 0 ? Math.min(completedQty / part.qty, 1) : null;
+    return Object.assign({}, part, { totalHours,completedQty, remainQty, qtyProgress, totalSales, hourlyRate, estTotalHours, progress, workerMap, recs, remainDays, dailyNeeded, profit, profitRate, vendorName });
   }), [data.parts, data.records, data.vendors]);
 
   const activePart = partSummary.find((p) => p.id === ui.activePartId);
@@ -380,7 +384,7 @@ function App() {
           // 社内の場合
           !isOut && React.createElement("div", null,
             React.createElement(FormRow, { label: "製品単価（円）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3000", value: f.unitPrice, onChange: (e) => setAP({ unitPrice: e.target.value }) })),
-            React.createElement(FormRow, { label: "1着あたりの見積もり時間（h）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 0.5", min: "0", step: "0.1", value: f.estHoursPerUnit, onChange: (e) => setAP({ estHoursPerUnit: e.target.value }) }))
+            React.createElement(FormRow, { label: "1着あたりの見積もり時間（分）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 45", min: "0", step: "1", value: f.estHoursPerUnit ? Math.round(f.estHoursPerUnit * 60) : "", onChange: (e) => setAP({ estHoursPerUnit: e.target.value ? parseFloat(e.target.value) / 60 : "" }) })),
           ),
 
           // 外注の場合
@@ -472,7 +476,15 @@ function App() {
         ),
 
         // 社内: 進捗・時間単価
-        !isOut && p.progress !== null && React.createElement("div", { style: Object.assign({}, st.card, { marginBottom: 16 }) },
+        !isOut && p.qtyProgress !== null && React.createElement("div", { style: Object.assign({}, st.card, { marginBottom: 16 }) },
+          React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 6 } },
+            React.createElement("span", { style: { fontSize: 13, fontWeight: 700 } }, "完成枚数"),
+            React.createElement("span", { style: { fontSize: 13, color: "#555" } }, (p.completedQty || 0) + "枚 / " + (p.qty || 0) + "枚　残り " + (p.remainQty || 0) + "枚")
+          ),
+          React.createElement(ProgressBar, { value: p.qtyProgress }),
+          React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginTop: 4 } }, Math.round((p.qtyProgress || 0) * 100) + "% 完了")
+        ),
+                          !isOut && p.progress !== null && React.createElement("div", { style: Object.assign({}, st.card, { marginBottom: 16 }) },
           React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 6 } },
             React.createElement("span", { style: { fontSize: 13, fontWeight: 700 } }, "進捗"),
             React.createElement("span", { style: { fontSize: 13, color: "#555" } }, Math.round(p.progress * 100) + "%")
@@ -559,14 +571,37 @@ function App() {
   // ════════════════════════════════════════════════════════════════
   // チームリーダー
   // ════════════════════════════════════════════════════════════════
-  if (ui.screen === "team_leader") {
+  if (ui.screen === "team_leader") {function addCompletedQty() {
+      const { completedPartId, completedQty, completedDate } = ui.completedForm || {};
+      if (!completedPartId || !completedQty) return;
+      const newRecord = { id: genId(), partId: completedPartId, type: "qty", qty: parseFloat(completedQty), date: completedDate || today() };
+      updateData({ qtyRecords: (data.qtyRecords || []).concat([newRecord]) });
+      set({ completedForm: { completedPartId: "", completedQty: "", completedDate: today() }, showQtyForm: false });
+    }
     const myOpen = teamParts;
     const myDone = partSummary.filter((p) => p.assignee === ui.selectedTeam && p.assigneeType === "team" && p.closedAt);
     return React.createElement(Shell, null,
       React.createElement(Header, { title: ui.selectedTeam + "　リーダー", back: () => set({ screen: "home" }) }),
       React.createElement(Body, null,
         React.createElement("div", { style: { fontSize: 12, color: "#aaa", marginBottom: 16 } }, "品番の割当は品番マスターから行ってください"),
-        React.createElement(SectionLabel, null, "進行中の品番"),
+        // 完成枚数入力フォーム
+        React.createElement("div", { style: st.card },
+          React.createElement("div", { style: { fontSize: 13, fontWeight: 700, marginBottom: 12 } }, "📦 今日の完成枚数を入力"),
+          React.createElement(FormRow, { label: "品番を選ぶ" },
+            React.createElement("select", { style: st.input, value: (ui.completedForm || {}).completedPartId || "", onChange: (e) => set({ completedForm: Object.assign({}, ui.completedForm, { completedPartId: e.target.value }) }) },
+              React.createElement("option", { value: "" }, "選択してください"),
+              teamParts.map((p) => React.createElement("option", { key: p.id, value: p.id }, p.partNo + (p.partName ? " (" + p.partName + ")" : "")))
+            )
+          ),
+          React.createElement(FormRow, { label: "完成枚数" },
+            React.createElement("input", { style: st.input, type: "number", placeholder: "例: 10", min: "0", value: (ui.completedForm || {}).completedQty || "", onChange: (e) => set({ completedForm: Object.assign({}, ui.completedForm, { completedQty: e.target.value }) }) })
+          ),
+          React.createElement(FormRow, { label: "日付" },
+            React.createElement("input", { style: st.input, type: "date", value: (ui.completedForm || {}).completedDate || today(), onChange: (e) => set({ completedForm: Object.assign({}, ui.completedForm, { completedDate: e.target.value }) }) })
+          ),
+          React.createElement("button", { style: Object.assign({}, st.primaryBtn, { opacity: ((ui.completedForm || {}).completedPartId && (ui.completedForm || {}).completedQty) ? 1 : 0.35 }), onClick: addCompletedQty }, "記録する")
+        ),
+                          React.createElement(SectionLabel, null, "進行中の品番"),
         myOpen.length === 0 && React.createElement(Empty, null, "進行中の品番はありません"),
         myOpen.map((p) => React.createElement(PartCard, { key: p.id, p, onDetail: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "team_leader" }), onClose: () => closePart(p.id) })),
         React.createElement(SectionLabel, null, "完了済み"),
@@ -922,7 +957,8 @@ function DashCard(p) {
         item.deadline && React.createElement("div", { style: { fontSize: 11, color: "#aaa" } }, "納期: " + item.deadline.slice(5).replace("-", "/"))
       )
     ),
-    !isOut && item.progress !== null && React.createElement("div", { style: { marginTop: 8 } },
+    !isOut && item.qtyProgress !== null && React.createElement("div", { style: { marginTop: 6, fontSize: 12, color: "#555" } }, "完成: " + (item.completedQty || 0) + "枚 / " + (item.qty || 0) + "枚　残り " + (item.remainQty || 0) + "枚"),
+                             !isOut && item.progress !== null && React.createElement("div", { style: { marginTop: 8 } },
       React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 3 } },
         React.createElement("span", null, "進捗 " + Math.round(item.progress * 100) + "%"),
         item.dailyNeeded && React.createElement("span", { style: { color: c } }, "1日" + item.dailyNeeded.toFixed(1) + "h必要")
