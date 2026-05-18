@@ -296,11 +296,15 @@ function App() {
     URL.revokeObjectURL(url);
   }
 
-  function exportToSheet() {
+ function exportToSheet() {
     const month = ui.summaryMonth;
-    const encoded = encodeURIComponent(JSON.stringify(data));
-    const url = GAS_URL + "?action=report&month=" + month + "&data=" + encoded;
-    fetch(url).then(() => alert("スプレッドシートに出力しました！\nGoogleスプレッドシートの「月次レポート」シートを確認してください。")).catch(() => alert("出力に失敗しました。"));
+    fetch(GAS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ action: "report", month: month, data: data })
+    }).then((res) => res.json()).then(() => {
+      alert("スプレッドシートに出力しました！\nGoogleスプレッドシートの「月次レポート」シートを確認してください。");
+    }).catch(() => alert("出力に失敗しました。"));
   }
 
   if (loading) return React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", gap: 16, fontFamily: "'Hiragino Sans', sans-serif" } },
