@@ -50,10 +50,19 @@ const INIT_UI = {
 
 async function gasSave(data) {
   const json = JSON.stringify(data);
-  const encoded = encodeURIComponent(json);
-  const url = GAS_URL + "?action=save&data=" + encoded;
-  const res = await fetch(url);
-  await res.json();
+  // データが長い場合はPOSTで送る
+  if (json.length > 1000) {
+    const formData = new FormData();
+    formData.append("action", "save");
+    formData.append("data", json);
+    await fetch(GAS_URL, {
+      method: "POST",
+      body: formData,
+    });
+  } else {
+    const encoded = encodeURIComponent(json);
+    await fetch(GAS_URL + "?action=save&data=" + encoded);
+  }
 }
 
 function App() {
