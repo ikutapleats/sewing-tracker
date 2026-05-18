@@ -49,19 +49,32 @@ const INIT_UI = {
 };
 
 async function gasSave(data) {
-  const json = JSON.stringify(data);
-  // データが長い場合はPOSTで送る
-  if (json.length > 1000) {
-    const formData = new FormData();
-    formData.append("action", "save");
-    formData.append("data", json);
-    await fetch(GAS_URL, {
-      method: "POST",
-      body: formData,
-    });
+  // 不要なデータを省いて軽量化してから送る
+  const slim = {
+    parts: data.parts,
+    records: data.records,
+    qtyRecords: data.qtyRecords || [],
+    members: data.members,
+    vendors: data.vendors,
+    monthlyTargets: data.monthlyTargets,
+  };
+  const json = JSON.stringify(slim);
+  const encoded = encodeURIComponent(json);
+  const url = GAS_URL + "?action=save&data=" + encoded;
+  
+  if (url.length > 8000) {
+    // URLが長すぎる場合はチャンク分割して送る
+    const chunkSize = 5000;
+    const chunks = [];
+    for (let i = 0; i < json.length; i += chunkSize) {
+      chunks.push(json.slice(i, i + chunkSize));
+    }
+    for (let i = 0; i < chunks.length; i++) {
+      const chunkEncoded = encodeURIComponent(chunks[i]);
+      await fetch(GAS_URL + "?action=savechunk&index=" + i + "&total=" + chunks.length + "&data=" + chunkEncoded);
+    }
   } else {
-    const encoded = encodeURIComponent(json);
-    await fetch(GAS_URL + "?action=save&data=" + encoded);
+    await fetch(url);
   }
 }
 
