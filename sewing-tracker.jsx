@@ -51,11 +51,9 @@ const INIT_UI = {
 async function gasSave(data) {
   const json = JSON.stringify(data);
   const encoded = encodeURIComponent(json);
-  await fetch(GAS_URL + "?action=save&data=" + encoded, { mode: "no-cors" });
-}
-async function gasLoad() {
-  const res = await fetch(GAS_URL);
-  return await res.json();
+  const url = GAS_URL + "?action=save&data=" + encoded;
+  const res = await fetch(url);
+  await res.json();
 }
 
 function App() {
