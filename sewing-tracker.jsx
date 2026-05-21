@@ -21,48 +21,32 @@ function diffDays(a, b) {
 }
 
 const EMPTY_DATA = {
-  parts: [],
-  records: [],
-  qtyRecords: [],
-  members: [],
-  vendors: [],
-  monthlyTargets: {},
+  parts: [], records: [], qtyRecords: [], members: [], vendors: [], monthlyTargets: {},
 };
 
 const INIT_UI = {
-  screen: "home",
-  selectedTeam: null,
-  userRole: null,
+  screen: "home", selectedTeam: null, userRole: null,
   addPartForm: { partNo: "", partName: "", unitPrice: "", qty: "", estMinPerUnit: "", deadline: "", status: "未着手", note: "", assignee: "未割当", assigneeType: "team", vendorId: "", sellPrice: "", vendorPrice: "" },
   editPartForm: null,
   memberForm: { memberId: "", partId: "", hours: "", date: today() },
   qtyForm: { partId: "", qty: "", date: today() },
-  addMemberForm: { name: "" },
-  addVendorForm: { name: "" },
+  addMemberForm: { name: "" }, addVendorForm: { name: "" },
   targetForm: { month: today().slice(0, 7), team: TEAMS[0], sales: "", hourlyRate: "" },
-  activePartId: null,
-  masterFilter: "all",
-  summaryMonth: today().slice(0, 7),
-  editMemberId: null, editMemberName: "",
-  editVendorId: null, editVendorName: "",
+  activePartId: null, masterFilter: "all", summaryMonth: today().slice(0, 7),
+  editMemberId: null, editMemberName: "", editVendorId: null, editVendorName: "",
   prevScreen: "master",
 };
 
-// ── 保存：チャンク分割してGETで送る ──────────────────────────────
+// ── POSTで保存（確実）──────────────────────────────────────────────
 async function gasSave(data) {
   const json = JSON.stringify(data);
-  const chunkSize = 2000;
-  const chunks = [];
-  for (let i = 0; i < json.length; i += chunkSize) {
-    chunks.push(json.slice(i, i + chunkSize));
-  }
-  for (let i = 0; i < chunks.length; i++) {
-    const encoded = encodeURIComponent(chunks[i]);
-    const url = GAS_URL + "?action=savechunk&index=" + i + "&total=" + chunks.length + "&data=" + encoded;
-    await fetch(url, { mode: "no-cors" });
-    // 少し待つ
-    await new Promise((r) => setTimeout(r, 200));
-  }
+  const res = await fetch(GAS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ action: "save", data: json }),
+  });
+  const result = await res.json();
+  if (result.status !== "saved") throw new Error("save failed: " + JSON.stringify(result));
 }
 
 async function gasLoad() {
@@ -75,6 +59,7 @@ function App() {
   const [ui, setUi] = useState(INIT_UI);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
   const saveQueue = useRef(null);
 
   const set = (patch) => setUi((p) => Object.assign({}, p, patch));
@@ -96,19 +81,20 @@ function App() {
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  // デバウンス保存（1秒後に実行）
   const save = useCallback((nd) => {
     if (saveQueue.current) clearTimeout(saveQueue.current);
     setSaving(true);
+    setSaveError(false);
     saveQueue.current = setTimeout(async () => {
       try {
         await gasSave(nd);
       } catch(e) {
         console.error("save error", e);
+        setSaveError(true);
       } finally {
         setSaving(false);
       }
-    }, 1000);
+    }, 800);
   }, []);
 
   function updateData(patch) {
@@ -145,19 +131,15 @@ function App() {
   }), [data.parts, data.records, data.qtyRecords, data.vendors]);
 
   const activePart = partSummary.find((p) => p.id === ui.activePartId);
-
   const teamParts = useMemo(() => {
     if (!ui.selectedTeam) return [];
     return partSummary.filter((p) => p.assigneeType === "team" && p.assignee === ui.selectedTeam && !p.closedAt);
   }, [partSummary, ui.selectedTeam]);
 
-  const dashItems = useMemo(() => {
-    return partSummary.filter((p) => !p.closedAt).sort((a, b) => {
-      if (!a.deadline) return 1;
-      if (!b.deadline) return -1;
-      return a.deadline.localeCompare(b.deadline);
-    });
-  }, [partSummary]);
+  const dashItems = useMemo(() => partSummary.filter((p) => !p.closedAt).sort((a, b) => {
+    if (!a.deadline) return 1; if (!b.deadline) return -1;
+    return a.deadline.localeCompare(b.deadline);
+  }), [partSummary]);
 
   const filteredMaster = useMemo(() => {
     if (ui.masterFilter === "all") return partSummary;
@@ -187,39 +169,18 @@ function App() {
   }
 
   function startEdit(part) {
-    set({
-      editPartForm: {
-        id: part.id, partName: part.partName || "", unitPrice: part.unitPrice || "",
-        qty: part.qty || "", estMinPerUnit: part.estMinPerUnit || "",
-        deadline: part.deadline || "", status: part.status || "未着手",
-        note: part.note || "", sellPrice: part.sellPrice || "",
-        vendorPrice: part.vendorPrice || "", assigneeType: part.assigneeType || "team",
-      },
-      screen: "edit_part",
-    });
+    set({ editPartForm: { id: part.id, partName: part.partName || "", unitPrice: part.unitPrice || "", qty: part.qty || "", estMinPerUnit: part.estMinPerUnit || "", deadline: part.deadline || "", status: part.status || "未着手", note: part.note || "", sellPrice: part.sellPrice || "", vendorPrice: part.vendorPrice || "", assigneeType: part.assigneeType || "team" }, screen: "edit_part" });
   }
 
   function savePart() {
     const f = ui.editPartForm;
     if (!f) return;
     const isOut = f.assigneeType === "outsource";
-    updateData({
-      parts: data.parts.map((p) => p.id === f.id ? Object.assign({}, p, {
-        partName: f.partName.trim(), unitPrice: parseFloat(f.unitPrice) || 0,
-        qty: parseFloat(f.qty) || 0,
-        estMinPerUnit: isOut ? 0 : (parseFloat(f.estMinPerUnit) || 0),
-        deadline: f.deadline || null, status: f.status || "未着手", note: f.note.trim(),
-        sellPrice: isOut ? (parseFloat(f.sellPrice) || 0) : (p.sellPrice || 0),
-        vendorPrice: isOut ? (parseFloat(f.vendorPrice) || 0) : (p.vendorPrice || 0),
-      }) : p)
-    });
+    updateData({ parts: data.parts.map((p) => p.id === f.id ? Object.assign({}, p, { partName: f.partName.trim(), unitPrice: parseFloat(f.unitPrice) || 0, qty: parseFloat(f.qty) || 0, estMinPerUnit: isOut ? 0 : (parseFloat(f.estMinPerUnit) || 0), deadline: f.deadline || null, status: f.status || "未着手", note: f.note.trim(), sellPrice: isOut ? (parseFloat(f.sellPrice) || 0) : (p.sellPrice || 0), vendorPrice: isOut ? (parseFloat(f.vendorPrice) || 0) : (p.vendorPrice || 0) }) : p) });
     set({ editPartForm: null, screen: "part_detail" });
   }
 
-  function updatePartAssignee(id, assignee, assigneeType) {
-    updateData({ parts: data.parts.map((p) => p.id === id ? Object.assign({}, p, { assignee, assigneeType }) : p) });
-  }
-
+  function updatePartAssignee(id, assignee, assigneeType) { updateData({ parts: data.parts.map((p) => p.id === id ? Object.assign({}, p, { assignee, assigneeType }) : p) }); }
   function closePart(id) { updateData({ parts: data.parts.map((p) => p.id === id ? Object.assign({}, p, { closedAt: today() }) : p) }); }
   function reopenPart(id) { updateData({ parts: data.parts.map((p) => p.id === id ? Object.assign({}, p, { closedAt: null }) : p) }); }
   function deletePart(id) { updateData({ parts: data.parts.filter((p) => p.id !== id), records: data.records.filter((r) => r.partId !== id), qtyRecords: (data.qtyRecords || []).filter((r) => r.partId !== id) }); }
@@ -292,21 +253,15 @@ function App() {
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url;
-    a.download = "作業実績_" + today() + ".csv";
-    a.click();
+    a.href = url; a.download = "作業実績_" + today() + ".csv"; a.click();
     URL.revokeObjectURL(url);
   }
 
   function exportToSheet() {
     const month = ui.summaryMonth;
-    fetch(GAS_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain" },
-      body: JSON.stringify({ action: "report", month: month, data: data })
-    }).then((res) => res.json()).then(() => {
-      alert("スプレッドシートに出力しました！\nGoogleスプレッドシートの「月次レポート」シートを確認してください。");
-    }).catch(() => alert("出力に失敗しました。"));
+    fetch(GAS_URL, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify({ action: "report", month: month, data: data }) })
+      .then((res) => res.json()).then(() => alert("スプレッドシートに出力しました！\nGoogleスプレッドシートの「月次レポート」シートを確認してください。"))
+      .catch(() => alert("出力に失敗しました。"));
   }
 
   if (loading) return React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", gap: 16, fontFamily: "'Hiragino Sans', sans-serif" } },
@@ -314,7 +269,10 @@ function App() {
     React.createElement("div", { style: { color: "#aaa", fontSize: 14 } }, "読み込み中...")
   );
 
-  const SI = () => saving ? React.createElement("div", { style: { position: "fixed", bottom: 16, right: 16, zIndex: 100 } }, React.createElement("div", { style: st.saveBadge }, "💾 保存中...")) : null;
+  const SI = () => React.createElement("div", { style: { position: "fixed", bottom: 16, right: 16, zIndex: 100 } },
+    saving && React.createElement("div", { style: st.saveBadge }, "💾 保存中..."),
+    saveError && React.createElement("div", { style: Object.assign({}, st.saveBadge, { background: "#c00" }) }, "⚠️ 保存失敗 - 再試行してください")
+  );
 
   // ════════════════════════════════════════════════════════════════
   // HOME
@@ -367,17 +325,12 @@ function App() {
       React.createElement(Body, null,
         React.createElement("button", { style: st.dashedBtn, onClick: () => set({ screen: "add_part" }) }, "＋ 新しい品番を登録する"),
         unassigned.length > 0 && React.createElement("div", { style: { background: "#fff8e0", border: "1px solid #ffe599", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#b07000" } }, "⚠️ 担当未割当の品番が " + unassigned.length + " 件あります"),
-        React.createElement("div", { style: st.filterRow },
-          filters.map((f) => React.createElement("button", { key: f, style: Object.assign({}, st.filterBtn, ui.masterFilter === f ? st.filterBtnActive : {}), onClick: () => set({ masterFilter: f }) }, f === "all" ? "全体" : f))
-        ),
+        React.createElement("div", { style: st.filterRow }, filters.map((f) => React.createElement("button", { key: f, style: Object.assign({}, st.filterBtn, ui.masterFilter === f ? st.filterBtnActive : {}), onClick: () => set({ masterFilter: f }) }, f === "all" ? "全体" : f))),
         React.createElement("div", { style: { fontSize: 12, color: "#aaa", marginBottom: 12 } }, filteredMaster.length + "件"),
         filteredMaster.length === 0 && React.createElement(Empty, null, "品番がありません"),
         filteredMaster.map((p) => React.createElement("button", { key: p.id, style: Object.assign({}, st.summaryCard, { textAlign: "left" }), onClick: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "master" }) },
           React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 } },
-            React.createElement("div", null,
-              React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, p.partNo),
-              p.partName && React.createElement("div", { style: { fontSize: 12, color: "#888", marginTop: 2 } }, p.partName)
-            ),
+            React.createElement("div", null, React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, p.partNo), p.partName && React.createElement("div", { style: { fontSize: 12, color: "#888", marginTop: 2 } }, p.partName)),
             React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" } },
               p.closedAt ? React.createElement(Badge, { type: "done" }) : React.createElement(Badge, { type: "open" }),
               React.createElement(AssigneeBadge, { part: p, vendors: data.vendors }),
@@ -409,10 +362,8 @@ function App() {
     const f = ui.addPartForm;
     const isOut = f.assigneeType === "outsource";
     const estHoursPerUnit = (parseFloat(f.estMinPerUnit) || 0) / 60;
-    const estTotal = (!isOut && f.unitPrice && f.qty && f.estMinPerUnit)
-      ? { sales: parseFloat(f.unitPrice) * parseFloat(f.qty), hours: estHoursPerUnit * parseFloat(f.qty) } : null;
-    const profit = (isOut && f.sellPrice && f.vendorPrice && f.qty)
-      ? (parseFloat(f.sellPrice) - parseFloat(f.vendorPrice)) * parseFloat(f.qty) : null;
+    const estTotal = (!isOut && f.unitPrice && f.qty && f.estMinPerUnit) ? { sales: parseFloat(f.unitPrice) * parseFloat(f.qty), hours: estHoursPerUnit * parseFloat(f.qty) } : null;
+    const profit = (isOut && f.sellPrice && f.vendorPrice && f.qty) ? (parseFloat(f.sellPrice) - parseFloat(f.vendorPrice)) * parseFloat(f.qty) : null;
     const ready = f.partNo;
     return React.createElement(Shell, null,
       React.createElement(Header, { title: "品番を登録", back: () => set({ screen: "master" }) }),
@@ -471,15 +422,11 @@ function App() {
     const f = ui.editPartForm;
     const isOut = f.assigneeType === "outsource";
     const estHoursPerUnit = (parseFloat(f.estMinPerUnit) || 0) / 60;
-    const estTotal = (!isOut && f.unitPrice && f.qty && f.estMinPerUnit)
-      ? { sales: parseFloat(f.unitPrice) * parseFloat(f.qty), hours: estHoursPerUnit * parseFloat(f.qty) } : null;
-    const profit = (isOut && f.sellPrice && f.vendorPrice && f.qty)
-      ? (parseFloat(f.sellPrice) - parseFloat(f.vendorPrice)) * parseFloat(f.qty) : null;
     return React.createElement(Shell, null,
       React.createElement(Header, { title: "品番を編集", back: () => set({ screen: "part_detail", editPartForm: null }) }),
       React.createElement(Body, null,
         React.createElement("div", { style: st.card },
-          React.createElement(FormRow, { label: "品名" }, React.createElement("input", { style: st.input, placeholder: "例: プリーツスカート", value: f.partName, onChange: (e) => setEP({ partName: e.target.value }) })),
+          React.createElement(FormRow, { label: "品名" }, React.createElement("input", { style: st.input, value: f.partName, onChange: (e) => setEP({ partName: e.target.value }) })),
           React.createElement(FormRow, { label: "ステータス" }, React.createElement("select", { style: st.input, value: f.status, onChange: (e) => setEP({ status: e.target.value }) }, STATUSES.map((s) => React.createElement("option", { key: s }, s)))),
           React.createElement(FormRow, { label: "数量（枚）" }, React.createElement("input", { style: st.input, type: "number", value: f.qty, onChange: (e) => setEP({ qty: e.target.value }) })),
           React.createElement(FormRow, { label: "納期" }, React.createElement("input", { style: st.input, type: "date", value: f.deadline || "", onChange: (e) => setEP({ deadline: e.target.value }) })),
@@ -494,15 +441,7 @@ function App() {
             React.createElement(FormRow, { label: "販売単価（円）" }, React.createElement("input", { style: st.input, type: "number", value: f.sellPrice, onChange: (e) => setEP({ sellPrice: e.target.value }) })),
             React.createElement(FormRow, { label: "外注単価（円）" }, React.createElement("input", { style: st.input, type: "number", value: f.vendorPrice, onChange: (e) => setEP({ vendorPrice: e.target.value }) }))
           ),
-          React.createElement(FormRow, { label: "備考" }, React.createElement("input", { style: st.input, placeholder: "メモなど", value: f.note, onChange: (e) => setEP({ note: e.target.value }) })),
-          estTotal && React.createElement("div", { style: Object.assign({}, st.previewBox, { background: "#f0f8f0" }) },
-            React.createElement("div", { style: st.previewRow }, React.createElement("span", null, "合計売上予定"), React.createElement("b", null, "¥" + Math.round(estTotal.sales).toLocaleString())),
-            React.createElement("div", { style: st.previewRow }, React.createElement("span", null, "総見積もり時間"), React.createElement("b", null, estTotal.hours.toFixed(1) + "h")),
-            estTotal.hours > 0 && React.createElement("div", { style: st.previewRow }, React.createElement("span", null, "目標時間単価"), React.createElement("b", { style: { color: "#2a7a2a" } }, "¥" + Math.round(estTotal.sales / estTotal.hours).toLocaleString() + "/h"))
-          ),
-          profit !== null && React.createElement("div", { style: Object.assign({}, st.previewBox, { background: profit >= 0 ? "#f0f8f0" : "#fff0f0" }) },
-            React.createElement("div", { style: st.previewRow }, React.createElement("span", null, "利益"), React.createElement("b", { style: { color: profit >= 0 ? "#2a7a2a" : "#c00" } }, "¥" + Math.round(profit).toLocaleString()))
-          ),
+          React.createElement(FormRow, { label: "備考" }, React.createElement("input", { style: st.input, value: f.note, onChange: (e) => setEP({ note: e.target.value }) })),
           React.createElement("button", { style: st.primaryBtn, onClick: savePart }, "保存する")
         )
       )
@@ -688,10 +627,7 @@ function App() {
   // ════════════════════════════════════════════════════════════════
   if (ui.screen === "member_entry") {
     const f = ui.memberForm;
-    const todayRecs = data.records.filter((r) => {
-      const part = data.parts.find((p) => p.id === r.partId);
-      return r.date === f.date && part && part.assignee === ui.selectedTeam;
-    });
+    const todayRecs = data.records.filter((r) => { const part = data.parts.find((p) => p.id === r.partId); return r.date === f.date && part && part.assignee === ui.selectedTeam; });
     const ready = f.memberId && f.partId && f.hours;
     return React.createElement(Shell, null,
       React.createElement(Header, { title: ui.selectedTeam + "　作業記録", back: () => set({ screen: "home" }) }),
@@ -717,15 +653,7 @@ function App() {
             ),
         React.createElement(SectionLabel, null, "本日の入力 (" + f.date + ")"),
         todayRecs.length === 0 && React.createElement(Empty, null, "まだ入力がありません"),
-        todayRecs.map((r) => {
-          const part = data.parts.find((x) => x.id === r.partId);
-          return React.createElement("div", { key: r.id, style: st.recRow },
-            React.createElement("span", { style: { fontSize: 12, color: "#888", minWidth: 64 } }, r.memberName),
-            React.createElement("span", { style: { fontSize: 13, fontWeight: 700, flex: 1 } }, part ? part.partNo : "?"),
-            React.createElement("span", { style: { fontSize: 13, color: "#555" } }, r.hours + "h"),
-            React.createElement("button", { style: st.deleteBtn, onClick: () => deleteRecord(r.id) }, "✕")
-          );
-        })
+        todayRecs.map((r) => { const part = data.parts.find((x) => x.id === r.partId); return React.createElement("div", { key: r.id, style: st.recRow }, React.createElement("span", { style: { fontSize: 12, color: "#888", minWidth: 64 } }, r.memberName), React.createElement("span", { style: { fontSize: 13, fontWeight: 700, flex: 1 } }, part ? part.partNo : "?"), React.createElement("span", { style: { fontSize: 13, color: "#555" } }, r.hours + "h"), React.createElement("button", { style: st.deleteBtn, onClick: () => deleteRecord(r.id) }, "✕")); })
       ),
       React.createElement(SI)
     );
@@ -776,10 +704,7 @@ function App() {
               React.createElement(SBox, { label: "時間単価", value: tHours > 0 ? "¥" + Math.round(tRate).toLocaleString() + "/h" : "—" })
             ),
             tQty > 0 && React.createElement("div", null,
-              React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 3 } },
-                React.createElement("span", null, "枚数進捗"),
-                React.createElement("span", null, tCompletedQty + "枚 / " + tQty + "枚")
-              ),
+              React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 3 } }, React.createElement("span", null, "枚数進捗"), React.createElement("span", null, tCompletedQty + "枚 / " + tQty + "枚")),
               React.createElement(ProgressBar, { value: tQty > 0 ? tCompletedQty / tQty : 0 })
             )
           );
@@ -794,10 +719,7 @@ function App() {
             const vParts = partSummary.filter((p) => p.assignee === v.id && p.assigneeType === "outsource" && !p.closedAt);
             const vProfit = vParts.reduce((a, p) => a + (p.profit || 0), 0);
             if (vParts.length === 0) return null;
-            return React.createElement("div", { key: v.id, style: { display: "flex", justifyContent: "space-between", fontSize: 13, color: "#555", marginBottom: 6 } },
-              React.createElement("span", null, v.name),
-              React.createElement("span", null, vParts.length + "件 ／ 利益 ¥" + Math.round(vProfit).toLocaleString())
-            );
+            return React.createElement("div", { key: v.id, style: { display: "flex", justifyContent: "space-between", fontSize: 13, color: "#555", marginBottom: 6 } }, React.createElement("span", null, v.name), React.createElement("span", null, vParts.length + "件 ／ 利益 ¥" + Math.round(vProfit).toLocaleString()));
           })
         )
       ),
@@ -823,16 +745,8 @@ function App() {
       data.members.length === 0 && React.createElement(Empty, null, "メンバーがいません"),
       data.members.map((m) => React.createElement("div", { key: m.id, style: st.memberRow },
         ui.editMemberId === m.id
-          ? React.createElement(React.Fragment, null,
-              React.createElement("input", { style: Object.assign({}, st.input, { flex: 1, fontSize: 14 }), value: ui.editMemberName, onChange: (e) => set({ editMemberName: e.target.value }) }),
-              React.createElement("button", { style: st.inlineBtn, onClick: saveMemberName }, "保存"),
-              React.createElement("button", { style: st.ghostBtn, onClick: () => set({ editMemberId: null }) }, "取消")
-            )
-          : React.createElement(React.Fragment, null,
-              React.createElement("span", { style: { flex: 1, fontSize: 14, fontWeight: 600 } }, m.name),
-              React.createElement("button", { style: st.ghostBtn, onClick: () => set({ editMemberId: m.id, editMemberName: m.name }) }, "編集"),
-              React.createElement("button", { style: Object.assign({}, st.ghostBtn, { color: "#c00" }), onClick: () => deleteMember(m.id) }, "削除")
-            )
+          ? React.createElement(React.Fragment, null, React.createElement("input", { style: Object.assign({}, st.input, { flex: 1, fontSize: 14 }), value: ui.editMemberName, onChange: (e) => set({ editMemberName: e.target.value }) }), React.createElement("button", { style: st.inlineBtn, onClick: saveMemberName }, "保存"), React.createElement("button", { style: st.ghostBtn, onClick: () => set({ editMemberId: null }) }, "取消"))
+          : React.createElement(React.Fragment, null, React.createElement("span", { style: { flex: 1, fontSize: 14, fontWeight: 600 } }, m.name), React.createElement("button", { style: st.ghostBtn, onClick: () => set({ editMemberId: m.id, editMemberName: m.name }) }, "編集"), React.createElement("button", { style: Object.assign({}, st.ghostBtn, { color: "#c00" }), onClick: () => deleteMember(m.id) }, "削除"))
       ))
     ),
     React.createElement(SI)
@@ -856,16 +770,8 @@ function App() {
       data.vendors.length === 0 && React.createElement(Empty, null, "外注先がいません"),
       data.vendors.map((v) => React.createElement("div", { key: v.id, style: st.memberRow },
         ui.editVendorId === v.id
-          ? React.createElement(React.Fragment, null,
-              React.createElement("input", { style: Object.assign({}, st.input, { flex: 1, fontSize: 14 }), value: ui.editVendorName, onChange: (e) => set({ editVendorName: e.target.value }) }),
-              React.createElement("button", { style: st.inlineBtn, onClick: saveVendorName }, "保存"),
-              React.createElement("button", { style: st.ghostBtn, onClick: () => set({ editVendorId: null }) }, "取消")
-            )
-          : React.createElement(React.Fragment, null,
-              React.createElement("span", { style: { flex: 1, fontSize: 14, fontWeight: 600 } }, v.name),
-              React.createElement("button", { style: st.ghostBtn, onClick: () => set({ editVendorId: v.id, editVendorName: v.name }) }, "編集"),
-              React.createElement("button", { style: Object.assign({}, st.ghostBtn, { color: "#c00" }), onClick: () => deleteVendor(v.id) }, "削除")
-            )
+          ? React.createElement(React.Fragment, null, React.createElement("input", { style: Object.assign({}, st.input, { flex: 1, fontSize: 14 }), value: ui.editVendorName, onChange: (e) => set({ editVendorName: e.target.value }) }), React.createElement("button", { style: st.inlineBtn, onClick: saveVendorName }, "保存"), React.createElement("button", { style: st.ghostBtn, onClick: () => set({ editVendorId: null }) }, "取消"))
+          : React.createElement(React.Fragment, null, React.createElement("span", { style: { flex: 1, fontSize: 14, fontWeight: 600 } }, v.name), React.createElement("button", { style: st.ghostBtn, onClick: () => set({ editVendorId: v.id, editVendorName: v.name }) }, "編集"), React.createElement("button", { style: Object.assign({}, st.ghostBtn, { color: "#c00" }), onClick: () => deleteVendor(v.id) }, "削除"))
       ))
     ),
     React.createElement(SI)
@@ -896,98 +802,39 @@ function App() {
 
 // ── Sub-components ──────────────────────────────────────────────────
 function Shell(p) { return React.createElement("div", { style: st.root }, p.children); }
-function Header(p) {
-  return React.createElement("div", { style: st.header },
-    p.back && React.createElement("button", { style: st.backBtn, onClick: p.back }, "‹ 戻る"),
-    p.sub && React.createElement("div", { style: { fontSize: 10, letterSpacing: "0.2em", color: "#555", marginBottom: 2 } }, p.sub),
-    React.createElement("div", { style: st.headerTitle }, p.title)
-  );
-}
+function Header(p) { return React.createElement("div", { style: st.header }, p.back && React.createElement("button", { style: st.backBtn, onClick: p.back }, "‹ 戻る"), p.sub && React.createElement("div", { style: { fontSize: 10, letterSpacing: "0.2em", color: "#555", marginBottom: 2 } }, p.sub), React.createElement("div", { style: st.headerTitle }, p.title)); }
 function Body(p) { return React.createElement("div", { style: st.body }, p.children); }
 function Spacer(p) { return React.createElement("div", { style: { height: p.h || 8 } }); }
-function Divider(p) {
-  return React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, margin: "4px 0 14px" } },
-    React.createElement("div", { style: { flex: 1, height: 1, background: "#e0deda" } }),
-    React.createElement("span", { style: { fontSize: 11, color: "#bbb" } }, p.label),
-    React.createElement("div", { style: { flex: 1, height: 1, background: "#e0deda" } })
-  );
-}
-function BigBtn(p) {
-  return React.createElement("button", { style: st.bigBtn, onClick: p.onClick },
-    React.createElement("span", { style: { fontSize: 22 } }, p.icon),
-    React.createElement("div", { style: { textAlign: "left" } },
-      React.createElement("div", { style: { fontSize: 16, fontWeight: 700 } }, p.label),
-      React.createElement("div", { style: { fontSize: 11, color: "#999", marginTop: 2 } }, p.sub)
-    )
-  );
-}
-function RoleBtn(p) {
-  return React.createElement("button", { style: st.roleBtn, onClick: p.onClick },
-    React.createElement("span", { style: { fontSize: 16 } }, p.icon),
-    React.createElement("span", { style: { fontSize: 13, fontWeight: 700 } }, p.label)
-  );
-}
+function Divider(p) { return React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, margin: "4px 0 14px" } }, React.createElement("div", { style: { flex: 1, height: 1, background: "#e0deda" } }), React.createElement("span", { style: { fontSize: 11, color: "#bbb" } }, p.label), React.createElement("div", { style: { flex: 1, height: 1, background: "#e0deda" } })); }
+function BigBtn(p) { return React.createElement("button", { style: st.bigBtn, onClick: p.onClick }, React.createElement("span", { style: { fontSize: 22 } }, p.icon), React.createElement("div", { style: { textAlign: "left" } }, React.createElement("div", { style: { fontSize: 16, fontWeight: 700 } }, p.label), React.createElement("div", { style: { fontSize: 11, color: "#999", marginTop: 2 } }, p.sub))); }
+function RoleBtn(p) { return React.createElement("button", { style: st.roleBtn, onClick: p.onClick }, React.createElement("span", { style: { fontSize: 16 } }, p.icon), React.createElement("span", { style: { fontSize: 13, fontWeight: 700 } }, p.label)); }
 function QuickBtn(p) { return React.createElement("button", { style: st.quickBtn, onClick: p.onClick }, p.label); }
-function TeamBadge(p) {
-  const c = TEAM_COLORS[p.team] || "#888";
-  return React.createElement("span", { style: { background: c + "18", color: c, fontSize: p.small ? 11 : 13, padding: p.small ? "2px 8px" : "4px 12px", borderRadius: 20, fontWeight: 700, border: "1px solid " + c + "44", display: "inline-block" } }, p.team);
-}
+function TeamBadge(p) { const c = TEAM_COLORS[p.team] || "#888"; return React.createElement("span", { style: { background: c + "18", color: c, fontSize: p.small ? 11 : 13, padding: p.small ? "2px 8px" : "4px 12px", borderRadius: 20, fontWeight: 700, border: "1px solid " + c + "44", display: "inline-block" } }, p.team); }
 function AssigneeBadge(p) {
-  const part = p.part;
-  const vendors = p.vendors;
+  const part = p.part; const vendors = p.vendors;
   if (!part.assignee || part.assignee === "未割当") return React.createElement("span", { style: { background: "#f0f0f0", color: "#aaa", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700 } }, "未割当");
-  if (part.assigneeType === "outsource") {
-    const v = vendors.find((v) => v.id === part.assignee);
-    return React.createElement("span", { style: { background: "#88888818", color: "#555", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700, border: "1px solid #88888844" } }, "外注: " + (v ? v.name : "?"));
-  }
+  if (part.assigneeType === "outsource") { const v = vendors.find((v) => v.id === part.assignee); return React.createElement("span", { style: { background: "#88888818", color: "#555", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700, border: "1px solid #88888844" } }, "外注: " + (v ? v.name : "?")); }
   const c = TEAM_COLORS[part.assignee] || "#888";
   return React.createElement("span", { style: { background: c + "18", color: c, fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700, border: "1px solid " + c + "44" } }, part.assignee);
 }
-function StatusBadge(p) {
-  const colors = { "未着手": "#aaa", "受注確認": "#3b6fd4", "裁断待ち": "#c25000", "製作中": "#7a2a7a", "完了": "#2a7a2a" };
-  const c = colors[p.status] || "#aaa";
-  return React.createElement("span", { style: { background: c + "18", color: c, fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700, border: "1px solid " + c + "44" } }, p.status);
-}
+function StatusBadge(p) { const colors = { "未着手": "#aaa", "受注確認": "#3b6fd4", "裁断待ち": "#c25000", "製作中": "#7a2a7a", "完了": "#2a7a2a" }; const c = colors[p.status] || "#aaa"; return React.createElement("span", { style: { background: c + "18", color: c, fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700, border: "1px solid " + c + "44" } }, p.status); }
 function SectionLabel(p) { return React.createElement("div", { style: st.sectionLabel }, p.children); }
 function Empty(p) { return React.createElement("div", { style: st.empty }, p.children); }
 function FormRow(p) { return React.createElement("div", { style: { marginBottom: 14 } }, React.createElement("div", { style: { fontSize: 11, color: "#888", marginBottom: 4 } }, p.label), p.children); }
-function SBox(p) {
-  return React.createElement("div", { style: Object.assign({}, st.sBox, { background: p.dark ? "#1a1a1a" : "#fff" }) },
-    React.createElement("div", { style: { fontSize: 10, color: p.dark ? "#777" : "#aaa", marginBottom: 5 } }, p.label),
-    React.createElement("div", { style: { fontSize: 15, fontWeight: 700, color: p.dark ? "#fff" : "#1a1a1a" } }, p.value)
-  );
-}
-function Badge(p) {
-  const done = p.type === "done";
-  return React.createElement("span", { style: { background: done ? "#e8f5e8" : "#fff3e0", color: done ? "#2a7a2a" : "#c25000", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700 } }, done ? "完了" : "進行中");
-}
-function ProgressBar(p) {
-  const pct = Math.min(Math.max(p.value || 0, 0), 1) * 100;
-  const c = p.color || (pct >= 100 ? "#2a7a2a" : "#3b6fd4");
-  return React.createElement("div", { style: st.barBg }, React.createElement("div", { style: Object.assign({}, st.barFill, { width: pct + "%", background: c }) }));
-}
+function SBox(p) { return React.createElement("div", { style: Object.assign({}, st.sBox, { background: p.dark ? "#1a1a1a" : "#fff" }) }, React.createElement("div", { style: { fontSize: 10, color: p.dark ? "#777" : "#aaa", marginBottom: 5 } }, p.label), React.createElement("div", { style: { fontSize: 15, fontWeight: 700, color: p.dark ? "#fff" : "#1a1a1a" } }, p.value)); }
+function Badge(p) { const done = p.type === "done"; return React.createElement("span", { style: { background: done ? "#e8f5e8" : "#fff3e0", color: done ? "#2a7a2a" : "#c25000", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700 } }, done ? "完了" : "進行中"); }
+function ProgressBar(p) { const pct = Math.min(Math.max(p.value || 0, 0), 1) * 100; const c = p.color || (pct >= 100 ? "#2a7a2a" : "#3b6fd4"); return React.createElement("div", { style: st.barBg }, React.createElement("div", { style: Object.assign({}, st.barFill, { width: pct + "%", background: c }) })); }
 function DashCard(p) {
-  const item = p.item;
-  const colors = { red: "#c00", yellow: "#b07000", green: "#2a7a2a" };
-  const c = colors[p.level];
+  const item = p.item; const colors = { red: "#c00", yellow: "#b07000", green: "#2a7a2a" }; const c = colors[p.level];
   const isOut = item.assigneeType === "outsource";
   const aLabel = isOut ? ("外注: " + (item.vendorName || "?")) : (item.assignee || "未割当");
   return React.createElement("button", { style: Object.assign({}, st.dashCard, { borderLeft: "4px solid " + c }), onClick: p.onClick },
     React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } },
-      React.createElement("div", null,
-        React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, item.partNo + (item.partName ? " (" + item.partName + ")" : "")),
-        React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginTop: 2 } }, aLabel + (item.status ? " ／ " + item.status : ""))
-      ),
-      React.createElement("div", { style: { textAlign: "right" } },
-        item.deadline && React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: c } }, "あと" + item.remainDays + "日"),
-        item.deadline && React.createElement("div", { style: { fontSize: 11, color: "#aaa" } }, "納期: " + item.deadline.slice(5).replace("-", "/"))
-      )
+      React.createElement("div", null, React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, item.partNo + (item.partName ? " (" + item.partName + ")" : "")), React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginTop: 2 } }, aLabel + (item.status ? " ／ " + item.status : ""))),
+      React.createElement("div", { style: { textAlign: "right" } }, item.deadline && React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: c } }, "あと" + item.remainDays + "日"), item.deadline && React.createElement("div", { style: { fontSize: 11, color: "#aaa" } }, "納期: " + item.deadline.slice(5).replace("-", "/")))
     ),
     item.qtyProgress !== null && React.createElement("div", { style: { marginTop: 8 } },
-      React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 3 } },
-        React.createElement("span", null, "完成 " + item.completedQty + "枚 / " + item.qty + "枚"),
-        React.createElement("span", { style: { color: c, fontWeight: 700 } }, "残り " + item.remainQty + "枚")
-      ),
+      React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 3 } }, React.createElement("span", null, "完成 " + item.completedQty + "枚 / " + item.qty + "枚"), React.createElement("span", { style: { color: c, fontWeight: 700 } }, "残り " + item.remainQty + "枚")),
       React.createElement(ProgressBar, { value: item.qtyProgress, color: c })
     )
   );
@@ -1004,15 +851,11 @@ function PartCard(p) {
       React.createElement("button", { style: st.detailLink, onClick: p.onDetail }, "詳細 ›")
     ),
     !p.done && part.qtyProgress !== null && React.createElement("div", { style: { marginBottom: 8 } },
-      React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 12, color: "#555", marginBottom: 3 } },
-        React.createElement("span", null, "完成 " + part.completedQty + "枚 / " + part.qty + "枚"),
-        React.createElement("span", { style: { color: part.remainQty === 0 ? "#2a7a2a" : "#888", fontWeight: 700 } }, "残り " + part.remainQty + "枚")
-      ),
+      React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 12, color: "#555", marginBottom: 3 } }, React.createElement("span", null, "完成 " + part.completedQty + "枚 / " + part.qty + "枚"), React.createElement("span", { style: { color: part.remainQty === 0 ? "#2a7a2a" : "#888", fontWeight: 700 } }, "残り " + part.remainQty + "枚")),
       React.createElement(ProgressBar, { value: part.qtyProgress, color: part.remainQty === 0 ? "#2a7a2a" : "#3b6fd4" })
     ),
     React.createElement("div", { style: Object.assign({}, st.statsRow, { background: p.done ? "#eeecea" : "#f5f4f0" }) },
-      React.createElement("span", null, "累計 "),
-      React.createElement("b", null, part.totalHours.toFixed(1) + "h"),
+      React.createElement("span", null, "累計 "), React.createElement("b", null, part.totalHours.toFixed(1) + "h"),
       React.createElement("span", { style: { color: "#ddd" } }, "｜"),
       React.createElement("span", { style: { color: p.done ? "#2a7a2a" : "#555", fontWeight: p.done ? 700 : 400 } }, part.totalHours > 0 ? "¥" + Math.round(part.hourlyRate).toLocaleString() + "/h" : "—", p.done ? " 確定" : "")
     ),
@@ -1063,7 +906,7 @@ const st = {
   rateBox: { borderRadius: 14, padding: "18px 20px", marginBottom: 16 },
   barBg: { background: "#f0eeea", borderRadius: 4, height: 6, overflow: "hidden" },
   barFill: { height: "100%", borderRadius: 4, transition: "width 0.4s" },
-  saveBadge: { background: "#1a1a1a", color: "#fff", fontSize: 12, padding: "8px 14px", borderRadius: 20, boxShadow: "0 2px 8px rgba(0,0,0,.2)" },
+  saveBadge: { background: "#1a1a1a", color: "#fff", fontSize: 12, padding: "8px 14px", borderRadius: 20, boxShadow: "0 2px 8px rgba(0,0,0,.2)", marginBottom: 8 },
   spinner: { width: 32, height: 32, border: "3px solid #e0deda", borderTop: "3px solid #1a1a1a", borderRadius: "50%", animation: "spin 0.8s linear infinite" },
   alertBanner: { fontSize: 12, fontWeight: 700, padding: "8px 12px", borderRadius: 8, border: "1px solid", marginBottom: 8, marginTop: 8 },
   dashCard: { display: "block", width: "100%", background: "#fff", border: "none", borderRadius: 12, padding: "14px 16px", marginBottom: 10, cursor: "pointer", textAlign: "left", boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
