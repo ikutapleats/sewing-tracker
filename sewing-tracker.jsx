@@ -1,20 +1,3 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>生産管理 - IQUTA PLEATS</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-<style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: #f5f4f0; font-family: 'Hiragino Sans', 'Noto Sans JP', sans-serif; }
-@keyframes spin { to { transform: rotate(360deg); } }
-</style>
-</head>
-<body>
-<div id="root"></div>
-<script>
 const { useState, useMemo, useEffect, useCallback, useRef } = React;
 
 const GAS_URL = "https://script.google.com/macros/s/AKfycbxN7_GWK5xxPJm79eq2uvA1AIVRI6x_g0fD1HHng_Eyo51JEw5JVC3021iYYz_Y3yjxcw/exec";
@@ -1069,6 +1052,3 @@ document.head.appendChild(styleEl);
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(React.createElement(App));
-</script>
-</body>
-</html>
