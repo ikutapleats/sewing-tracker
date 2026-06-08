@@ -300,8 +300,14 @@ function App() {
   }
 
   function saveSaidan() {
-    const f = ui.saidanForm;
-    if (!f) return;
+    const f0 = ui.saidanForm;
+    if (!f0) return;
+    const ydReal = parseFloat(f0.ydReal) || 0;
+    const colors = (f0.colors || []).map((c) => {
+      const rt = (c.counts || []).reduce((a, v) => a + (parseInt(v, 10) || 0), 0);
+      return Object.assign({}, c, { useM: ydReal ? +(ydReal * rt).toFixed(2) : "" });
+    });
+    const f = Object.assign({}, f0, { colors });
     const list = (data.saidanReports || []).slice();
     if (f.id) {
       const idx = list.findIndex((r) => r.id === f.id);
@@ -336,7 +342,7 @@ function App() {
       let rt = 0;
       (c.counts || []).forEach((v, i) => { const n = num(v); rt += n; colTotals[i] += n; });
       grand += rt;
-      const inM = fl(c.inM), useM = fl(c.useM), rem = inM - useM;
+      const inM = fl(c.inM), useM = fl(f.ydReal) * rt, rem = inM - useM;
       sumIn += inM; sumUse += useM;
       const cells = (c.counts || []).map((v) => "<td class='c'>" + (num(v) || "") + "</td>").join("");
       return "<tr><td class='cn'>" + esc(c.name) + "</td>" + cells +
@@ -1396,12 +1402,15 @@ function App() {
     const num = (v) => { const x = parseInt(v, 10); return isNaN(x) ? 0 : x; };
     const fl = (v) => { const x = parseFloat(v); return isNaN(x) ? 0 : x; };
     const colTotals = [0, 0, 0, 0, 0];
+    const ydReal = fl(f.ydReal);
     let grand = 0, sumIn = 0, sumUse = 0;
-    const rowTotals = (f.colors || []).map((c) => {
+    const rowTotals = [], rowUse = [];
+    (f.colors || []).forEach((c) => {
       let rt = 0;
       (c.counts || []).forEach((v, i) => { const n = num(v); rt += n; colTotals[i] += n; });
-      grand += rt; sumIn += fl(c.inM); sumUse += fl(c.useM);
-      return rt;
+      const use = ydReal * rt;
+      rowTotals.push(rt); rowUse.push(use);
+      grand += rt; sumIn += fl(c.inM); sumUse += use;
     });
     const sumRem = sumIn - sumUse;
     const good = Math.max(0, grand - num(f.defect));
@@ -1455,7 +1464,8 @@ function App() {
             React.createElement("div", { style: { flex: 1 } }, React.createElement(FormRow, { label: "客先指定用尺" }, React.createElement("input", { style: st.input, type: "number", step: "0.01", min: "0", value: f.ydSpec, onChange: (e) => setSF({ ydSpec: e.target.value }) }))),
             React.createElement("div", { style: { flex: 1 } }, React.createElement(FormRow, { label: "実用尺（自社決定）" }, React.createElement("input", { style: st.input, type: "number", step: "0.01", min: "0", value: f.ydReal, onChange: (e) => setSF({ ydReal: e.target.value }) })))
           ),
-          (f.ydSpec !== "" || f.ydReal !== "") && React.createElement("div", { style: { fontSize: 12, color: ydDiff < 0 ? "#c00" : "#14555a", fontWeight: 700 } }, "用尺差（実−指定）: " + (ydDiff > 0 ? "+" : "") + ydDiff.toFixed(2) + " m")
+          (f.ydSpec !== "" || f.ydReal !== "") && React.createElement("div", { style: { fontSize: 12, color: ydDiff < 0 ? "#c00" : "#14555a", fontWeight: 700 } }, "用尺差（実−指定）: " + (ydDiff > 0 ? "+" : "") + ydDiff.toFixed(2) + " m"),
+          React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginTop: 6 } }, "※ 各色の使用mは「実用尺 × その色の枚数」で自動計算されます")
         ),
 
         React.createElement(SectionLabel, null, "裁断数量・生地（色別）"),
@@ -1483,13 +1493,13 @@ function App() {
               React.createElement("input", { style: Object.assign({}, st.input, { padding: "8px 10px" }), type: "number", step: "0.1", min: "0", placeholder: "0.0", value: c.inM, onChange: (e) => updColor(i, { inM: e.target.value }) })
             ),
             React.createElement("div", { style: { flex: 1 } },
-              React.createElement("div", { style: { fontSize: 10, color: "#888", marginBottom: 3 } }, "使用m"),
-              React.createElement("input", { style: Object.assign({}, st.input, { padding: "8px 10px" }), type: "number", step: "0.1", min: "0", placeholder: "0.0", value: c.useM, onChange: (e) => updColor(i, { useM: e.target.value }) })
+              React.createElement("div", { style: { fontSize: 10, color: "#888", marginBottom: 3 } }, "使用m（自動）"),
+              React.createElement("div", { style: { padding: "9px 10px", background: "#f3ecdf", borderRadius: 8, fontSize: 14, fontWeight: 700, color: "#7a5a2a", textAlign: "right" } }, ydReal > 0 ? rowUse[i].toFixed(1) : "—")
             ),
             React.createElement("div", { style: { flex: 1, textAlign: "right" } },
               React.createElement("div", { style: { fontSize: 10, color: "#888", marginBottom: 3 } }, "色計 / 残布m"),
               React.createElement("div", { style: { fontSize: 14, fontWeight: 800, color: "#14555a" } }, rowTotals[i] + "枚"),
-              React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: "#7a5a2a" } }, (fl(c.inM) || fl(c.useM)) ? (fl(c.inM) - fl(c.useM)).toFixed(1) + "m" : "—")
+              React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: "#7a5a2a" } }, (fl(c.inM) || rowUse[i]) ? (fl(c.inM) - rowUse[i]).toFixed(1) + "m" : "—")
             )
           )
         )),
