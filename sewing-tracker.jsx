@@ -20,14 +20,8 @@ function diffDays(a, b) {
 }
 
 const EMPTY_DATA = {
-  parts: [], records: [], qtyRecords: [], members: [], vendors: [], brands: [], monthlyTargets: {}, saidanReports: [],
+  parts: [], records: [], qtyRecords: [], members: [], vendors: [], brands: [], monthlyTargets: {},
 };
-
-const SAIDAN_METHODS = ["CAM", "手裁断"];
-const SAIDAN_NEXT = TEAMS.concat(["外注"]);
-function emptySaidanColors() {
-  return [0, 1, 2, 3].map(() => ({ name: "", counts: ["", "", "", "", ""], inM: "", useM: "" }));
-}
 
 const INIT_UI = {
   screen: "home", selectedTeam: null, userRole: null,
@@ -44,8 +38,9 @@ const INIT_UI = {
   prevScreen: "master",
   dashFilter: "active",
   selectedBrandId: null,
-  saidanPartId: null,
-  saidanForm: null,
+  activeMemberId: null,
+  calMonth: null,
+  calSelectedDate: null,
 };
 
 async function gasSave(data) {
@@ -78,7 +73,6 @@ function App() {
   const setMF = (patch) => setUi((p) => Object.assign({}, p, { memberForm: Object.assign({}, p.memberForm, patch) }));
   const setQF = (patch) => setUi((p) => Object.assign({}, p, { qtyForm: Object.assign({}, p.qtyForm, patch) }));
   const setTF = (patch) => setUi((p) => Object.assign({}, p, { targetForm: Object.assign({}, p.targetForm, patch) }));
-  const setSF = (patch) => setUi((p) => Object.assign({}, p, { saidanForm: Object.assign({}, p.saidanForm, patch) }));
 
   useEffect(() => {
     gasLoad().then((d) => {
@@ -89,7 +83,6 @@ function App() {
       if (!Array.isArray(merged.parts)) merged.parts = [];
       if (!Array.isArray(merged.records)) merged.records = [];
       if (!Array.isArray(merged.qtyRecords)) merged.qtyRecords = [];
-      if (!Array.isArray(merged.saidanReports)) merged.saidanReports = [];
       setData(merged);
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
@@ -270,164 +263,6 @@ function App() {
     };
     updateData({ monthlyTargets: nt });
     setTF({ sales: "", members: "", workDays: "", hoursPerDay: "" });
-  }
-
-  function openSaidan(part) {
-    const existing = (data.saidanReports || []).find((r) => r.partId === part.id);
-    let form;
-    if (existing) {
-      form = Object.assign({}, existing);
-      if (!Array.isArray(form.sizes)) form.sizes = ["XS", "S", "M", "L", "LL"];
-      if (!Array.isArray(form.colors) || form.colors.length === 0) form.colors = emptySaidanColors();
-    } else {
-      form = {
-        id: null, partId: part.id,
-        reportNo: "", reportDate: today(),
-        cutDate: "", cutter: "", cutMethod: "CAM",
-        fabricName: "", fabricLot: "", storage: "",
-        ydSpec: "", ydReal: "",
-        sizes: ["XS", "S", "M", "L", "LL"],
-        colors: emptySaidanColors(),
-        planned: (part.qty || "") + "",
-        defect: "",
-        kenpan: "良", kenpanNote: "",
-        nextTeam: (part.assigneeType === "team" && part.assignee && part.assignee !== "未割当") ? part.assignee : "Aチーム",
-        vendorName: "",
-        note: "",
-      };
-    }
-    set({ saidanPartId: part.id, saidanForm: form, screen: "saidan_report" });
-  }
-
-  function saveSaidan() {
-    const f0 = ui.saidanForm;
-    if (!f0) return;
-    const ydReal = parseFloat(f0.ydReal) || 0;
-    const colors = (f0.colors || []).map((c) => {
-      const rt = (c.counts || []).reduce((a, v) => a + (parseInt(v, 10) || 0), 0);
-      return Object.assign({}, c, { useM: ydReal ? +(ydReal * rt).toFixed(2) : "" });
-    });
-    const f = Object.assign({}, f0, { colors });
-    const list = (data.saidanReports || []).slice();
-    if (f.id) {
-      const idx = list.findIndex((r) => r.id === f.id);
-      if (idx >= 0) list[idx] = Object.assign({}, f, { updatedAt: today() });
-      else list.push(Object.assign({}, f, { updatedAt: today() }));
-    } else {
-      const rec = Object.assign({}, f, { id: genId(), createdAt: today(), updatedAt: today() });
-      // 念のため同一品番の既存があれば置き換え（1品番1報告）
-      const idx = list.findIndex((r) => r.partId === f.partId);
-      if (idx >= 0) list[idx] = Object.assign(rec, { id: list[idx].id });
-      else list.push(rec);
-    }
-    updateData({ saidanReports: list });
-    set({ screen: "part_detail" });
-  }
-
-  function deleteSaidan(partId) {
-    updateData({ saidanReports: (data.saidanReports || []).filter((r) => r.partId !== partId) });
-  }
-
-  function printSaidan(form) {
-    const f = form;
-    const part = data.parts.find((x) => x.id === f.partId) || {};
-    const brandName = (data.brands.find((b) => b.id === part.brandId) || {}).name || "";
-    const num = (v) => { const x = parseInt(v, 10); return isNaN(x) ? 0 : x; };
-    const fl = (v) => { const x = parseFloat(v); return isNaN(x) ? 0 : x; };
-    const esc = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const sizes = f.sizes || ["", "", "", "", ""];
-    const colTotals = [0, 0, 0, 0, 0];
-    let grand = 0, sumIn = 0, sumUse = 0;
-    const rows = (f.colors || []).map((c) => {
-      let rt = 0;
-      (c.counts || []).forEach((v, i) => { const n = num(v); rt += n; colTotals[i] += n; });
-      grand += rt;
-      const inM = fl(c.inM), useM = fl(f.ydReal) * rt, rem = inM - useM;
-      sumIn += inM; sumUse += useM;
-      const cells = (c.counts || []).map((v) => "<td class='c'>" + (num(v) || "") + "</td>").join("");
-      return "<tr><td class='cn'>" + esc(c.name) + "</td>" + cells +
-        "<td class='rt'>" + (rt || "") + "</td>" +
-        "<td class='m'>" + (inM ? inM.toFixed(1) : "") + "</td>" +
-        "<td class='m'>" + (useM ? useM.toFixed(1) : "") + "</td>" +
-        "<td class='m rem'>" + (inM || useM ? rem.toFixed(1) : "") + "</td></tr>";
-    }).join("");
-    const sumRem = sumIn - sumUse;
-    const good = Math.max(0, grand - num(f.defect));
-    const diff = grand - num(f.planned);
-    const ydDiff = fl(f.ydReal) - fl(f.ydSpec);
-    const nextLabel = f.nextTeam === "外注" ? ("外注" + (f.vendorName ? "（" + esc(f.vendorName) + "）" : "")) : esc(f.nextTeam);
-    const sizeHead = sizes.map((s) => "<th>" + esc(s) + "</th>").join("");
-    const colTotHead = colTotals.map((n) => "<td class='ct'>" + n + "</td>").join("");
-
-    const html =
-      "<!DOCTYPE html><html lang='ja'><head><meta charset='UTF-8'><title>裁断報告書 " + esc(part.partNo || "") + "</title><style>" +
-      "*{box-sizing:border-box;} body{margin:0;font-family:'Yu Gothic','Meiryo',sans-serif;color:#1c1c1e;}" +
-      ".sheet{width:210mm;min-height:297mm;margin:0 auto;padding:16mm 15mm;font-size:11.2px;}" +
-      ".head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2.5px solid #1c1c1e;padding-bottom:8px;}" +
-      ".title{font-size:23px;font-weight:800;letter-spacing:.3em;}" +
-      ".title small{display:block;font-size:9px;letter-spacing:.3em;color:#888;margin-top:3px;}" +
-      ".meta{text-align:right;font-size:11px;color:#666;}" +
-      ".sec{display:flex;align-items:center;gap:8px;margin:14px 0 6px;}" +
-      ".sec .bar{width:4px;height:14px;background:#14555a;border-radius:2px;}.sec .t{font-size:12px;font-weight:800;letter-spacing:.1em;}" +
-      ".kv{display:flex;flex-wrap:wrap;gap:4px 0;}.kv .i{width:33.33%;padding:3px 4px;}.kv .i.h{width:50%;}" +
-      ".kv .l{font-size:9px;color:#888;font-weight:700;}.kv .v{font-size:12px;font-weight:600;border-bottom:1px solid #ddd;min-height:18px;padding:1px 2px;}" +
-      "table{width:100%;border-collapse:collapse;table-layout:fixed;}th,td{border:1px solid #cfcfd4;padding:4px 2px;text-align:center;font-size:10px;}" +
-      "thead th{background:#e7f0ef;color:#14555a;font-weight:800;}th.fab,td.m{background:#f3ecdf;}td.m{text-align:right;padding-right:5px;}" +
-      "td.cn{text-align:left;font-weight:700;padding-left:6px;}td.rt,td.ct{background:#f6f6f8;font-weight:800;color:#14555a;}td.rem{color:#7a5a2a;font-weight:700;}" +
-      "tfoot td{background:#eef3f2;font-weight:800;}tfoot td.fabt{background:#f3ecdf;color:#7a5a2a;}tfoot .flab{text-align:right;color:#666;}" +
-      ".tally{display:flex;border:1px solid #cfcfd4;border-radius:6px;overflow:hidden;margin-top:8px;}" +
-      ".tally .c{flex:1;padding:6px 8px;border-right:1px solid #eee;}.tally .c:last-child{border-right:none;}" +
-      ".tally .k{font-size:9px;color:#888;font-weight:700;}.tally .v{font-size:16px;font-weight:800;}.tally .v.w{color:#b3261e;}" +
-      ".signs{display:flex;border:1px solid #1c1c1e;margin-top:16px;}.signs .s{flex:1;border-right:1px solid #1c1c1e;min-height:46px;}.signs .s:last-child{border-right:none;}" +
-      ".signs .cap{font-size:8.5px;color:#888;font-weight:700;padding:3px 6px;border-bottom:1px solid #eee;background:#fafafa;}" +
-      ".note{color:#888;font-size:9px;margin-top:6px;text-align:right;}" +
-      "@page{size:A4;margin:0;}@media print{.sheet{margin:0;}}" +
-      "</style></head><body><div class='sheet'>" +
-      "<div class='head'><div class='title'>裁断報告書<small>CUTTING REPORT</small></div>" +
-      "<div class='meta'>報告書No " + esc(f.reportNo || "—") + "<br>報告日 " + esc(f.reportDate || "") + "</div></div>" +
-      "<div class='sec'><span class='bar'></span><span class='t'>基本情報</span></div>" +
-      "<div class='kv'>" +
-      "<div class='i'><div class='l'>品番</div><div class='v'>" + esc(part.partNo || "") + "</div></div>" +
-      "<div class='i'><div class='l'>客先・ブランド</div><div class='v'>" + esc(brandName) + "</div></div>" +
-      "<div class='i'><div class='l'>品名</div><div class='v'>" + esc(part.partName || "") + "</div></div>" +
-      "<div class='i'><div class='l'>納期</div><div class='v'>" + esc(part.deadline || "") + "</div></div>" +
-      "<div class='i'><div class='l'>裁断日</div><div class='v'>" + esc(f.cutDate || "") + "</div></div>" +
-      "<div class='i'><div class='l'>裁断者</div><div class='v'>" + esc(f.cutter || "") + "</div></div>" +
-      "<div class='i'><div class='l'>裁断方法</div><div class='v'>" + esc(f.cutMethod || "") + "</div></div>" +
-      "<div class='i'><div class='l'>生地名</div><div class='v'>" + esc(f.fabricName || "") + "</div></div>" +
-      "<div class='i'><div class='l'>生地ロット</div><div class='v'>" + esc(f.fabricLot || "") + "</div></div>" +
-      "<div class='i'><div class='l'>残布 保管場所</div><div class='v'>" + esc(f.storage || "") + "</div></div>" +
-      "<div class='i'><div class='l'>客先指定用尺(m)</div><div class='v'>" + (f.ydSpec !== "" ? esc(f.ydSpec) : "") + "</div></div>" +
-      "<div class='i'><div class='l'>実用尺(m) / 差</div><div class='v'>" + (f.ydReal !== "" ? esc(f.ydReal) + "　(" + (ydDiff > 0 ? "+" : "") + ydDiff.toFixed(2) + ")" : "") + "</div></div>" +
-      "</div>" +
-      "<div class='sec'><span class='bar'></span><span class='t'>裁断数量・生地（色別）</span></div>" +
-      "<table><colgroup><col style='width:22%'><col style='width:8%'><col style='width:8%'><col style='width:8%'><col style='width:8%'><col style='width:8%'><col style='width:8%'><col style='width:9%'><col style='width:9%'><col style='width:10%'></colgroup>" +
-      "<thead><tr><th>色＼サイズ</th>" + sizeHead + "<th>色計</th><th class='fab'>入荷m</th><th class='fab'>使用m</th><th class='fab'>残布m</th></tr></thead>" +
-      "<tbody>" + rows + "</tbody>" +
-      "<tfoot><tr><td class='flab'>合計</td>" + colTotHead + "<td class='ct'>" + grand + "</td>" +
-      "<td class='fabt'>" + sumIn.toFixed(1) + "</td><td class='fabt'>" + sumUse.toFixed(1) + "</td><td class='fabt'>" + sumRem.toFixed(1) + "</td></tr></tfoot></table>" +
-      "<div class='tally'>" +
-      "<div class='c'><div class='k'>予定数</div><div class='v'>" + num(f.planned) + "</div></div>" +
-      "<div class='c'><div class='k'>実裁断数</div><div class='v'>" + grand + "</div></div>" +
-      "<div class='c'><div class='k'>不良・ロス</div><div class='v'>" + num(f.defect) + "</div></div>" +
-      "<div class='c'><div class='k'>良品数</div><div class='v'>" + good + "</div></div>" +
-      "<div class='c'><div class='k'>過不足</div><div class='v" + (diff < 0 ? " w" : "") + "'>" + (diff > 0 ? "+" : "") + diff + "</div></div>" +
-      "</div>" +
-      "<div class='sec'><span class='bar'></span><span class='t'>検反結果・申し送り</span></div>" +
-      "<div class='kv'>" +
-      "<div class='i h'><div class='l'>検反結果</div><div class='v'>" + esc(f.kenpan || "") + "</div></div>" +
-      "<div class='i h'><div class='l'>次工程</div><div class='v'>" + nextLabel + "</div></div>" +
-      "<div class='i' style='width:100%'><div class='l'>特記事項・申し送り</div><div class='v' style='min-height:36px'>" + esc(f.note || "") + (f.kenpanNote ? "　/ 検反メモ: " + esc(f.kenpanNote) : "") + "</div></div>" +
-      "</div>" +
-      "<div class='signs'><div class='s'><div class='cap'>裁断担当</div></div><div class='s'><div class='cap'>確認</div></div><div class='s'><div class='cap'>承認</div></div></div>" +
-      "<div class='note'>株式会社生田プリーツ　/　裁断報告書</div>" +
-      "</div><script>window.onload=function(){window.print();}<\/script></body></html>";
-
-    const w = window.open("", "_blank");
-    if (!w) { alert("ポップアップがブロックされました。印刷を許可してください。"); return; }
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
   }
 
   function downloadCSV() {
@@ -678,19 +513,6 @@ function App() {
         p.partName && React.createElement("div", { style: { fontSize: 15, color: "#555", marginBottom: 4 } }, p.partName),
         p.brandName && React.createElement("div", { style: { fontSize: 13, color: "#888", fontWeight: 600, marginBottom: 12 } }, "🏷 " + p.brandName),
         !p.partName && p.brandName && React.createElement("div", { style: { height: 0 } }),
-        (function () {
-          const rep = (data.saidanReports || []).find((r) => r.partId === p.id);
-          return React.createElement("button", {
-            style: Object.assign({}, st.card, { padding: "12px 16px", width: "100%", textAlign: "left", cursor: "pointer", border: "1px solid " + (rep ? "#14555a" : "#e0deda"), background: rep ? "#f0f6f5" : "#fff", display: "flex", justifyContent: "space-between", alignItems: "center" }),
-            onClick: () => openSaidan(p)
-          },
-            React.createElement("div", null,
-              React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: "#14555a" } }, "✂️ 裁断報告書"),
-              React.createElement("div", { style: { fontSize: 11, color: "#888", marginTop: 2 } }, rep ? ("入力済み（" + (rep.cutDate || rep.reportDate || "") + "）／ タップで編集・印刷") : "未入力 ／ タップで作成")
-            ),
-            React.createElement("span", { style: { color: "#ccc", fontSize: 18 } }, "›")
-          );
-        })(),
         React.createElement("div", { style: Object.assign({}, st.card, { padding: "12px 16px" }) },
           React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginBottom: 8 } }, "担当を変更する"),
           React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } },
@@ -1066,27 +888,176 @@ function App() {
     );
   }
 
-  if (ui.screen === "member_mgmt") return React.createElement(Shell, null,
-    React.createElement(Header, { title: "メンバー管理（全社共通）", back: () => set({ screen: "home" }) }),
-    React.createElement(Body, null,
-      React.createElement("div", { style: st.card },
-        React.createElement(FormRow, { label: "新しいメンバーを追加" },
-          React.createElement("div", { style: { display: "flex", gap: 8 } },
-            React.createElement("input", { style: Object.assign({}, st.input, { flex: 1 }), placeholder: "名前を入力", value: ui.addMemberForm.name, onChange: (e) => set({ addMemberForm: { name: e.target.value } }) }),
-            React.createElement("button", { style: st.inlineBtn, onClick: addMember }, "追加")
+  if (ui.screen === "member_mgmt") {
+    const am = ui.activeMemberId;
+    const activeMember = data.members.find((m) => m.id === am);
+
+    // メンバー履歴詳細（カレンダー）
+    if (am && activeMember) {
+      const calMonth = ui.calMonth || today().slice(0, 7);
+      const memberRecs = data.records.filter((r) => r.memberId === am);
+      const monthRecs = memberRecs.filter((r) => r.date && r.date.slice(0, 7) === calMonth);
+
+      // 日付ごとにグループ化
+      const dayMap = {};
+      monthRecs.forEach((r) => {
+        if (!dayMap[r.date]) dayMap[r.date] = [];
+        const part = data.parts.find((p) => p.id === r.partId);
+        dayMap[r.date].push({ ...r, part });
+      });
+
+      // カレンダー構築
+      const [year, month] = calMonth.split("-").map(Number);
+      const firstDay = new Date(year, month - 1, 1).getDay(); // 0=日
+      const daysInMonth = new Date(year, month, 0).getDate();
+      const totalHours = memberRecs.reduce((a, r) => a + r.hours, 0);
+      const monthHours = monthRecs.reduce((a, r) => a + r.hours, 0);
+
+      // 前月・次月
+      const prevMonth = month === 1 ? year - 1 + "-12" : year + "-" + String(month - 1).padStart(2, "0");
+      const nextMonth = month === 12 ? year + 1 + "-01" : year + "-" + String(month + 1).padStart(2, "0");
+      const isCurrentMonth = calMonth === today().slice(0, 7);
+
+      const days = [];
+      for (let i = 0; i < firstDay; i++) days.push(null);
+      for (let d = 1; d <= daysInMonth; d++) days.push(d);
+
+      const todayStr = today();
+
+      return React.createElement(Shell, null,
+        React.createElement(Header, { title: activeMember.name, back: () => set({ activeMemberId: null, calMonth: null }) }),
+        React.createElement(Body, null,
+
+          // サマリー
+          React.createElement("div", { style: st.grid2 },
+            React.createElement(SBox, { label: "累計作業時間", value: totalHours.toFixed(1) + "h" }),
+            React.createElement(SBox, { label: calMonth.replace("-", "年") + "月の作業時間", value: monthHours > 0 ? monthHours.toFixed(1) + "h" : "—" })
+          ),
+
+          // 月切り替え
+          React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 } },
+            React.createElement("button", { style: Object.assign({}, st.ghostBtn, { padding: "8px 16px", fontSize: 16 }), onClick: () => set({ calMonth: prevMonth }) }, "‹"),
+            React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, year + "年" + month + "月"),
+            React.createElement("button", { style: Object.assign({}, st.ghostBtn, { padding: "8px 16px", fontSize: 16, opacity: isCurrentMonth ? 0.3 : 1 }), disabled: isCurrentMonth, onClick: () => !isCurrentMonth && set({ calMonth: nextMonth }) }, "›")
+          ),
+
+          // カレンダーグリッド
+          React.createElement("div", { style: { background: "#fff", borderRadius: 12, padding: "12px", boxShadow: "0 1px 4px rgba(0,0,0,.06)", marginBottom: 16 } },
+            // 曜日ヘッダー
+            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 6 } },
+              ["日", "月", "火", "水", "木", "金", "土"].map((d, i) =>
+                React.createElement("div", { key: d, style: { textAlign: "center", fontSize: 11, fontWeight: 700, color: i === 0 ? "#c00" : i === 6 ? "#3b6fd4" : "#aaa", padding: "4px 0" } }, d)
+              )
+            ),
+            // 日付セル
+            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 } },
+              days.map((d, i) => {
+                if (!d) return React.createElement("div", { key: "e" + i });
+                const dateStr = year + "-" + String(month).padStart(2, "0") + "-" + String(d).padStart(2, "0");
+                const recs = dayMap[dateStr] || [];
+                const dayHours = recs.reduce((a, r) => a + r.hours, 0);
+                const isToday = dateStr === todayStr;
+                const dow = (firstDay + d - 1) % 7;
+                const hasWork = recs.length > 0;
+                return React.createElement("div", {
+                  key: d,
+                  style: {
+                    minHeight: 52, borderRadius: 8, padding: "4px 3px",
+                    background: isToday ? "#1a1a1a" : hasWork ? "#f0f4ff" : "#fafafa",
+                    border: isToday ? "none" : hasWork ? "1px solid #c8d8ff" : "1px solid #f0eeea",
+                    cursor: hasWork ? "pointer" : "default",
+                  },
+                  onClick: () => hasWork && set({ calSelectedDate: dateStr })
+                },
+                  React.createElement("div", { style: { textAlign: "center", fontSize: 11, fontWeight: isToday ? 700 : 400, color: isToday ? "#fff" : dow === 0 ? "#c00" : dow === 6 ? "#3b6fd4" : "#555", marginBottom: 2 } }, d),
+                  hasWork && React.createElement("div", { style: { textAlign: "center" } },
+                    React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: isToday ? "#7df" : "#3b6fd4" } }, dayHours.toFixed(1) + "h"),
+                    recs.length > 1 && React.createElement("div", { style: { fontSize: 9, color: isToday ? "#adf" : "#aaa" } }, recs.length + "件")
+                  )
+                );
+              })
+            )
+          ),
+
+          // 選択日の詳細 or 月の作業一覧
+          ui.calSelectedDate && ui.calSelectedDate.slice(0, 7) === calMonth
+            ? React.createElement("div", null,
+                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } },
+                  React.createElement(SectionLabel, null, ui.calSelectedDate.slice(5).replace("-", "/") + " の作業"),
+                  React.createElement("button", { style: st.ghostBtn, onClick: () => set({ calSelectedDate: null }) }, "✕")
+                ),
+                (dayMap[ui.calSelectedDate] || []).map((r) =>
+                  React.createElement("div", { key: r.id, style: Object.assign({}, st.recRow, { background: "#f0f4ff" }) },
+                    React.createElement("div", { style: { flex: 1 } },
+                      React.createElement("div", { style: { fontSize: 13, fontWeight: 700 } }, r.part ? r.part.partNo : "削除済み"),
+                      r.part && r.part.partName && React.createElement("div", { style: { fontSize: 11, color: "#888" } }, r.part.partName)
+                    ),
+                    React.createElement("div", { style: { fontSize: 15, fontWeight: 700, color: "#3b6fd4" } }, r.hours + "h")
+                  )
+                )
+              )
+            : monthRecs.length > 0 && React.createElement("div", null,
+                React.createElement(SectionLabel, null, "今月の作業一覧（日付をタップで絞り込み）"),
+                Object.entries(dayMap).sort((a, b) => b[0].localeCompare(a[0])).map(([date, recs]) =>
+                  React.createElement("div", { key: date, style: { marginBottom: 10 } },
+                    React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginBottom: 4 } },
+                      date.slice(5).replace("-", "/") + "（" + ["日","月","火","水","木","金","土"][new Date(date).getDay()] + "）"
+                    ),
+                    recs.map((r) =>
+                      React.createElement("div", { key: r.id, style: st.recRow },
+                        React.createElement("div", { style: { flex: 1 } },
+                          React.createElement("div", { style: { fontSize: 13, fontWeight: 700 } }, r.part ? r.part.partNo : "削除済み"),
+                          r.part && r.part.partName && React.createElement("div", { style: { fontSize: 11, color: "#888" } }, r.part.partName)
+                        ),
+                        React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, r.hours + "h")
+                      )
+                    )
+                  )
+                )
+              )
+        ),
+        React.createElement(SI)
+      );
+    }
+
+    // メンバー一覧
+    return React.createElement(Shell, null,
+      React.createElement(Header, { title: "メンバー管理", back: () => set({ screen: "home" }) }),
+      React.createElement(Body, null,
+        React.createElement("div", { style: st.card },
+          React.createElement(FormRow, { label: "新しいメンバーを追加" },
+            React.createElement("div", { style: { display: "flex", gap: 8 } },
+              React.createElement("input", { style: Object.assign({}, st.input, { flex: 1 }), placeholder: "名前を入力", value: ui.addMemberForm.name, onChange: (e) => set({ addMemberForm: { name: e.target.value } }) }),
+              React.createElement("button", { style: st.inlineBtn, onClick: addMember }, "追加")
+            )
           )
-        )
+        ),
+        React.createElement(SectionLabel, null, "メンバー一覧（" + data.members.length + "人）　タップで作業履歴を確認"),
+        data.members.length === 0 && React.createElement(Empty, null, "メンバーがいません"),
+        data.members.map((m) => {
+          const mHours = data.records.filter((r) => r.memberId === m.id).reduce((a, r) => a + r.hours, 0);
+          const mParts = new Set(data.records.filter((r) => r.memberId === m.id).map((r) => r.partId)).size;
+          return React.createElement("div", { key: m.id, style: Object.assign({}, st.memberRow, { flexWrap: "wrap", gap: 6 }) },
+            ui.editMemberId === m.id
+              ? React.createElement(React.Fragment, null,
+                  React.createElement("input", { style: Object.assign({}, st.input, { flex: 1, fontSize: 14 }), value: ui.editMemberName, onChange: (e) => set({ editMemberName: e.target.value }) }),
+                  React.createElement("button", { style: st.inlineBtn, onClick: saveMemberName }, "保存"),
+                  React.createElement("button", { style: st.ghostBtn, onClick: () => set({ editMemberId: null }) }, "取消")
+                )
+              : React.createElement(React.Fragment, null,
+                  React.createElement("button", { style: { flex: 1, background: "none", border: "none", textAlign: "left", cursor: "pointer", padding: 0 }, onClick: () => set({ activeMemberId: m.id }) },
+                    React.createElement("div", { style: { fontSize: 14, fontWeight: 600 } }, m.name),
+                    mHours > 0 && React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginTop: 2 } }, "累計 " + mHours.toFixed(1) + "h　" + mParts + "品番")
+                  ),
+                  React.createElement("button", { style: st.ghostBtn, onClick: () => set({ editMemberId: m.id, editMemberName: m.name }) }, "編集"),
+                  React.createElement("button", { style: Object.assign({}, st.ghostBtn, { color: "#c00" }), onClick: () => deleteMember(m.id) }, "削除")
+                )
+          );
+        })
       ),
-      React.createElement(SectionLabel, null, "メンバー一覧（" + data.members.length + "人）"),
-      data.members.length === 0 && React.createElement(Empty, null, "メンバーがいません"),
-      data.members.map((m) => React.createElement("div", { key: m.id, style: st.memberRow },
-        ui.editMemberId === m.id
-          ? React.createElement(React.Fragment, null, React.createElement("input", { style: Object.assign({}, st.input, { flex: 1, fontSize: 14 }), value: ui.editMemberName, onChange: (e) => set({ editMemberName: e.target.value }) }), React.createElement("button", { style: st.inlineBtn, onClick: saveMemberName }, "保存"), React.createElement("button", { style: st.ghostBtn, onClick: () => set({ editMemberId: null }) }, "取消"))
-          : React.createElement(React.Fragment, null, React.createElement("span", { style: { flex: 1, fontSize: 14, fontWeight: 600 } }, m.name), React.createElement("button", { style: st.ghostBtn, onClick: () => set({ editMemberId: m.id, editMemberName: m.name }) }, "編集"), React.createElement("button", { style: Object.assign({}, st.ghostBtn, { color: "#c00" }), onClick: () => deleteMember(m.id) }, "削除"))
-      ))
-    ),
-    React.createElement(SI)
-  );
+      React.createElement(SI)
+    );
+  }
 
   if (ui.screen === "vendor_mgmt") return React.createElement(Shell, null,
     React.createElement(Header, { title: "外注先管理", back: () => set({ screen: "home" }) }),
@@ -1391,176 +1362,6 @@ function App() {
                 })
               );
             })
-      ),
-      React.createElement(SI)
-    );
-  }
-
-  if (ui.screen === "saidan_report" && ui.saidanForm) {
-    const f = ui.saidanForm;
-    const part = partSummary.find((p) => p.id === f.partId) || {};
-    const num = (v) => { const x = parseInt(v, 10); return isNaN(x) ? 0 : x; };
-    const fl = (v) => { const x = parseFloat(v); return isNaN(x) ? 0 : x; };
-    const colTotals = [0, 0, 0, 0, 0];
-    const ydReal = fl(f.ydReal);
-    let grand = 0, sumIn = 0, sumUse = 0;
-    const rowTotals = [], rowUse = [];
-    (f.colors || []).forEach((c) => {
-      let rt = 0;
-      (c.counts || []).forEach((v, i) => { const n = num(v); rt += n; colTotals[i] += n; });
-      const use = ydReal * rt;
-      rowTotals.push(rt); rowUse.push(use);
-      grand += rt; sumIn += fl(c.inM); sumUse += use;
-    });
-    const sumRem = sumIn - sumUse;
-    const good = Math.max(0, grand - num(f.defect));
-    const diff = grand - num(f.planned);
-    const ydDiff = fl(f.ydReal) - fl(f.ydSpec);
-
-    const updColor = (i, patch) => setSF({ colors: f.colors.map((c, idx) => idx === i ? Object.assign({}, c, patch) : c) });
-    const updCount = (i, si, val) => setSF({ colors: f.colors.map((c, idx) => idx === i ? Object.assign({}, c, { counts: c.counts.map((x, j) => j === si ? val : x) }) : c) });
-    const updSize = (si, val) => setSF({ sizes: f.sizes.map((s, j) => j === si ? val : s) });
-
-    const numCell = { background: "#f5f4f0", border: "1px solid #e8e6e0", borderRadius: 6, padding: "8px 2px", fontSize: 14, textAlign: "center", outline: "none", width: "100%", boxSizing: "border-box", color: "#1a1a1a" };
-    const sizeLab = { fontSize: 10, color: "#14555a", fontWeight: 800, textAlign: "center", marginBottom: 3 };
-
-    return React.createElement(Shell, null,
-      React.createElement(Header, { title: "裁断報告書", sub: part.partNo || "", back: () => set({ screen: "part_detail" }) }),
-      React.createElement(Body, null,
-
-        React.createElement("div", { style: Object.assign({}, st.card, { padding: "12px 16px" }) },
-          React.createElement("div", { style: { fontSize: 13, fontWeight: 700 } }, part.partNo + (part.partName ? "　" + part.partName : "")),
-          part.brandName && React.createElement("div", { style: { fontSize: 12, color: "#888", marginTop: 2 } }, "🏷 " + part.brandName),
-          React.createElement("div", { style: { display: "flex", gap: 12, marginTop: 6, fontSize: 12, color: "#aaa" } },
-            React.createElement("span", null, "予定数 " + (part.qty || 0) + "枚"),
-            part.deadline && React.createElement("span", null, "納期 " + fmt(part.deadline))
-          )
-        ),
-
-        React.createElement("div", { style: st.card },
-          React.createElement("div", { style: { display: "flex", gap: 12 } },
-            React.createElement("div", { style: { flex: 1 } }, React.createElement(FormRow, { label: "報告書No" }, React.createElement("input", { style: st.input, value: f.reportNo, onChange: (e) => setSF({ reportNo: e.target.value }) }))),
-            React.createElement("div", { style: { flex: 1 } }, React.createElement(FormRow, { label: "報告日" }, React.createElement("input", { style: st.input, type: "date", value: f.reportDate, onChange: (e) => setSF({ reportDate: e.target.value }) })))
-          ),
-          React.createElement("div", { style: { display: "flex", gap: 12 } },
-            React.createElement("div", { style: { flex: 1 } }, React.createElement(FormRow, { label: "裁断日" }, React.createElement("input", { style: st.input, type: "date", value: f.cutDate, onChange: (e) => setSF({ cutDate: e.target.value }) }))),
-            React.createElement("div", { style: { flex: 1 } }, React.createElement(FormRow, { label: "裁断者" }, React.createElement("input", { style: st.input, value: f.cutter, onChange: (e) => setSF({ cutter: e.target.value }) })))
-          ),
-          React.createElement(FormRow, { label: "裁断方法" },
-            React.createElement("div", { style: { display: "flex", gap: 6 } },
-              SAIDAN_METHODS.map((m) => React.createElement("button", { key: m, style: Object.assign({}, st.assignBtn, f.cutMethod === m ? st.assignBtnActive : {}), onClick: () => setSF({ cutMethod: m }) }, m))
-            )
-          ),
-          React.createElement("div", { style: { display: "flex", gap: 12 } },
-            React.createElement("div", { style: { flex: 1 } }, React.createElement(FormRow, { label: "生地名" }, React.createElement("input", { style: st.input, value: f.fabricName, onChange: (e) => setSF({ fabricName: e.target.value }) }))),
-            React.createElement("div", { style: { flex: 1 } }, React.createElement(FormRow, { label: "生地ロット" }, React.createElement("input", { style: st.input, value: f.fabricLot, onChange: (e) => setSF({ fabricLot: e.target.value }) })))
-          ),
-          React.createElement(FormRow, { label: "残布 保管場所" }, React.createElement("input", { style: st.input, value: f.storage, onChange: (e) => setSF({ storage: e.target.value }) }))
-        ),
-
-        React.createElement(SectionLabel, null, "用尺（1着あたり・m）"),
-        React.createElement("div", { style: st.card },
-          React.createElement("div", { style: { display: "flex", gap: 12 } },
-            React.createElement("div", { style: { flex: 1 } }, React.createElement(FormRow, { label: "客先指定用尺" }, React.createElement("input", { style: st.input, type: "number", step: "0.01", min: "0", value: f.ydSpec, onChange: (e) => setSF({ ydSpec: e.target.value }) }))),
-            React.createElement("div", { style: { flex: 1 } }, React.createElement(FormRow, { label: "実用尺（自社決定）" }, React.createElement("input", { style: st.input, type: "number", step: "0.01", min: "0", value: f.ydReal, onChange: (e) => setSF({ ydReal: e.target.value }) })))
-          ),
-          (f.ydSpec !== "" || f.ydReal !== "") && React.createElement("div", { style: { fontSize: 12, color: ydDiff < 0 ? "#c00" : "#14555a", fontWeight: 700 } }, "用尺差（実−指定）: " + (ydDiff > 0 ? "+" : "") + ydDiff.toFixed(2) + " m"),
-          React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginTop: 6 } }, "※ 各色の使用mは「実用尺 × その色の枚数」で自動計算されます")
-        ),
-
-        React.createElement(SectionLabel, null, "裁断数量・生地（色別）"),
-        React.createElement("div", { style: Object.assign({}, st.card, { padding: "12px 14px" }) },
-          React.createElement("div", { style: { fontSize: 11, color: "#888", marginBottom: 8 } }, "サイズ名（5枠・編集可）"),
-          React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 6 } },
-            (f.sizes || []).map((s, si) => React.createElement("input", { key: si, style: Object.assign({}, numCell, { fontWeight: 700, color: "#14555a", background: "#e7f0ef" }), value: s, onChange: (e) => updSize(si, e.target.value) }))
-          )
-        ),
-
-        (f.colors || []).map((c, i) => React.createElement("div", { key: i, style: Object.assign({}, st.card, { padding: "12px 14px" }) },
-          React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10 } },
-            React.createElement("span", { style: { fontSize: 12, fontWeight: 800, color: "#7a5a2a", whiteSpace: "nowrap" } }, "色" + (i + 1)),
-            React.createElement("input", { style: Object.assign({}, st.input, { flex: 1 }), placeholder: "色番・カラー", value: c.name, onChange: (e) => updColor(i, { name: e.target.value }) })
-          ),
-          React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 6, marginBottom: 8 } },
-            (c.counts || []).map((v, si) => React.createElement("div", { key: si },
-              React.createElement("div", { style: sizeLab }, (f.sizes && f.sizes[si]) || ""),
-              React.createElement("input", { style: numCell, type: "number", min: "0", placeholder: "0", value: v, onChange: (e) => updCount(i, si, e.target.value) })
-            ))
-          ),
-          React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "flex-end" } },
-            React.createElement("div", { style: { flex: 1 } },
-              React.createElement("div", { style: { fontSize: 10, color: "#888", marginBottom: 3 } }, "入荷m"),
-              React.createElement("input", { style: Object.assign({}, st.input, { padding: "8px 10px" }), type: "number", step: "0.1", min: "0", placeholder: "0.0", value: c.inM, onChange: (e) => updColor(i, { inM: e.target.value }) })
-            ),
-            React.createElement("div", { style: { flex: 1 } },
-              React.createElement("div", { style: { fontSize: 10, color: "#888", marginBottom: 3 } }, "使用m（自動）"),
-              React.createElement("div", { style: { padding: "9px 10px", background: "#f3ecdf", borderRadius: 8, fontSize: 14, fontWeight: 700, color: "#7a5a2a", textAlign: "right" } }, ydReal > 0 ? rowUse[i].toFixed(1) : "—")
-            ),
-            React.createElement("div", { style: { flex: 1, textAlign: "right" } },
-              React.createElement("div", { style: { fontSize: 10, color: "#888", marginBottom: 3 } }, "色計 / 残布m"),
-              React.createElement("div", { style: { fontSize: 14, fontWeight: 800, color: "#14555a" } }, rowTotals[i] + "枚"),
-              React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: "#7a5a2a" } }, (fl(c.inM) || rowUse[i]) ? (fl(c.inM) - rowUse[i]).toFixed(1) + "m" : "—")
-            )
-          )
-        )),
-
-        React.createElement("div", { style: Object.assign({}, st.card, { padding: "12px 14px" }) },
-          React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 8 } },
-            React.createElement("span", { style: { color: "#888" } }, "サイズ別 合計"),
-            React.createElement("span", { style: { fontWeight: 700 } }, (f.sizes || []).map((s, i) => (s || "?") + ":" + colTotals[i]).join("　"))
-          ),
-          React.createElement("div", { style: { display: "flex", gap: 8, fontSize: 12, color: "#7a5a2a", fontWeight: 700, borderTop: "1px solid #f0eeea", paddingTop: 8 } },
-            React.createElement("span", null, "総入荷 " + sumIn.toFixed(1) + "m"),
-            React.createElement("span", null, "総使用 " + sumUse.toFixed(1) + "m"),
-            React.createElement("span", null, "総残布 " + sumRem.toFixed(1) + "m")
-          )
-        ),
-
-        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 16 } },
-          React.createElement("div", { style: { background: "#fff", borderRadius: 10, padding: "10px 8px", textAlign: "center", boxShadow: "0 1px 4px rgba(0,0,0,.06)" } },
-            React.createElement("div", { style: { fontSize: 10, color: "#aaa" } }, "予定数"),
-            React.createElement("input", { style: Object.assign({}, numCell, { fontWeight: 800, fontSize: 18, marginTop: 2 }), type: "number", min: "0", value: f.planned, onChange: (e) => setSF({ planned: e.target.value }) })
-          ),
-          React.createElement("div", { style: { background: "#f0f6f5", borderRadius: 10, padding: "10px 8px", textAlign: "center" } },
-            React.createElement("div", { style: { fontSize: 10, color: "#aaa" } }, "実裁断数"),
-            React.createElement("div", { style: { fontSize: 18, fontWeight: 800, color: "#14555a", marginTop: 6 } }, grand + "枚")
-          ),
-          React.createElement("div", { style: { background: "#fff", borderRadius: 10, padding: "10px 8px", textAlign: "center", boxShadow: "0 1px 4px rgba(0,0,0,.06)" } },
-            React.createElement("div", { style: { fontSize: 10, color: "#aaa" } }, "不良・ロス"),
-            React.createElement("input", { style: Object.assign({}, numCell, { fontWeight: 800, fontSize: 18, marginTop: 2 }), type: "number", min: "0", value: f.defect, onChange: (e) => setSF({ defect: e.target.value }) })
-          )
-        ),
-        React.createElement("div", { style: { display: "flex", gap: 8, marginTop: -8, marginBottom: 16 } },
-          React.createElement("div", { style: { flex: 1, background: "#f0f6f5", borderRadius: 10, padding: "8px 10px", textAlign: "center" } },
-            React.createElement("span", { style: { fontSize: 10, color: "#aaa" } }, "良品数　"),
-            React.createElement("span", { style: { fontSize: 16, fontWeight: 800, color: "#14555a" } }, good + "枚")
-          ),
-          React.createElement("div", { style: { flex: 1, background: "#f0f6f5", borderRadius: 10, padding: "8px 10px", textAlign: "center" } },
-            React.createElement("span", { style: { fontSize: 10, color: "#aaa" } }, "予定との過不足　"),
-            React.createElement("span", { style: { fontSize: 16, fontWeight: 800, color: diff < 0 ? "#c00" : "#14555a" } }, (diff > 0 ? "+" : "") + diff)
-          )
-        ),
-
-        React.createElement(SectionLabel, null, "検反結果・申し送り"),
-        React.createElement("div", { style: st.card },
-          React.createElement(FormRow, { label: "検反結果" },
-            React.createElement("div", { style: { display: "flex", gap: 6 } },
-              ["良", "要確認"].map((k) => React.createElement("button", { key: k, style: Object.assign({}, st.assignBtn, f.kenpan === k ? st.assignBtnActive : {}), onClick: () => setSF({ kenpan: k }) }, k))
-            )
-          ),
-          f.kenpan === "要確認" && React.createElement(FormRow, { label: "検反メモ（傷の位置・数など）" }, React.createElement("input", { style: st.input, value: f.kenpanNote, onChange: (e) => setSF({ kenpanNote: e.target.value }) })),
-          React.createElement(FormRow, { label: "次工程" },
-            React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } },
-              SAIDAN_NEXT.map((t) => React.createElement("button", { key: t, style: Object.assign({}, st.assignBtn, f.nextTeam === t ? st.assignBtnActive : {}), onClick: () => setSF({ nextTeam: t }) }, t))
-            ),
-            f.nextTeam === "外注" && React.createElement("input", { style: Object.assign({}, st.input, { marginTop: 8 }), placeholder: "外注先名を入力", value: f.vendorName, onChange: (e) => setSF({ vendorName: e.target.value }) })
-          ),
-          React.createElement(FormRow, { label: "特記事項・申し送り" }, React.createElement("textarea", { style: Object.assign({}, st.input, { minHeight: 70, resize: "vertical", fontFamily: "inherit" }), value: f.note, onChange: (e) => setSF({ note: e.target.value }) }))
-        ),
-
-        React.createElement("button", { style: st.primaryBtn, onClick: saveSaidan }, "保存する"),
-        React.createElement("button", { style: Object.assign({}, st.closeBtn, { background: "#14555a", marginTop: 8 }), onClick: () => printSaidan(f) }, "🖨 印刷 / PDF保存"),
-        f.id && React.createElement("button", { style: Object.assign({}, st.closeBtn, { background: "#fff0f0", color: "#c00", marginTop: 8 }), onClick: () => { if (window.confirm("この裁断報告書を削除しますか？")) { deleteSaidan(f.partId); set({ screen: "part_detail" }); } } }, "削除する")
       ),
       React.createElement(SI)
     );
