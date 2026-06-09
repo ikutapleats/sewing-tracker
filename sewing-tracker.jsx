@@ -590,11 +590,31 @@ function App() {
           ),
           React.createElement(SectionLabel, null, "作業明細"),
           p.recs.length === 0 && React.createElement(Empty, null, "まだ記録がありません"),
-          p.recs.slice().sort((a, b) => a.date.localeCompare(b.date)).map((r) => React.createElement("div", { key: r.id, style: st.recRow },
-            React.createElement("span", { style: { fontSize: 12, color: "#aaa", minWidth: 42 } }, r.date.slice(5).replace("-", "/")),
-            React.createElement("span", { style: { fontSize: 13, fontWeight: 700, flex: 1 } }, r.memberName),
-            React.createElement("span", { style: { fontSize: 13, color: "#555" } }, r.hours + "h")
-          ))
+          (() => {
+            // 日付ごとにグループ化
+            const byDate = {};
+            p.recs.forEach((r) => {
+              if (!byDate[r.date]) byDate[r.date] = [];
+              byDate[r.date].push(r);
+            });
+            return Object.entries(byDate).sort((a, b) => b[0].localeCompare(a[0])).map(([date, recs]) => {
+              const dayTotal = recs.reduce((a, r) => a + r.hours, 0);
+              return React.createElement("div", { key: date, style: { background: "#fff", borderRadius: 10, padding: "10px 14px", marginBottom: 8, boxShadow: "0 1px 3px rgba(0,0,0,.04)" } },
+                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } },
+                  React.createElement("span", { style: { fontSize: 12, fontWeight: 700, color: "#555" } }, date.slice(5).replace("-", "/") + "（" + ["日","月","火","水","木","金","土"][new Date(date).getDay()] + "）"),
+                  React.createElement("span", { style: { fontSize: 12, color: "#aaa" } }, "計 " + dayTotal.toFixed(1) + "h")
+                ),
+                React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6 } },
+                  recs.map((r) =>
+                    React.createElement("div", { key: r.id, style: { background: "#f5f4f0", borderRadius: 20, padding: "4px 12px", fontSize: 12, display: "flex", gap: 6, alignItems: "center" } },
+                      React.createElement("span", { style: { fontWeight: 600 } }, r.memberName),
+                      React.createElement("span", { style: { color: "#3b6fd4", fontWeight: 700 } }, r.hours + "h")
+                    )
+                  )
+                )
+              );
+            });
+          })()
         ),
         !p.closedAt && React.createElement("button", { style: Object.assign({}, st.closeBtn, { marginTop: 20 }), onClick: () => { closePart(p.id); set({ screen: "master" }); } }, "この品番を完了にする"),
         p.closedAt && React.createElement("button", { style: Object.assign({}, st.closeBtn, { background: "#e8e6e0", color: "#777", marginTop: 16 }), onClick: () => reopenPart(p.id) }, "再開する"),
