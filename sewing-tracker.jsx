@@ -952,7 +952,7 @@ function App() {
             // 日付セル
             React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 } },
               days.map((d, i) => {
-                if (!d) return React.createElement("div", { key: "e" + i });
+                if (!d) return React.createElement("div", { key: "empty-" + i });
                 const dateStr = year + "-" + String(month).padStart(2, "0") + "-" + String(d).padStart(2, "0");
                 const recs = dayMap[dateStr] || [];
                 const dayHours = recs.reduce((a, r) => a + r.hours, 0);
@@ -960,7 +960,7 @@ function App() {
                 const dow = (firstDay + d - 1) % 7;
                 const hasWork = recs.length > 0;
                 return React.createElement("div", {
-                  key: d,
+                  key: "day-" + i,
                   style: {
                     minHeight: 52, borderRadius: 8, padding: "4px 3px",
                     background: isToday ? "#1a1a1a" : hasWork ? "#f0f4ff" : "#fafafa",
@@ -983,7 +983,7 @@ function App() {
           ui.calSelectedDate && ui.calSelectedDate.slice(0, 7) === calMonth
             ? React.createElement("div", null,
                 React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } },
-                  React.createElement(SectionLabel, null, ui.calSelectedDate.slice(5).replace("-", "/") + " の作業"),
+                  React.createElement("div", { style: st.sectionLabel }, ui.calSelectedDate.slice(5).replace("-", "/") + " の作業"),
                   React.createElement("button", { style: st.ghostBtn, onClick: () => set({ calSelectedDate: null }) }, "✕")
                 ),
                 (dayMap[ui.calSelectedDate] || []).map((r) =>
