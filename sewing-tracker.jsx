@@ -54,6 +54,36 @@ async function gasSave(data) {
   if (result.status !== "saved") throw new Error("save failed: " + JSON.stringify(result));
 }
 
+async function gasAddRecord(record) {
+  const res = await fetch(GAS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ action: "addRecord", record }),
+  });
+  const result = await res.json();
+  if (result.status !== "saved") throw new Error("addRecord failed");
+}
+
+async function gasDeleteRecord(recordId) {
+  const res = await fetch(GAS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ action: "deleteRecord", recordId }),
+  });
+  const result = await res.json();
+  if (result.status !== "saved") throw new Error("deleteRecord failed");
+}
+
+async function gasAddQtyRecord(record) {
+  const res = await fetch(GAS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ action: "addQtyRecord", record }),
+  });
+  const result = await res.json();
+  if (result.status !== "saved") throw new Error("addQtyRecord failed");
+}
+
 async function gasLoad() {
   const res = await fetch(GAS_URL);
   return await res.json();
@@ -196,16 +226,35 @@ function App() {
     const f = ui.memberForm;
     const member = data.members.find((m) => m.id === f.memberId);
     if (!member || !f.partId || !f.hours) return;
-    updateData({ records: data.records.concat([{ id: genId(), partId: f.partId, memberId: f.memberId, memberName: member.name, hours: parseFloat(f.hours), date: f.date }]) });
+    const newRecord = { id: genId(), partId: f.partId, memberId: f.memberId, memberName: member.name, hours: parseFloat(f.hours), date: f.date };
+    // ローカルに即反映
+    const nd = Object.assign({}, data, { records: data.records.concat([newRecord]) });
+    setData(nd);
     setMF({ hours: "" });
+    // GASには追記型で保存（競合安全）
+    setSaving(true);
+    setSaveError(false);
+    gasAddRecord(newRecord).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
   }
-  function deleteRecord(id) { updateData({ records: data.records.filter((r) => r.id !== id) }); }
+
+  function deleteRecord(id) {
+    const nd = Object.assign({}, data, { records: data.records.filter((r) => r.id !== id) });
+    setData(nd);
+    setSaving(true);
+    setSaveError(false);
+    gasDeleteRecord(id).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
+  }
 
   function addQtyRecord() {
     const f = ui.qtyForm;
     if (!f.partId || !f.qty) return;
-    updateData({ qtyRecords: (data.qtyRecords || []).concat([{ id: genId(), partId: f.partId, qty: parseFloat(f.qty), date: f.date || today() }]) });
+    const newRecord = { id: genId(), partId: f.partId, qty: parseFloat(f.qty), date: f.date || today() };
+    const nd = Object.assign({}, data, { qtyRecords: (data.qtyRecords || []).concat([newRecord]) });
+    setData(nd);
     setQF({ qty: "", partId: "", date: today() });
+    setSaving(true);
+    setSaveError(false);
+    gasAddQtyRecord(newRecord).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
   }
 
   function addMember() {
