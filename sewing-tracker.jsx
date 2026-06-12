@@ -84,6 +84,36 @@ async function gasAddQtyRecord(record) {
   if (result.status !== "saved") throw new Error("addQtyRecord failed");
 }
 
+async function gasAddPart(part) {
+  const res = await fetch(GAS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ action: "addPart", part }),
+  });
+  const result = await res.json();
+  if (result.status !== "saved") throw new Error("addPart failed");
+}
+
+async function gasUpdatePart(part) {
+  const res = await fetch(GAS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ action: "updatePart", part }),
+  });
+  const result = await res.json();
+  if (result.status !== "saved") throw new Error("updatePart failed");
+}
+
+async function gasDeletePart(partId) {
+  const res = await fetch(GAS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ action: "deletePart", partId }),
+  });
+  const result = await res.json();
+  if (result.status !== "saved") throw new Error("deletePart failed");
+}
+
 async function gasLoad() {
   const res = await fetch(GAS_URL);
   return await res.json();
@@ -201,28 +231,70 @@ function App() {
       workMonth: f.workMonth || null,
       createdAt: today(), closedAt: null,
     };
-    updateData({ parts: data.parts.concat([np]) });
+    const nd = Object.assign({}, data, { parts: data.parts.concat([np]) });
+    setData(nd);
     set({ addPartForm: { partNo: "", partName: "", unitPrice: "", qty: "", estMinPerUnit: "", deadline: "", status: "未着手", note: "", assignee: "未割当", assigneeType: "team", vendorId: "", sellPrice: "", vendorPrice: "", brandId: "", workMonth: today().slice(0, 7) }, screen: "master" });
-  }
-
-  function startEdit(part) {
-    set({ editPartForm: { id: part.id, partName: part.partName || "", unitPrice: part.unitPrice || "", qty: part.qty || "", estMinPerUnit: part.estMinPerUnit || "", deadline: part.deadline || "", status: part.status || "未着手", note: part.note || "", sellPrice: part.sellPrice || "", vendorPrice: part.vendorPrice || "", assigneeType: part.assigneeType || "team", workMonth: part.workMonth || "", brandId: part.brandId || "" }, screen: "edit_part" });
+    setSaving(true); setSaveError(false);
+    gasAddPart(np).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
   }
 
   function savePart() {
     const f = ui.editPartForm;
     if (!f) return;
     const isOut = f.assigneeType === "outsource";
-    updateData({ parts: data.parts.map((p) => p.id === f.id ? Object.assign({}, p, { partName: f.partName.trim(), unitPrice: parseFloat(f.unitPrice) || 0, qty: parseFloat(f.qty) || 0, estMinPerUnit: isOut ? 0 : (parseFloat(f.estMinPerUnit) || 0), deadline: f.deadline || null, status: f.status || "未着手", note: f.note.trim(), sellPrice: isOut ? (parseFloat(f.sellPrice) || 0) : (p.sellPrice || 0), vendorPrice: isOut ? (parseFloat(f.vendorPrice) || 0) : (p.vendorPrice || 0), workMonth: f.workMonth || null, brandId: f.brandId || null }) : p) });
+    const updatedPart = Object.assign({}, data.parts.find((p) => p.id === f.id), {
+      partName: f.partName.trim(), unitPrice: parseFloat(f.unitPrice) || 0,
+      qty: parseFloat(f.qty) || 0, estMinPerUnit: isOut ? 0 : (parseFloat(f.estMinPerUnit) || 0),
+      deadline: f.deadline || null, status: f.status || "未着手", note: f.note.trim(),
+      sellPrice: isOut ? (parseFloat(f.sellPrice) || 0) : 0,
+      vendorPrice: isOut ? (parseFloat(f.vendorPrice) || 0) : 0,
+      workMonth: f.workMonth || null, brandId: f.brandId || null,
+    });
+    const nd = Object.assign({}, data, { parts: data.parts.map((p) => p.id === f.id ? updatedPart : p) });
+    setData(nd);
     set({ editPartForm: null, screen: "part_detail" });
+    setSaving(true); setSaveError(false);
+    gasUpdatePart(updatedPart).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
   }
 
-  function updatePartAssignee(id, assignee, assigneeType) { updateData({ parts: data.parts.map((p) => p.id === id ? Object.assign({}, p, { assignee, assigneeType }) : p) }); }
-  function closePart(id) { updateData({ parts: data.parts.map((p) => p.id === id ? Object.assign({}, p, { closedAt: today() }) : p) }); }
-  function reopenPart(id) { updateData({ parts: data.parts.map((p) => p.id === id ? Object.assign({}, p, { closedAt: null }) : p) }); }
-  function deletePart(id) { updateData({ parts: data.parts.filter((p) => p.id !== id), records: data.records.filter((r) => r.partId !== id), qtyRecords: (data.qtyRecords || []).filter((r) => r.partId !== id) }); }
+  function updatePartAssignee(id, assignee, assigneeType) {
+    const updatedPart = Object.assign({}, data.parts.find((p) => p.id === id), { assignee, assigneeType });
+    const nd = Object.assign({}, data, { parts: data.parts.map((p) => p.id === id ? updatedPart : p) });
+    setData(nd);
+    setSaving(true); setSaveError(false);
+    gasUpdatePart(updatedPart).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
+  }
 
-  function addRecord() {
+  function closePart(id) {
+    const updatedPart = Object.assign({}, data.parts.find((p) => p.id === id), { closedAt: today() });
+    const nd = Object.assign({}, data, { parts: data.parts.map((p) => p.id === id ? updatedPart : p) });
+    setData(nd);
+    setSaving(true); setSaveError(false);
+    gasUpdatePart(updatedPart).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
+  }
+
+  function reopenPart(id) {
+    const updatedPart = Object.assign({}, data.parts.find((p) => p.id === id), { closedAt: null });
+    const nd = Object.assign({}, data, { parts: data.parts.map((p) => p.id === id ? updatedPart : p) });
+    setData(nd);
+    setSaving(true); setSaveError(false);
+    gasUpdatePart(updatedPart).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
+  }
+
+  function deletePart(id) {
+    const nd = Object.assign({}, data, {
+      parts: data.parts.filter((p) => p.id !== id),
+      records: data.records.filter((r) => r.partId !== id),
+      qtyRecords: (data.qtyRecords || []).filter((r) => r.partId !== id)
+    });
+    setData(nd);
+    setSaving(true); setSaveError(false);
+    gasDeletePart(id).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
+  }
+
+  function startEdit(part) {
+    set({ editPartForm: { id: part.id, partName: part.partName || "", unitPrice: part.unitPrice || "", qty: part.qty || "", estMinPerUnit: part.estMinPerUnit || "", deadline: part.deadline || "", status: part.status || "未着手", note: part.note || "", sellPrice: part.sellPrice || "", vendorPrice: part.vendorPrice || "", assigneeType: part.assigneeType || "team", workMonth: part.workMonth || "", brandId: part.brandId || "" }, screen: "edit_part" });
+  }
     const f = ui.memberForm;
     const member = data.members.find((m) => m.id === f.memberId);
     if (!member || !f.partId || !f.hours) return;
