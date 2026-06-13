@@ -295,17 +295,16 @@ function App() {
   function startEdit(part) {
     set({ editPartForm: { id: part.id, partName: part.partName || "", unitPrice: part.unitPrice || "", qty: part.qty || "", estMinPerUnit: part.estMinPerUnit || "", deadline: part.deadline || "", status: part.status || "未着手", note: part.note || "", sellPrice: part.sellPrice || "", vendorPrice: part.vendorPrice || "", assigneeType: part.assigneeType || "team", workMonth: part.workMonth || "", brandId: part.brandId || "" }, screen: "edit_part" });
   }
+
+  function addRecord() {
     const f = ui.memberForm;
     const member = data.members.find((m) => m.id === f.memberId);
     if (!member || !f.partId || !f.hours) return;
     const newRecord = { id: genId(), partId: f.partId, memberId: f.memberId, memberName: member.name, hours: parseFloat(f.hours), date: f.date };
-    // ローカルに即反映
     const nd = Object.assign({}, data, { records: data.records.concat([newRecord]) });
     setData(nd);
     setMF({ hours: "" });
-    // GASには追記型で保存（競合安全）
-    setSaving(true);
-    setSaveError(false);
+    setSaving(true); setSaveError(false);
     gasAddRecord(newRecord).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
   }
 
