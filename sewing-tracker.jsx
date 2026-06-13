@@ -1,3 +1,4 @@
+
 const { useState, useMemo, useEffect, useCallback, useRef } = React;
 
 const GAS_URL = "https://script.google.com/macros/s/AKfycbxN7_GWK5xxPJm79eq2uvA1AIVRI6x_g0fD1HHng_Eyo51JEw5JVC3021iYYz_Y3yjxcw/exec";
@@ -1634,5 +1635,3 @@ const styleEl = document.createElement("style");
 styleEl.textContent = "@keyframes spin { to { transform: rotate(360deg); } }";
 document.head.appendChild(styleEl);
 
-const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(React.createElement(App));
