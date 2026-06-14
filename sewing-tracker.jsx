@@ -46,6 +46,8 @@ const INIT_UI = {
   saidanForm: null,
   dlMonth: null,
   dlSelectedDate: null,
+  teamMonthTeam: null,
+  teamMonthMonth: null,
 };
 
 async function gasSave(data) {
@@ -1087,8 +1089,11 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                 const salesProgress = tPlannedSales > 0 ? Math.min(tRealSales / tPlannedSales, 1) : null;
                 if (tParts.length === 0) return null;
                 return React.createElement("div", { key: team, style: st.monthlyCard },
-                  React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } },
-                    React.createElement(TeamBadge, { team, small: true }),
+                  React.createElement("button", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, width: "100%", background: "none", border: "none", cursor: "pointer", padding: 0 }, onClick: () => set({ screen: "team_month", teamMonthTeam: team, teamMonthMonth: sm }) },
+                    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+                      React.createElement(TeamBadge, { team, small: true }),
+                      React.createElement("span", { style: { fontSize: 11, color: "#3b6fd4" } }, "品番を見る ›")
+                    ),
                     React.createElement("span", { style: { fontSize: 12, color: "#aaa" } }, tParts.length + "品番 / " + tQty + "枚")
                   ),
 
@@ -1563,6 +1568,68 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                 React.createElement("span", { style: { fontSize: 11, color: "#aaa" } }, p.qty + "枚")
               )
             ))
+      ),
+      React.createElement(SI)
+    );
+  }
+
+  if (ui.screen === "team_month" && ui.teamMonthTeam && ui.teamMonthMonth) {
+    const tm = ui.teamMonthTeam;
+    const mm = ui.teamMonthMonth;
+    const tmParts = partSummary.filter((p) => p.assignee === tm && p.assigneeType === "team" && p.workMonth === mm)
+      .sort((a, b) => {
+        if (!a.deadline) return 1; if (!b.deadline) return -1;
+        return a.deadline.localeCompare(b.deadline);
+      });
+    const tmActive = tmParts.filter((p) => !p.closedAt);
+    const tmDone = tmParts.filter((p) => p.closedAt);
+    const tmPlannedSales = tmParts.reduce((a, p) => a + (p.unitPrice || 0) * (p.qty || 0), 0);
+    const tmQty = tmParts.reduce((a, p) => a + (p.qty || 0), 0);
+    const tmCompletedQty = tmParts.reduce((a, p) => a + p.completedQty, 0);
+
+    const renderPart = (p) => React.createElement("button", {
+      key: p.id,
+      style: Object.assign({}, st.summaryCard, { textAlign: "left", opacity: p.closedAt ? 0.75 : 1, borderLeft: "3px solid " + (p.closedAt ? "#2a7a2a" : (p.remainDays !== null && p.remainDays <= 3 ? "#c00" : p.remainDays !== null && p.remainDays <= 7 ? "#c25000" : "#e0deda")) }),
+      onClick: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "team_month" })
+    },
+      React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 } },
+        React.createElement("div", null,
+          React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, p.partNo + (p.partName ? " " + p.partName : "")),
+          p.brandName && React.createElement("div", { style: { fontSize: 11, color: "#888", marginTop: 2 } }, "🏷 " + p.brandName)
+        ),
+        React.createElement("div", { style: { textAlign: "right" } },
+          p.closedAt
+            ? React.createElement("div", { style: { fontSize: 11, color: "#2a7a2a", fontWeight: 700 } }, "完了 " + fmt(p.closedAt))
+            : (p.deadline && React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: p.remainDays <= 3 ? "#c00" : p.remainDays <= 7 ? "#c25000" : "#aaa" } }, "あと" + p.remainDays + "日")),
+          p.deadline && React.createElement("div", { style: { fontSize: 11, color: "#aaa" } }, "納期 " + fmt(p.deadline))
+        )
+      ),
+      p.qtyProgress !== null && React.createElement("div", { style: { marginTop: 6 } },
+        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 3 } },
+          React.createElement("span", null, "完成 " + p.completedQty + "枚 / " + p.qty + "枚"),
+          React.createElement("span", null, "¥" + Math.round((p.unitPrice || 0) * (p.qty || 0)).toLocaleString())
+        ),
+        React.createElement(ProgressBar, { value: p.qtyProgress, color: p.remainQty === 0 ? "#2a7a2a" : "#3b6fd4" })
+      )
+    );
+
+    return React.createElement(Shell, null,
+      React.createElement(Header, { title: tm + "　" + mm.replace("-", "年") + "月", back: () => set({ screen: "summary" }) }),
+      React.createElement(Body, null,
+        React.createElement("div", { style: st.grid2 },
+          React.createElement(SBox, { label: "品番数", value: tmParts.length + "件" }),
+          React.createElement(SBox, { label: "予定売上", value: "¥" + Math.round(tmPlannedSales).toLocaleString(), dark: true }),
+          React.createElement(SBox, { label: "総枚数", value: tmQty + "枚" }),
+          React.createElement(SBox, { label: "完成枚数", value: tmCompletedQty + "枚" })
+        ),
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8, marginTop: 8 } },
+          React.createElement("div", { style: { background: "#fff3e0", color: "#c25000", fontSize: 12, fontWeight: 700, padding: "4px 12px", borderRadius: 20 } }, "📦 進行中　" + tmActive.length + "件")
+        ),
+        tmActive.length === 0 ? React.createElement(Empty, null, "進行中の品番はありません") : tmActive.map(renderPart),
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8, marginTop: 20 } },
+          React.createElement("div", { style: { background: "#e8f5e8", color: "#2a7a2a", fontSize: 12, fontWeight: 700, padding: "4px 12px", borderRadius: 20 } }, "✅ 完了　" + tmDone.length + "件")
+        ),
+        tmDone.length === 0 ? React.createElement(Empty, null, "完了済みの品番はありません") : tmDone.map(renderPart)
       ),
       React.createElement(SI)
     );
