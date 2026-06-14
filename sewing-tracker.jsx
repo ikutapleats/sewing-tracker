@@ -44,6 +44,8 @@ const INIT_UI = {
   calSelectedDate: null,
   saidanPartId: null,
   saidanForm: null,
+  dlMonth: null,
+  dlSelectedDate: null,
 };
 
 async function gasSave(data) {
@@ -579,6 +581,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         React.createElement(Spacer, { h: 8 }),
         React.createElement(BigBtn, { icon: "🗂️", label: "ダッシュボード", sub: "納期・進捗を一目で確認", onClick: () => set({ screen: "dashboard" }) }),
         React.createElement(Spacer, { h: 8 }),
+        React.createElement(BigBtn, { icon: "📅", label: "納期カレンダー", sub: "品番ごとの納品予定日を一覧", onClick: () => set({ screen: "deadline_calendar", dlMonth: today().slice(0, 7) }) }),
+        React.createElement(Spacer, { h: 8 }),
         React.createElement(BigBtn, { icon: "🏷️", label: "ブランド別仕事一覧", sub: "客先ごとの納品前・納品済みを確認", onClick: () => set({ screen: "brand_jobs", selectedBrandId: null }) }),
         React.createElement(Spacer, { h: 8 }),
         React.createElement(BigBtn, { icon: "📊", label: "集計・仕事量管理", sub: "全体・チーム別の実績と予算", onClick: () => set({ screen: "summary" }) }),
@@ -601,8 +605,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         React.createElement(Divider, { label: "管理設定" }),
         React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 8 } },
           React.createElement(QuickBtn, { label: "👥 メンバー管理", onClick: () => set({ screen: "member_mgmt" }) }),
-          React.createElement(QuickBtn, { label: "🏢 外注先管理", onClick: () => set({ screen: "vendor_mgmt" }) }),
-          React.createElement(QuickBtn, { label: "🎯 目標設定", onClick: () => set({ screen: "target_setting" }) })
+          React.createElement(QuickBtn, { label: "🏢 外注先管理", onClick: () => set({ screen: "vendor_mgmt" }) })
         ),
         React.createElement("div", { style: { display: "flex", gap: 8 } },
           React.createElement(QuickBtn, { label: "🏷️ ブランド管理", onClick: () => set({ screen: "brand_mgmt" }) })
@@ -1019,9 +1022,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const mTotalHours = monthParts.filter((p) => p.assigneeType !== "outsource").reduce((a, p) => a + p.totalHours, 0);
     const mTotalProfit = monthParts.filter((p) => p.assigneeType === "outsource" && p.profit !== null).reduce((a, p) => a + p.profit, 0);
     const mHourlyRate = mTotalHours > 0 ? mTotalSales / mTotalHours : 0;
-
-    // この月のチーム別目標
-    const monthTarget = (data.monthlyTargets || {})[sm] || {};
+    // この月の全品番の予定売上合計（社内・単価×数量）
+    const mPlannedSales = monthParts.filter((p) => p.assigneeType !== "outsource").reduce((a, p) => a + (p.unitPrice || 0) * (p.qty || 0), 0);
 
     return React.createElement(Shell, null,
       React.createElement(Header, { title: "集計・仕事量管理", back: () => set({ screen: "home" }) }),
@@ -1051,6 +1053,15 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                 sm.replace("-", "年") + "月仕掛り — " + monthParts.length + "品番"
               ),
 
+              // 売上ハイライト
+              React.createElement("div", { style: { background: "#1a1a1a", borderRadius: 12, padding: "16px 18px", marginBottom: 12, color: "#fff" } },
+                React.createElement("div", { style: { fontSize: 11, opacity: 0.55, marginBottom: 4 } }, "この月の予定売上合計（社内・単価×数量）"),
+                React.createElement("div", { style: { fontSize: 28, fontWeight: 700 } }, "¥" + Math.round(mPlannedSales).toLocaleString()),
+                React.createElement("div", { style: { fontSize: 12, opacity: 0.6, marginTop: 6, borderTop: "1px solid #444", paddingTop: 8 } },
+                  "外注利益: ¥" + Math.round(mTotalProfit).toLocaleString()
+                )
+              ),
+
               React.createElement("div", { style: st.grid2 },
                 React.createElement(SBox, { label: "総枚数", value: mTotalQty.toLocaleString() + "枚" }),
                 React.createElement(SBox, { label: "完成枚数", value: mCompletedQty.toLocaleString() + "枚" }),
@@ -1066,40 +1077,44 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                 const tSales = tParts.reduce((a, p) => a + p.totalSales, 0);
                 const tQty = tParts.reduce((a, p) => a + (p.qty || 0), 0);
                 const tCompletedQty = tParts.reduce((a, p) => a + p.completedQty, 0);
-                // 割当済み時間 = 品番の見積もり総時間
+                // 見込み時間 = 品番の見積もり総時間
                 const tAssignedHours = tParts.reduce((a, p) => a + (p.estTotalHours || 0), 0);
                 const tRate = tHours > 0 ? tSales / tHours : 0;
-                const target = monthTarget[team] || {};
-                const plannedH = (target.members || 0) * (target.workDays || 0) * (target.hoursPerDay || 0);
-                const targetSales = target.sales || 0;
-                const salesProgress = targetSales > 0 ? Math.min(tSales / targetSales, 1) : null;
-                const assignRatio = plannedH > 0 ? Math.min(tAssignedHours / plannedH, 1.2) : null;
-                const freeHours = plannedH > 0 ? plannedH - tAssignedHours : null;
-                if (tParts.length === 0 && !plannedH) return null;
+                // 予定売上 = 割り当てられた品番の単価×数量の合計（= このチームの目標）
+                const tPlannedSales = tParts.reduce((a, p) => a + (p.unitPrice || 0) * (p.qty || 0), 0);
+                // 売上達成率 = 完成枚数ベースの実績売上 ÷ 予定売上
+                const tRealSales = tParts.reduce((a, p) => a + (p.unitPrice || 0) * (p.completedQty || 0), 0);
+                const salesProgress = tPlannedSales > 0 ? Math.min(tRealSales / tPlannedSales, 1) : null;
+                if (tParts.length === 0) return null;
                 return React.createElement("div", { key: team, style: st.monthlyCard },
                   React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } },
                     React.createElement(TeamBadge, { team, small: true }),
                     React.createElement("span", { style: { fontSize: 12, color: "#aaa" } }, tParts.length + "品番 / " + tQty + "枚")
                   ),
 
-                  // 時間ブロック：予定 / 割当 / 実績
-                  React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 } },
-                    React.createElement("div", { style: { background: "#f5f4f0", borderRadius: 10, padding: "10px 12px", textAlign: "center" } },
-                      React.createElement("div", { style: { fontSize: 10, color: "#aaa", marginBottom: 4 } }, "予定総労働時間"),
-                      React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: plannedH > 0 ? "#1a1a1a" : "#ccc" } },
-                        plannedH > 0 ? plannedH.toFixed(0) + "h" : "未設定"
+                  // 予定売上（= 目標）を大きく表示
+                  React.createElement("div", { style: { background: "#1a1a1a", borderRadius: 10, padding: "14px 16px", marginBottom: 12, color: "#fff" } },
+                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
+                      React.createElement("div", null,
+                        React.createElement("div", { style: { fontSize: 10, opacity: 0.55, marginBottom: 2 } }, "予定売上（目標）"),
+                        React.createElement("div", { style: { fontSize: 22, fontWeight: 700 } }, "¥" + Math.round(tPlannedSales).toLocaleString())
                       ),
-                      plannedH > 0 && React.createElement("div", { style: { fontSize: 10, color: "#aaa", marginTop: 2 } },
-                        (target.members || 0) + "人×" + (target.workDays || 0) + "日"
+                      React.createElement("div", { style: { textAlign: "right" } },
+                        React.createElement("div", { style: { fontSize: 10, opacity: 0.55, marginBottom: 2 } }, "達成（完成分）"),
+                        React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: salesProgress !== null && salesProgress >= 1 ? "#7dff7d" : "#fff" } }, "¥" + Math.round(tRealSales).toLocaleString())
                       )
                     ),
-                    React.createElement("div", { style: { background: tAssignedHours > plannedH && plannedH > 0 ? "#fff0f0" : "#f0f4ff", borderRadius: 10, padding: "10px 12px", textAlign: "center" } },
+                    salesProgress !== null && React.createElement("div", { style: { marginTop: 8 } },
+                      React.createElement(ProgressBar, { value: salesProgress, color: salesProgress >= 1 ? "#7dff7d" : "#3b6fd4" })
+                    )
+                  ),
+
+                  // 時間ブロック：見込み / 実績
+                  React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 } },
+                    React.createElement("div", { style: { background: "#f0f4ff", borderRadius: 10, padding: "10px 12px", textAlign: "center" } },
                       React.createElement("div", { style: { fontSize: 10, color: "#aaa", marginBottom: 4 } }, "見込み時間"),
-                      React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: tAssignedHours > plannedH && plannedH > 0 ? "#c00" : "#3b6fd4" } },
+                      React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: "#3b6fd4" } },
                         tAssignedHours > 0 ? tAssignedHours.toFixed(0) + "h" : "—"
-                      ),
-                      freeHours !== null && React.createElement("div", { style: { fontSize: 10, color: freeHours < 0 ? "#c00" : "#2a7a2a", marginTop: 2, fontWeight: 700 } },
-                        freeHours >= 0 ? "空き " + freeHours.toFixed(0) + "h" : "超過 " + Math.abs(freeHours).toFixed(0) + "h"
                       )
                     ),
                     React.createElement("div", { style: { background: "#f0f8f0", borderRadius: 10, padding: "10px 12px", textAlign: "center" } },
@@ -1113,26 +1128,13 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                     )
                   ),
 
-                  // 割当進捗バー
-                  assignRatio !== null && React.createElement("div", { style: { marginBottom: 10 } },
+                  // 完成枚数の進捗
+                  React.createElement("div", null,
                     React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 3 } },
-                      React.createElement("span", null, "見込み時間の充填率"),
-                      React.createElement("span", { style: { fontWeight: 700, color: assignRatio > 1 ? "#c00" : assignRatio > 0.8 ? "#2a7a2a" : "#b07000" } },
-                        Math.round(assignRatio * 100) + "%"
-                      )
+                      React.createElement("span", null, "完成枚数"),
+                      React.createElement("span", { style: { fontWeight: 700 } }, tCompletedQty + "枚 / " + tQty + "枚")
                     ),
-                    React.createElement(ProgressBar, { value: Math.min(assignRatio, 1), color: assignRatio > 1 ? "#c00" : assignRatio > 0.8 ? "#2a7a2a" : "#3b6fd4" })
-                  ),
-
-                  // 売上：目標 vs 実績
-                  targetSales > 0 && React.createElement("div", { style: { borderTop: "1px solid #f0eeea", paddingTop: 10 } },
-                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 } },
-                      React.createElement("span", { style: { fontSize: 11, color: "#aaa" } }, "売上目標 vs 実績"),
-                      React.createElement("span", { style: { fontSize: 12, fontWeight: 700 } },
-                        "¥" + Math.round(tSales).toLocaleString() + " / ¥" + Math.round(targetSales).toLocaleString()
-                      )
-                    ),
-                    salesProgress !== null && React.createElement(ProgressBar, { value: salesProgress, color: salesProgress >= 1 ? "#2a7a2a" : "#3b6fd4" })
+                    React.createElement(ProgressBar, { value: tQty > 0 ? tCompletedQty / tQty : 0, color: "#2a7a2a" })
                   )
                 );
               }),
@@ -1566,93 +1568,122 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     );
   }
 
-  if (ui.screen === "target_setting") {
-    const f = ui.targetForm;
-    const members = parseFloat(f.members) || 0;
-    const workDays = parseFloat(f.workDays) || 0;
-    const hoursPerDay = parseFloat(f.hoursPerDay) || 0;
-    const plannedHours = members * workDays * hoursPerDay;
-    const existingTarget = ((data.monthlyTargets || {})[f.month] || {})[f.team] || {};
+  if (ui.screen === "deadline_calendar") {
+    const dlMonth = ui.dlMonth || today().slice(0, 7);
+    const [year, month] = dlMonth.split("-").map(Number);
+    const firstDay = new Date(year, month - 1, 1).getDay();
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const prevMonth = month === 1 ? (year - 1) + "-12" : year + "-" + String(month - 1).padStart(2, "0");
+    const nextMonth = month === 12 ? (year + 1) + "-01" : year + "-" + String(month + 1).padStart(2, "0");
+
+    // 納期がこの月の品番を日付ごとにまとめる
+    const dlByDate = {};
+    partSummary.forEach((p) => {
+      if (!p.deadline || p.deadline.slice(0, 7) !== dlMonth) return;
+      if (!dlByDate[p.deadline]) dlByDate[p.deadline] = [];
+      dlByDate[p.deadline].push(p);
+    });
+    const monthDlCount = Object.values(dlByDate).reduce((a, arr) => a + arr.length, 0);
+
+    const days = [];
+    for (let i = 0; i < firstDay; i++) days.push(null);
+    for (let d = 1; d <= daysInMonth; d++) days.push(d);
+    const todayStr = today();
+
+    const teamColor = (p) => {
+      if (p.assigneeType === "outsource") return "#888";
+      return TEAM_COLORS[p.assignee] || "#bbb";
+    };
 
     return React.createElement(Shell, null,
-      React.createElement(Header, { title: "月次目標設定", back: () => set({ screen: "home" }) }),
+      React.createElement(Header, { title: "📅 納期カレンダー", back: () => set({ screen: "home" }) }),
       React.createElement(Body, null,
-        React.createElement("div", { style: { fontSize: 12, color: "#888", marginBottom: 12, background: "#fff", borderRadius: 10, padding: "10px 14px" } },
-          "仕掛り月・チームごとに予定労働時間と売上目標を設定します。集計画面で割当・実績と比較できます。"
-        ),
-        React.createElement("div", { style: st.card },
-          React.createElement(FormRow, { label: "仕掛り月" },
-            React.createElement("input", { style: st.input, type: "month", value: f.month, onChange: (e) => {
-              const newMonth = e.target.value;
-              const existing = ((data.monthlyTargets || {})[newMonth] || {})[f.team] || {};
-              setTF({ month: newMonth, members: existing.members || "", workDays: existing.workDays || "", hoursPerDay: existing.hoursPerDay || "", sales: existing.sales || "" });
-            }})
-          ),
-          React.createElement(FormRow, { label: "チーム" },
-            React.createElement("select", { style: st.input, value: f.team, onChange: (e) => {
-              const newTeam = e.target.value;
-              const existing = ((data.monthlyTargets || {})[f.month] || {})[newTeam] || {};
-              setTF({ team: newTeam, members: existing.members || "", workDays: existing.workDays || "", hoursPerDay: existing.hoursPerDay || "", sales: existing.sales || "" });
-            }}, TEAMS.map((t) => React.createElement("option", { key: t }, t)))
-          ),
-          React.createElement("div", { style: { background: "#f5f4f0", borderRadius: 10, padding: "14px", marginBottom: 14 } },
-            React.createElement("div", { style: { fontSize: 11, color: "#888", marginBottom: 10 } }, "予定総労働時間の計算"),
-            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10 } },
-              React.createElement("div", { style: { flex: 1, minWidth: 60 } },
-                React.createElement("div", { style: { fontSize: 10, color: "#aaa", marginBottom: 4 } }, "人数"),
-                React.createElement("input", { style: Object.assign({}, st.input, { textAlign: "center" }), type: "number", placeholder: "例: 4", min: "1", value: f.members || "", onChange: (e) => setTF({ members: e.target.value }) })
-              ),
-              React.createElement("span", { style: { fontSize: 16, color: "#aaa", paddingTop: 16 } }, "×"),
-              React.createElement("div", { style: { flex: 1, minWidth: 60 } },
-                React.createElement("div", { style: { fontSize: 10, color: "#aaa", marginBottom: 4 } }, "稼働日数"),
-                React.createElement("input", { style: Object.assign({}, st.input, { textAlign: "center" }), type: "number", placeholder: "例: 20", min: "1", value: f.workDays || "", onChange: (e) => setTF({ workDays: e.target.value }) })
-              ),
-              React.createElement("span", { style: { fontSize: 16, color: "#aaa", paddingTop: 16 } }, "×"),
-              React.createElement("div", { style: { flex: 1, minWidth: 60 } },
-                React.createElement("div", { style: { fontSize: 10, color: "#aaa", marginBottom: 4 } }, "1日(h)"),
-                React.createElement("input", { style: Object.assign({}, st.input, { textAlign: "center" }), type: "number", placeholder: "例: 7", min: "1", step: "0.5", value: f.hoursPerDay || "", onChange: (e) => setTF({ hoursPerDay: e.target.value }) })
-              )
-            ),
-            plannedHours > 0
-              ? React.createElement("div", { style: { background: "#1a1a1a", color: "#fff", borderRadius: 8, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" } },
-                  React.createElement("span", { style: { fontSize: 12, opacity: 0.6 } }, "予定総労働時間"),
-                  React.createElement("span", { style: { fontSize: 22, fontWeight: 700 } }, plannedHours.toFixed(1) + "h")
-                )
-              : React.createElement("div", { style: { color: "#bbb", fontSize: 12, textAlign: "center" } }, "人数・稼働日数・時間を入力してください")
-          ),
-          React.createElement(FormRow, { label: "売上目標（円）" },
-            React.createElement("input", { style: st.input, type: "number", placeholder: "例: 500000", value: f.sales || "", onChange: (e) => setTF({ sales: e.target.value }) }),
-            plannedHours > 0 && f.sales && React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginTop: 4 } },
-              "目標時間単価: ¥" + Math.round(parseFloat(f.sales) / plannedHours).toLocaleString() + "/h"
-            )
-          ),
-          React.createElement("button", { style: st.primaryBtn, onClick: saveTarget }, "保存する")
+
+        // 月切り替え
+        React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 } },
+          React.createElement("button", { style: Object.assign({}, st.ghostBtn, { padding: "8px 16px", fontSize: 16 }), onClick: () => set({ dlMonth: prevMonth, dlSelectedDate: null }) }, "‹"),
+          React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, year + "年" + month + "月　納期 " + monthDlCount + "件"),
+          React.createElement("button", { style: Object.assign({}, st.ghostBtn, { padding: "8px 16px", fontSize: 16 }), onClick: () => set({ dlMonth: nextMonth, dlSelectedDate: null }) }, "›")
         ),
 
-        // 登録済み目標一覧
-        React.createElement(SectionLabel, null, "登録済みの目標"),
-        Object.keys(data.monthlyTargets || {}).length === 0
-          ? React.createElement(Empty, null, "まだ目標が設定されていません")
-          : Object.keys(data.monthlyTargets).sort().reverse().map((month) => {
-              const monthData = data.monthlyTargets[month];
-              return React.createElement("div", { key: month, style: st.monthlyCard },
-                React.createElement("div", { style: { fontSize: 13, fontWeight: 700, marginBottom: 10, color: "#555" } },
-                  month.replace("-", "年") + "月"
+        // チーム色凡例
+        React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12, fontSize: 11 } },
+          TEAMS.map((t) => React.createElement("div", { key: t, style: { display: "flex", alignItems: "center", gap: 4 } },
+            React.createElement("div", { style: { width: 10, height: 10, borderRadius: 3, background: TEAM_COLORS[t] } }),
+            React.createElement("span", { style: { color: "#888" } }, t)
+          )),
+          React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 4 } },
+            React.createElement("div", { style: { width: 10, height: 10, borderRadius: 3, background: "#888" } }),
+            React.createElement("span", { style: { color: "#888" } }, "外注")
+          )
+        ),
+
+        // カレンダー
+        React.createElement("div", { style: { background: "#fff", borderRadius: 12, padding: "10px", boxShadow: "0 1px 4px rgba(0,0,0,.06)", marginBottom: 16 } },
+          React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 6 } },
+            ["日","月","火","水","木","金","土"].map((d, i) =>
+              React.createElement("div", { key: d, style: { textAlign: "center", fontSize: 11, fontWeight: 700, color: i === 0 ? "#c00" : i === 6 ? "#3b6fd4" : "#aaa", padding: "4px 0" } }, d)
+            )
+          ),
+          React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 } },
+            days.map((d, i) => {
+              if (!d) return React.createElement("div", { key: "e" + i, style: { minHeight: 64 } });
+              const dateStr = year + "-" + String(month).padStart(2, "0") + "-" + String(d).padStart(2, "0");
+              const items = dlByDate[dateStr] || [];
+              const isToday = dateStr === todayStr;
+              const dow = (firstDay + d - 1) % 7;
+              return React.createElement("div", {
+                key: "d" + i,
+                style: {
+                  minHeight: 64, borderRadius: 6, padding: "3px 2px",
+                  background: isToday ? "#fff8e0" : "#fafafa",
+                  border: isToday ? "2px solid #ffd060" : "1px solid #f0eeea",
+                  cursor: items.length > 0 ? "pointer" : "default",
+                  overflow: "hidden",
+                },
+                onClick: () => items.length > 0 && set({ dlSelectedDate: dateStr })
+              },
+                React.createElement("div", { style: { textAlign: "center", fontSize: 11, fontWeight: 700, color: dow === 0 ? "#c00" : dow === 6 ? "#3b6fd4" : "#555", marginBottom: 2 } }, d),
+                items.slice(0, 3).map((p) =>
+                  React.createElement("div", { key: p.id, style: {
+                    background: teamColor(p) + (p.closedAt ? "30" : "20"),
+                    borderLeft: "3px solid " + teamColor(p),
+                    borderRadius: 3, padding: "1px 3px", marginBottom: 2,
+                    fontSize: 9, lineHeight: 1.2,
+                    color: p.closedAt ? "#aaa" : "#333",
+                    textDecoration: p.closedAt ? "line-through" : "none",
+                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                  } }, p.partNo)
                 ),
-                TEAMS.map((team) => {
-                  const t = monthData[team];
-                  if (!t) return null;
-                  const ph = (t.members || 0) * (t.workDays || 0) * (t.hoursPerDay || 0);
-                  return React.createElement("div", { key: team, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderTop: "1px solid #f0eeea" } },
-                    React.createElement(TeamBadge, { team, small: true }),
-                    React.createElement("div", { style: { textAlign: "right", fontSize: 12, color: "#555" } },
-                      ph > 0 && React.createElement("div", null, "予定 " + ph.toFixed(0) + "h　" + (t.members || 0) + "人×" + (t.workDays || 0) + "日×" + (t.hoursPerDay || 0) + "h"),
-                      t.sales && React.createElement("div", { style: { color: "#aaa" } }, "売上目標 ¥" + Math.round(t.sales).toLocaleString())
-                    )
-                  );
-                })
+                items.length > 3 && React.createElement("div", { style: { fontSize: 9, color: "#aaa", textAlign: "center" } }, "他" + (items.length - 3) + "件")
               );
             })
+          )
+        ),
+
+        // 選択日の詳細
+        ui.dlSelectedDate && dlByDate[ui.dlSelectedDate] && React.createElement("div", null,
+          React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } },
+            React.createElement("div", { style: st.sectionLabel }, ui.dlSelectedDate.slice(5).replace("-", "/") + " 納期の品番"),
+            React.createElement("button", { style: st.ghostBtn, onClick: () => set({ dlSelectedDate: null }) }, "✕")
+          ),
+          dlByDate[ui.dlSelectedDate].map((p) =>
+            React.createElement("button", { key: p.id, style: Object.assign({}, st.summaryCard, { textAlign: "left", borderLeft: "4px solid " + teamColor(p) }), onClick: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "deadline_calendar" }) },
+              React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
+                React.createElement("div", null,
+                  React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, p.partNo + (p.partName ? " " + p.partName : "")),
+                  React.createElement("div", { style: { fontSize: 11, color: "#888", marginTop: 2 } },
+                    (p.assigneeType === "outsource" ? "外注: " + (p.vendorName || "?") : (p.assignee || "未割当")) + "　" + p.qty + "枚"
+                  )
+                ),
+                p.closedAt ? React.createElement(Badge, { type: "done" }) : React.createElement(Badge, { type: "open" })
+              )
+            )
+          )
+        ),
+
+        // 納期未設定の注意
+        !ui.dlSelectedDate && monthDlCount === 0 && React.createElement(Empty, null, year + "年" + month + "月が納期の品番はありません")
       ),
       React.createElement(SI)
     );
