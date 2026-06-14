@@ -48,6 +48,7 @@ const INIT_UI = {
   dlSelectedDate: null,
   teamMonthTeam: null,
   teamMonthMonth: null,
+  estPeople: 1,
 };
 
 async function gasSave(data) {
@@ -828,6 +829,54 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           isOut ? React.createElement(SBox, { label: "外注先", value: p.vendorName || "未設定" }) : React.createElement(SBox, { label: "製品単価", value: "¥" + (p.unitPrice || 0).toLocaleString() }),
           isOut ? React.createElement(SBox, { label: "見込み利益", value: p.profit !== null ? "¥" + Math.round(p.profit).toLocaleString() : "—", dark: p.profit > 0 }) : React.createElement(SBox, { label: "総売上", value: "¥" + Math.round(p.totalSales).toLocaleString() }),
           isOut ? React.createElement(SBox, { label: "利益率", value: p.profitRate !== null ? p.profitRate.toFixed(1) + "%" : "—" }) : React.createElement(SBox, { label: "総作業時間", value: p.totalHours.toFixed(1) + "h" })
+        ),
+        !isOut && (p.estMinPerUnit > 0) && React.createElement("div", { style: Object.assign({}, st.card, { marginBottom: 16 }) },
+          React.createElement("div", { style: { fontSize: 13, fontWeight: 700, marginBottom: 10 } }, "⏱ 見積もりベースの試算"),
+          React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 } },
+            React.createElement("div", { style: { background: "#f5f4f0", borderRadius: 10, padding: "10px 12px", textAlign: "center" } },
+              React.createElement("div", { style: { fontSize: 10, color: "#aaa", marginBottom: 4 } }, "1着あたり見積もり"),
+              React.createElement("div", { style: { fontSize: 16, fontWeight: 700 } }, p.estMinPerUnit + "分"),
+              React.createElement("div", { style: { fontSize: 10, color: "#aaa", marginTop: 2 } }, "= " + p.estHoursPerUnit.toFixed(2) + "h/着")
+            ),
+            React.createElement("div", { style: { background: "#f5f4f0", borderRadius: 10, padding: "10px 12px", textAlign: "center" } },
+              React.createElement("div", { style: { fontSize: 10, color: "#aaa", marginBottom: 4 } }, "見積もり総時間"),
+              React.createElement("div", { style: { fontSize: 16, fontWeight: 700 } }, p.estTotalHours.toFixed(1) + "h"),
+              React.createElement("div", { style: { fontSize: 10, color: "#aaa", marginTop: 2 } }, (p.qty || 0) + "枚ぶん")
+            )
+          ),
+          // 1日8時間でいくら稼げるか = 単価 ÷ 1着あたり時間 × 8時間
+          (() => {
+            const perHour = p.estHoursPerUnit > 0 ? (p.unitPrice || 0) / p.estHoursPerUnit : 0;
+            const perDay8 = perHour * 8;
+            const piecesPerDay = p.estHoursPerUnit > 0 ? 8 / p.estHoursPerUnit : 0;
+            const people = Math.max(1, parseInt(ui.estPeople, 10) || 1);
+            const teamPerDay = perDay8 * people;
+            const teamPieces = piecesPerDay * people;
+            return React.createElement("div", null,
+              React.createElement("div", { style: { background: "#14555a", color: "#fff", borderRadius: 10, padding: "12px 16px", marginBottom: 8 } },
+                React.createElement("div", { style: { fontSize: 11, opacity: 0.7, marginBottom: 4 } }, "見積もり通りなら 1人・1日8時間で"),
+                React.createElement("div", { style: { fontSize: 22, fontWeight: 700 } }, "¥" + Math.round(perDay8).toLocaleString()),
+                React.createElement("div", { style: { fontSize: 11, opacity: 0.7, marginTop: 4 } },
+                  "時間単価 ¥" + Math.round(perHour).toLocaleString() + "/h　・　1日 約" + piecesPerDay.toFixed(1) + "着"
+                )
+              ),
+              React.createElement("div", { style: { background: "#0f3d40", color: "#fff", borderRadius: 10, padding: "12px 16px" } },
+                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8 } },
+                  React.createElement("span", { style: { fontSize: 12, opacity: 0.7 } }, "この品番に"),
+                  React.createElement("input", {
+                    style: { width: 56, textAlign: "center", padding: "6px 4px", borderRadius: 8, border: "none", fontSize: 15, fontWeight: 700 },
+                    type: "number", min: "1", value: ui.estPeople,
+                    onChange: (e) => set({ estPeople: e.target.value })
+                  }),
+                  React.createElement("span", { style: { fontSize: 12, opacity: 0.7 } }, "人で取り組むと 1日")
+                ),
+                React.createElement("div", { style: { fontSize: 26, fontWeight: 700 } }, "¥" + Math.round(teamPerDay).toLocaleString()),
+                React.createElement("div", { style: { fontSize: 11, opacity: 0.7, marginTop: 4 } },
+                  "1日 約" + teamPieces.toFixed(1) + "着　・　" + (p.qty > 0 && teamPieces > 0 ? "全" + p.qty + "枚で約" + Math.ceil(p.qty / teamPieces) + "日" : "")
+                )
+              )
+            );
+          })()
         ),
         !isOut && p.progress !== null && React.createElement("div", { style: Object.assign({}, st.card, { marginBottom: 16 }) },
           React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 6 } },
@@ -1670,6 +1719,11 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       dlByDate[p.deadline].push(p);
     });
     const monthDlCount = Object.values(dlByDate).reduce((a, arr) => a + arr.length, 0);
+    // この月が納期の品番の予定売上合計
+    const dlPlannedSales = Object.values(dlByDate).reduce((a, arr) => a + arr.reduce((b, p) => {
+      const sale = p.assigneeType === "outsource" ? (p.sellPrice || 0) * (p.qty || 0) : (p.unitPrice || 0) * (p.qty || 0);
+      return b + sale;
+    }, 0), 0);
 
     const days = [];
     for (let i = 0; i < firstDay; i++) days.push(null);
@@ -1690,6 +1744,12 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement("button", { style: Object.assign({}, st.ghostBtn, { padding: "8px 16px", fontSize: 16 }), onClick: () => set({ dlMonth: prevMonth, dlSelectedDate: null }) }, "‹"),
           React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, year + "年" + month + "月　納期 " + monthDlCount + "件"),
           React.createElement("button", { style: Object.assign({}, st.ghostBtn, { padding: "8px 16px", fontSize: 16 }), onClick: () => set({ dlMonth: nextMonth, dlSelectedDate: null }) }, "›")
+        ),
+
+        // この月納期の予定売上合計
+        monthDlCount > 0 && React.createElement("div", { style: { background: "#1a1a1a", color: "#fff", borderRadius: 10, padding: "12px 16px", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" } },
+          React.createElement("span", { style: { fontSize: 12, opacity: 0.6 } }, "この月納期の予定売上合計"),
+          React.createElement("span", { style: { fontSize: 20, fontWeight: 700 } }, "¥" + Math.round(dlPlannedSales).toLocaleString())
         ),
 
         // チーム色凡例
