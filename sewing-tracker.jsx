@@ -702,7 +702,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 } },
             React.createElement("div", null, React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, p.partNo), p.partName && React.createElement("div", { style: { fontSize: 12, color: "#888", marginTop: 2 } }, p.partName)),
             React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" } },
-              p.closedAt ? React.createElement(Badge, { type: "done" }) : React.createElement(Badge, { type: "open" }),
+              React.createElement(Badge, { part: p }),
               React.createElement(AssigneeBadge, { part: p, vendors: data.vendors }),
               React.createElement("span", { style: { color: "#ccc" } }, "›")
             )
@@ -849,7 +849,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       React.createElement(Body, null,
         React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } },
           React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } },
-            p.closedAt ? React.createElement(Badge, { type: "done" }) : React.createElement(Badge, { type: "open" }),
+            React.createElement(Badge, { part: p }),
             React.createElement(AssigneeBadge, { part: p, vendors: data.vendors }),
             p.status && React.createElement(StatusBadge, { status: p.status })
           ),
@@ -871,7 +871,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             React.createElement("div", null, React.createElement("div", { style: st.cellLabel }, "仕掛り月"), React.createElement("div", { style: { fontWeight: 700, color: p.workMonth ? "#3b6fd4" : "#bbb" } }, p.workMonth ? p.workMonth.replace("-", "年") + "月" : "未設定")),
             React.createElement("div", null, React.createElement("div", { style: st.cellLabel }, "登録日"), React.createElement("div", { style: { fontWeight: 700 } }, fmt(p.createdAt))),
             p.deadline && React.createElement("div", null, React.createElement("div", { style: st.cellLabel }, "納期"), React.createElement("div", { style: { fontWeight: 700, color: p.closedAt ? "#aaa" : (p.remainDays <= 3 ? "#c00" : "#c25000") } }, fmt(p.deadline))),
-            React.createElement("div", null, React.createElement("div", { style: st.cellLabel }, "完了日"), React.createElement("div", { style: { fontWeight: 700, color: p.closedAt ? "#2a7a2a" : "#bbb" } }, p.closedAt ? fmt(p.closedAt) : "進行中"))
+            React.createElement("div", null, React.createElement("div", { style: st.cellLabel }, "完了日"), React.createElement("div", { style: { fontWeight: 700, color: p.closedAt ? "#2a7a2a" : "#bbb" } }, p.closedAt ? fmt(p.closedAt) : ((p.status || "未着手") === "未着手" ? "裁断前" : "進行中")))
           ),
           p.deadline && !p.closedAt && React.createElement("div", { style: { marginTop: 8, fontSize: 12, color: p.remainDays <= 3 ? "#c00" : "#888" } }, "納期まであと ", React.createElement("b", null, p.remainDays), " 日")
         ),
@@ -1293,7 +1293,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                     p.brandName && React.createElement("div", { style: { fontSize: 11, color: "#888", marginTop: 2 } }, "🏷 " + p.brandName)
                   ),
                   React.createElement("div", { style: { textAlign: "right", fontSize: 12, color: "#aaa" } },
-                    p.closedAt ? React.createElement(Badge, { type: "done" }) : React.createElement(Badge, { type: "open" }),
+                    React.createElement(Badge, { part: p }),
                     React.createElement("div", { style: { marginTop: 4 } }, p.assigneeType === "outsource" ? ("外注 / 利益¥" + (p.profit !== null ? Math.round(p.profit).toLocaleString() : "—")) : (p.totalHours > 0 ? "¥" + Math.round(p.hourlyRate).toLocaleString() + "/h" : "未記録"))
                   )
                 )
@@ -2144,7 +2144,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                     (p.assigneeType === "outsource" ? "外注: " + (p.vendorName || "?") : (p.assignee || "未割当")) + "　" + p.qty + "枚"
                   )
                 ),
-                p.closedAt ? React.createElement(Badge, { type: "done" }) : React.createElement(Badge, { type: "open" })
+                React.createElement(Badge, { part: p })
               )
             )
           )
@@ -2283,7 +2283,18 @@ function SectionLabel(p) { return React.createElement("div", { style: st.section
 function Empty(p) { return React.createElement("div", { style: st.empty }, p.children); }
 function FormRow(p) { return React.createElement("div", { style: { marginBottom: 14 } }, React.createElement("div", { style: { fontSize: 11, color: "#888", marginBottom: 4 } }, p.label), p.children); }
 function SBox(p) { return React.createElement("div", { style: Object.assign({}, st.sBox, { background: p.dark ? "#1a1a1a" : "#fff" }) }, React.createElement("div", { style: { fontSize: 10, color: p.dark ? "#777" : "#aaa", marginBottom: 5 } }, p.label), React.createElement("div", { style: { fontSize: 15, fontWeight: 700, color: p.dark ? "#fff" : "#1a1a1a" } }, p.value)); }
-function Badge(p) { const done = p.type === "done"; return React.createElement("span", { style: { background: done ? "#e8f5e8" : "#fff3e0", color: done ? "#2a7a2a" : "#c25000", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700 } }, done ? "完了" : "進行中"); }
+function Badge(p) {
+  // part が渡されればステータスで3段階判定、なければ従来の type 判定
+  if (p.part) {
+    if (p.part.closedAt) return React.createElement("span", { style: { background: "#e8f5e8", color: "#2a7a2a", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700, whiteSpace: "nowrap" } }, "完了");
+    const status = p.part.status || "未着手";
+    if (status === "完了") return React.createElement("span", { style: { background: "#e8f5e8", color: "#2a7a2a", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700, whiteSpace: "nowrap" } }, "完了");
+    if (status === "未着手") return React.createElement("span", { style: { background: "#f0eeea", color: "#999", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700, whiteSpace: "nowrap" } }, "裁断前");
+    return React.createElement("span", { style: { background: "#fff3e0", color: "#c25000", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700, whiteSpace: "nowrap" } }, "進行中");
+  }
+  const done = p.type === "done";
+  return React.createElement("span", { style: { background: done ? "#e8f5e8" : "#fff3e0", color: done ? "#2a7a2a" : "#c25000", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700, whiteSpace: "nowrap" } }, done ? "完了" : "進行中");
+}
 function ProgressBar(p) { const pct = Math.min(Math.max(p.value || 0, 0), 1) * 100; const c = p.color || (pct >= 100 ? "#2a7a2a" : "#3b6fd4"); return React.createElement("div", { style: st.barBg }, React.createElement("div", { style: Object.assign({}, st.barFill, { width: pct + "%", background: c }) })); }
 function DashCard(p) {
   const item = p.item; const colors = { red: "#c00", yellow: "#b07000", green: "#2a7a2a", done: "#666" }; const c = colors[p.level] || "#666";
