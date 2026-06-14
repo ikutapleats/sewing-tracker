@@ -1147,7 +1147,11 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
               // 外注サマリー
               monthParts.some((p) => p.assigneeType === "outsource") && React.createElement("div", null,
                 React.createElement(SectionLabel, null, "外注 サマリー"),
-                React.createElement("div", { style: st.monthlyCard },
+                React.createElement("button", { style: Object.assign({}, st.monthlyCard, { width: "100%", border: "none", textAlign: "left", cursor: "pointer", display: "block" }), onClick: () => set({ screen: "team_month", teamMonthTeam: "__outsource__", teamMonthMonth: sm }) },
+                  React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
+                    React.createElement("span", { style: { fontSize: 13, fontWeight: 700 } }, "🏢 外注品番を見る"),
+                    React.createElement("span", { style: { fontSize: 11, color: "#3b6fd4" } }, "一覧 ›")
+                  ),
                   React.createElement("div", { style: st.grid2 },
                     React.createElement(SBox, { label: "外注品番数", value: monthParts.filter((p) => p.assigneeType === "outsource").length + "件" }),
                     React.createElement(SBox, { label: "利益合計", value: "¥" + Math.round(mTotalProfit).toLocaleString(), dark: mTotalProfit > 0 })
@@ -1576,14 +1580,20 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
   if (ui.screen === "team_month" && ui.teamMonthTeam && ui.teamMonthMonth) {
     const tm = ui.teamMonthTeam;
     const mm = ui.teamMonthMonth;
-    const tmParts = partSummary.filter((p) => p.assignee === tm && p.assigneeType === "team" && p.workMonth === mm)
+    const isOutView = tm === "__outsource__";
+    const tmParts = (isOutView
+      ? partSummary.filter((p) => p.assigneeType === "outsource" && p.workMonth === mm)
+      : partSummary.filter((p) => p.assignee === tm && p.assigneeType === "team" && p.workMonth === mm))
       .sort((a, b) => {
         if (!a.deadline) return 1; if (!b.deadline) return -1;
         return a.deadline.localeCompare(b.deadline);
       });
     const tmActive = tmParts.filter((p) => !p.closedAt);
     const tmDone = tmParts.filter((p) => p.closedAt);
-    const tmPlannedSales = tmParts.reduce((a, p) => a + (p.unitPrice || 0) * (p.qty || 0), 0);
+    const tmPlannedSales = isOutView
+      ? tmParts.reduce((a, p) => a + (p.sellPrice || 0) * (p.qty || 0), 0)
+      : tmParts.reduce((a, p) => a + (p.unitPrice || 0) * (p.qty || 0), 0);
+    const tmProfit = tmParts.reduce((a, p) => a + (p.profit || 0), 0);
     const tmQty = tmParts.reduce((a, p) => a + (p.qty || 0), 0);
     const tmCompletedQty = tmParts.reduce((a, p) => a + p.completedQty, 0);
 
@@ -1595,6 +1605,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 } },
         React.createElement("div", null,
           React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, p.partNo + (p.partName ? " " + p.partName : "")),
+          isOutView && React.createElement("div", { style: { fontSize: 11, color: "#888", marginTop: 2 } }, "外注: " + (p.vendorName || "?")),
           p.brandName && React.createElement("div", { style: { fontSize: 11, color: "#888", marginTop: 2 } }, "🏷 " + p.brandName)
         ),
         React.createElement("div", { style: { textAlign: "right" } },
@@ -1604,23 +1615,31 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           p.deadline && React.createElement("div", { style: { fontSize: 11, color: "#aaa" } }, "納期 " + fmt(p.deadline))
         )
       ),
-      p.qtyProgress !== null && React.createElement("div", { style: { marginTop: 6 } },
-        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 3 } },
-          React.createElement("span", null, "完成 " + p.completedQty + "枚 / " + p.qty + "枚"),
-          React.createElement("span", null, "¥" + Math.round((p.unitPrice || 0) * (p.qty || 0)).toLocaleString())
-        ),
-        React.createElement(ProgressBar, { value: p.qtyProgress, color: p.remainQty === 0 ? "#2a7a2a" : "#3b6fd4" })
-      )
+      isOutView
+        ? React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginTop: 4 } },
+            p.qty + "枚　売上¥" + Math.round((p.sellPrice || 0) * (p.qty || 0)).toLocaleString() + "　利益¥" + (p.profit !== null ? Math.round(p.profit).toLocaleString() : "—")
+          )
+        : (p.qtyProgress !== null && React.createElement("div", { style: { marginTop: 6 } },
+            React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 3 } },
+              React.createElement("span", null, "完成 " + p.completedQty + "枚 / " + p.qty + "枚"),
+              React.createElement("span", null, "¥" + Math.round((p.unitPrice || 0) * (p.qty || 0)).toLocaleString())
+            ),
+            React.createElement(ProgressBar, { value: p.qtyProgress, color: p.remainQty === 0 ? "#2a7a2a" : "#3b6fd4" })
+          ))
     );
 
     return React.createElement(Shell, null,
-      React.createElement(Header, { title: tm + "　" + mm.replace("-", "年") + "月", back: () => set({ screen: "summary" }) }),
+      React.createElement(Header, { title: (isOutView ? "外注" : tm) + "　" + mm.replace("-", "年") + "月", back: () => set({ screen: "summary" }) }),
       React.createElement(Body, null,
         React.createElement("div", { style: st.grid2 },
           React.createElement(SBox, { label: "品番数", value: tmParts.length + "件" }),
-          React.createElement(SBox, { label: "予定売上", value: "¥" + Math.round(tmPlannedSales).toLocaleString(), dark: true }),
+          isOutView
+            ? React.createElement(SBox, { label: "利益合計", value: "¥" + Math.round(tmProfit).toLocaleString(), dark: true })
+            : React.createElement(SBox, { label: "予定売上", value: "¥" + Math.round(tmPlannedSales).toLocaleString(), dark: true }),
           React.createElement(SBox, { label: "総枚数", value: tmQty + "枚" }),
-          React.createElement(SBox, { label: "完成枚数", value: tmCompletedQty + "枚" })
+          isOutView
+            ? React.createElement(SBox, { label: "売上合計", value: "¥" + Math.round(tmPlannedSales).toLocaleString() })
+            : React.createElement(SBox, { label: "完成枚数", value: tmCompletedQty + "枚" })
         ),
         React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8, marginTop: 8 } },
           React.createElement("div", { style: { background: "#fff3e0", color: "#c25000", fontSize: 12, fontWeight: 700, padding: "4px 12px", borderRadius: 20 } }, "📦 進行中　" + tmActive.length + "件")
