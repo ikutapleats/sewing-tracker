@@ -49,6 +49,9 @@ const INIT_UI = {
   teamMonthTeam: null,
   teamMonthMonth: null,
   estPeople: 1,
+  salesMonth: null,
+  salesTeam: "all",
+  salesSelectedDate: null,
 };
 
 async function gasSave(data) {
@@ -586,6 +589,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         React.createElement(Spacer, { h: 8 }),
         React.createElement(BigBtn, { icon: "📅", label: "納期カレンダー", sub: "品番ごとの納品予定日を一覧", onClick: () => set({ screen: "deadline_calendar", dlMonth: today().slice(0, 7) }) }),
         React.createElement(Spacer, { h: 8 }),
+        React.createElement(BigBtn, { icon: "💰", label: "売上カレンダー", sub: "日ごとの完成売上を全体・チーム別で確認", onClick: () => set({ screen: "sales_calendar", salesMonth: today().slice(0, 7), salesTeam: "all" }) }),
+        React.createElement(Spacer, { h: 8 }),
         React.createElement(BigBtn, { icon: "🏷️", label: "ブランド別仕事一覧", sub: "客先ごとの納品前・納品済みを確認", onClick: () => set({ screen: "brand_jobs", selectedBrandId: null }) }),
         React.createElement(Spacer, { h: 8 }),
         React.createElement(BigBtn, { icon: "📊", label: "集計・仕事量管理", sub: "全体・チーム別の実績と予算", onClick: () => set({ screen: "summary" }) }),
@@ -1072,6 +1077,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const mTotalSales = monthParts.filter((p) => p.assigneeType !== "outsource").reduce((a, p) => a + p.totalSales, 0);
     const mTotalHours = monthParts.filter((p) => p.assigneeType !== "outsource").reduce((a, p) => a + p.totalHours, 0);
     const mTotalProfit = monthParts.filter((p) => p.assigneeType === "outsource" && p.profit !== null).reduce((a, p) => a + p.profit, 0);
+    const mOutsourceSales = monthParts.filter((p) => p.assigneeType === "outsource").reduce((a, p) => a + (p.sellPrice || 0) * (p.qty || 0), 0);
     const mHourlyRate = mTotalHours > 0 ? mTotalSales / mTotalHours : 0;
     // この月の全品番の予定売上合計（社内・単価×数量）
     const mPlannedSales = monthParts.filter((p) => p.assigneeType !== "outsource").reduce((a, p) => a + (p.unitPrice || 0) * (p.qty || 0), 0);
@@ -1109,7 +1115,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                 React.createElement("div", { style: { fontSize: 11, opacity: 0.55, marginBottom: 4 } }, "この月の予定売上合計（社内・単価×数量）"),
                 React.createElement("div", { style: { fontSize: 28, fontWeight: 700 } }, "¥" + Math.round(mPlannedSales).toLocaleString()),
                 React.createElement("div", { style: { fontSize: 12, opacity: 0.6, marginTop: 6, borderTop: "1px solid #444", paddingTop: 8 } },
-                  "外注利益: ¥" + Math.round(mTotalProfit).toLocaleString()
+                  "外注 売上 ¥" + Math.round(mOutsourceSales).toLocaleString() + "　/　利益 ¥" + Math.round(mTotalProfit).toLocaleString()
                 )
               ),
 
@@ -1203,7 +1209,9 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                   ),
                   React.createElement("div", { style: st.grid2 },
                     React.createElement(SBox, { label: "外注品番数", value: monthParts.filter((p) => p.assigneeType === "outsource").length + "件" }),
-                    React.createElement(SBox, { label: "利益合計", value: "¥" + Math.round(mTotalProfit).toLocaleString(), dark: mTotalProfit > 0 })
+                    React.createElement(SBox, { label: "売上合計", value: "¥" + Math.round(mOutsourceSales).toLocaleString() }),
+                    React.createElement(SBox, { label: "利益合計", value: "¥" + Math.round(mTotalProfit).toLocaleString(), dark: mTotalProfit > 0 }),
+                    React.createElement(SBox, { label: "利益率", value: mOutsourceSales > 0 ? Math.round(mTotalProfit / mOutsourceSales * 100) + "%" : "—" })
                   )
                 )
               ),
@@ -1698,6 +1706,140 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement("div", { style: { background: "#e8f5e8", color: "#2a7a2a", fontSize: 12, fontWeight: 700, padding: "4px 12px", borderRadius: 20 } }, "✅ 完了　" + tmDone.length + "件")
         ),
         tmDone.length === 0 ? React.createElement(Empty, null, "完了済みの品番はありません") : tmDone.map(renderPart)
+      ),
+      React.createElement(SI)
+    );
+  }
+
+  if (ui.screen === "sales_calendar") {
+    const sMonth = ui.salesMonth || today().slice(0, 7);
+    const sTeam = ui.salesTeam || "all";
+    const [year, month] = sMonth.split("-").map(Number);
+    const firstDay = new Date(year, month - 1, 1).getDay();
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const prevMonth = month === 1 ? (year - 1) + "-12" : year + "-" + String(month - 1).padStart(2, "0");
+    const nextMonth = month === 12 ? (year + 1) + "-01" : year + "-" + String(month + 1).padStart(2, "0");
+
+    // qtyRecords を完成日ごとに集計（売上 = 枚数 × 単価）
+    // チームフィルター対応
+    const salesByDate = {};
+    (data.qtyRecords || []).forEach((r) => {
+      if (!r.date || r.date.slice(0, 7) !== sMonth) return;
+      const part = data.parts.find((p) => p.id === r.partId);
+      if (!part) return;
+      // チーム絞り込み
+      if (sTeam !== "all") {
+        if (part.assigneeType !== "team" || part.assignee !== sTeam) return;
+      }
+      const sale = (part.unitPrice || 0) * (r.qty || 0);
+      if (!salesByDate[r.date]) salesByDate[r.date] = { sales: 0, qty: 0, items: [] };
+      salesByDate[r.date].sales += sale;
+      salesByDate[r.date].qty += (r.qty || 0);
+      salesByDate[r.date].items.push({ part, qty: r.qty, sale, team: part.assignee });
+    });
+
+    const monthSales = Object.values(salesByDate).reduce((a, d) => a + d.sales, 0);
+    const monthQty = Object.values(salesByDate).reduce((a, d) => a + d.qty, 0);
+
+    const days = [];
+    for (let i = 0; i < firstDay; i++) days.push(null);
+    for (let d = 1; d <= daysInMonth; d++) days.push(d);
+    const todayStr = today();
+
+    const maxDaySales = Math.max(1, ...Object.values(salesByDate).map((d) => d.sales));
+
+    const fmtMan = (v) => {
+      if (v >= 10000) return (v / 10000).toFixed(v >= 100000 ? 0 : 1) + "万";
+      return Math.round(v / 1000) + "千";
+    };
+
+    return React.createElement(Shell, null,
+      React.createElement(Header, { title: "💰 売上カレンダー", back: () => set({ screen: "home" }) }),
+      React.createElement(Body, null,
+
+        // チーム切り替え
+        React.createElement("div", { style: st.filterRow },
+          React.createElement("button", { style: Object.assign({}, st.filterBtn, sTeam === "all" ? st.filterBtnActive : {}), onClick: () => set({ salesTeam: "all", salesSelectedDate: null }) }, "社内全体"),
+          TEAMS.map((t) => React.createElement("button", { key: t, style: Object.assign({}, st.filterBtn, sTeam === t ? st.filterBtnActive : {}), onClick: () => set({ salesTeam: t, salesSelectedDate: null }) }, t))
+        ),
+
+        // 月切り替え
+        React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 } },
+          React.createElement("button", { style: Object.assign({}, st.ghostBtn, { padding: "8px 16px", fontSize: 16 }), onClick: () => set({ salesMonth: prevMonth, salesSelectedDate: null }) }, "‹"),
+          React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, year + "年" + month + "月"),
+          React.createElement("button", { style: Object.assign({}, st.ghostBtn, { padding: "8px 16px", fontSize: 16 }), onClick: () => set({ salesMonth: nextMonth, salesSelectedDate: null }) }, "›")
+        ),
+
+        // 月合計
+        React.createElement("div", { style: { background: "#1a1a1a", color: "#fff", borderRadius: 12, padding: "16px 18px", marginBottom: 12 } },
+          React.createElement("div", { style: { fontSize: 11, opacity: 0.55, marginBottom: 4 } }, (sTeam === "all" ? "社内全体" : sTeam) + "　" + month + "月の完成売上"),
+          React.createElement("div", { style: { fontSize: 28, fontWeight: 700 } }, "¥" + Math.round(monthSales).toLocaleString()),
+          React.createElement("div", { style: { fontSize: 12, opacity: 0.6, marginTop: 4 } }, "完成 " + monthQty.toLocaleString() + "枚")
+        ),
+
+        // カレンダー
+        React.createElement("div", { style: { background: "#fff", borderRadius: 12, padding: "10px", boxShadow: "0 1px 4px rgba(0,0,0,.06)", marginBottom: 16 } },
+          React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 6 } },
+            ["日","月","火","水","木","金","土"].map((d, i) =>
+              React.createElement("div", { key: d, style: { textAlign: "center", fontSize: 11, fontWeight: 700, color: i === 0 ? "#c00" : i === 6 ? "#3b6fd4" : "#aaa", padding: "4px 0" } }, d)
+            )
+          ),
+          React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 } },
+            days.map((d, i) => {
+              if (!d) return React.createElement("div", { key: "e" + i, style: { minHeight: 56 } });
+              const dateStr = year + "-" + String(month).padStart(2, "0") + "-" + String(d).padStart(2, "0");
+              const dd = salesByDate[dateStr];
+              const isToday = dateStr === todayStr;
+              const dow = (firstDay + d - 1) % 7;
+              const intensity = dd ? dd.sales / maxDaySales : 0;
+              return React.createElement("div", {
+                key: "d" + i,
+                style: {
+                  minHeight: 56, borderRadius: 6, padding: "3px 2px",
+                  background: dd ? "rgba(20,85,90," + (0.12 + intensity * 0.5) + ")" : (isToday ? "#fff8e0" : "#fafafa"),
+                  border: isToday ? "2px solid #ffd060" : "1px solid #f0eeea",
+                  cursor: dd ? "pointer" : "default",
+                },
+                onClick: () => dd && set({ salesSelectedDate: dateStr })
+              },
+                React.createElement("div", { style: { textAlign: "center", fontSize: 11, fontWeight: 700, color: dow === 0 ? "#c00" : dow === 6 ? "#3b6fd4" : "#555" } }, d),
+                dd && React.createElement("div", { style: { textAlign: "center", marginTop: 2 } },
+                  React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: intensity > 0.6 ? "#fff" : "#14555a" } }, "¥" + fmtMan(dd.sales)),
+                  React.createElement("div", { style: { fontSize: 9, color: intensity > 0.6 ? "#cde" : "#888" } }, dd.qty + "枚")
+                )
+              );
+            })
+          )
+        ),
+
+        // 選択日の詳細
+        ui.salesSelectedDate && salesByDate[ui.salesSelectedDate] && React.createElement("div", null,
+          React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } },
+            React.createElement("div", { style: st.sectionLabel }, ui.salesSelectedDate.slice(5).replace("-", "/") + " の完成売上"),
+            React.createElement("button", { style: st.ghostBtn, onClick: () => set({ salesSelectedDate: null }) }, "✕")
+          ),
+          React.createElement("div", { style: Object.assign({}, st.card, { padding: "12px 16px", marginBottom: 12 }) },
+            React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
+              React.createElement("span", { style: { fontSize: 13, color: "#888" } }, "合計"),
+              React.createElement("span", { style: { fontSize: 20, fontWeight: 700 } }, "¥" + Math.round(salesByDate[ui.salesSelectedDate].sales).toLocaleString())
+            )
+          ),
+          salesByDate[ui.salesSelectedDate].items.slice().sort((a, b) => b.sale - a.sale).map((it, idx) =>
+            React.createElement("button", { key: idx, style: Object.assign({}, st.summaryCard, { textAlign: "left" }), onClick: () => set({ activePartId: it.part.id, screen: "part_detail", prevScreen: "sales_calendar" }) },
+              React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
+                React.createElement("div", null,
+                  React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, it.part.partNo + (it.part.partName ? " " + it.part.partName : "")),
+                  React.createElement("div", { style: { fontSize: 11, color: "#888", marginTop: 2 } },
+                    (it.team || "未割当") + "　" + it.qty + "枚 × ¥" + (it.part.unitPrice || 0).toLocaleString()
+                  )
+                ),
+                React.createElement("div", { style: { fontSize: 15, fontWeight: 700, color: "#14555a" } }, "¥" + Math.round(it.sale).toLocaleString())
+              )
+            )
+          )
+        ),
+
+        !ui.salesSelectedDate && monthSales === 0 && React.createElement(Empty, null, "この月の完成記録はありません")
       ),
       React.createElement(SI)
     );
