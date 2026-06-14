@@ -669,7 +669,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             ),
             React.createElement("div", { style: { display: "flex", gap: 8 } },
               React.createElement(RoleBtn, { icon: "🔑", label: "リーダー", onClick: () => set({ selectedTeam: team, userRole: "leader", screen: "team_leader" }) }),
-              React.createElement(RoleBtn, { icon: "✂️", label: "メンバー", onClick: () => set({ selectedTeam: team, userRole: "member", screen: "member_entry", memberForm: { memberId: "", partId: "", hours: "", date: today() } }) })
+              React.createElement(RoleBtn, { icon: "😄", label: "メンバー", onClick: () => set({ selectedTeam: team, userRole: "member", screen: "member_entry", memberForm: { memberId: "", partId: "", hours: "", date: today() } }) })
             )
           );
         }),
