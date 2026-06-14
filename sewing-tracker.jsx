@@ -804,7 +804,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             p.deadline && React.createElement("div", null, React.createElement("div", { style: st.cellLabel }, "納期"), React.createElement("div", { style: { fontWeight: 700, color: p.closedAt ? "#aaa" : (p.remainDays <= 3 ? "#c00" : "#c25000") } }, fmt(p.deadline))),
             React.createElement("div", null, React.createElement("div", { style: st.cellLabel }, "完了日"), React.createElement("div", { style: { fontWeight: 700, color: p.closedAt ? "#2a7a2a" : "#bbb" } }, p.closedAt ? fmt(p.closedAt) : "進行中"))
           ),
-          p.deadline && !p.closedAt && React.createElement("div", { style: { marginTop: 8, fontSize: 12, color: p.remainDays <= 3 ? "#c00" : "#888" } }, "納期まであと ", React.createElement("b", null, p.remainDays), " 日", p.dailyNeeded ? " ／ 1日あたり " + p.dailyNeeded.toFixed(1) + "h 必要" : "")
+          p.deadline && !p.closedAt && React.createElement("div", { style: { marginTop: 8, fontSize: 12, color: p.remainDays <= 3 ? "#c00" : "#888" } }, "納期まであと ", React.createElement("b", null, p.remainDays), " 日")
         ),
         p.qtyProgress !== null && React.createElement("div", { style: Object.assign({}, st.card, { marginBottom: 16 }) },
           React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 6 } },
