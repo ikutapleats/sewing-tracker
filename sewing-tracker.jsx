@@ -535,11 +535,11 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
   }
 
   function openSampleNew() {
-    set({ sampleForm: { id: null, partNo: "", partName: "", brandId: "", qty: "", samplePrice: "", actualHours: "", massEstMin: "", assignee: "サンプルチーム", note: "", workMonth: today().slice(0, 7), deadline: "", closedAt: null }, screen: "sample_edit" });
+    set({ sampleForm: { id: null, partNo: "", partName: "", brandId: "", qty: "", samplePrice: "", actualHours: "", massEstMin: "", assignee: "サンプルチーム", tantousha: "", note: "", workMonth: today().slice(0, 7), deadline: "", closedAt: null }, screen: "sample_edit" });
   }
 
   function openSampleEdit(part) {
-    set({ sampleForm: { id: part.id, partNo: part.partNo || "", partName: part.partName || "", brandId: part.brandId || "", qty: part.qty || "", samplePrice: part.unitPrice || "", actualHours: part.actualHours || "", massEstMin: part.massEstMin || "", assignee: part.assignee || "サンプルチーム", note: part.note || "", workMonth: part.workMonth || today().slice(0, 7), deadline: part.deadline || "", closedAt: part.closedAt || null }, screen: "sample_edit" });
+    set({ sampleForm: { id: part.id, partNo: part.partNo || "", partName: part.partName || "", brandId: part.brandId || "", qty: part.qty || "", samplePrice: part.unitPrice || "", actualHours: part.actualHours || "", massEstMin: part.massEstMin || "", assignee: part.assignee || "サンプルチーム", tantousha: part.tantousha || "", note: part.note || "", workMonth: part.workMonth || today().slice(0, 7), deadline: part.deadline || "", closedAt: part.closedAt || null }, screen: "sample_edit" });
   }
 
   function saveSample() {
@@ -550,7 +550,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         partNo: f.partNo.trim(), partName: f.partName.trim(), brandId: f.brandId || null,
         qty: parseFloat(f.qty) || 0, unitPrice: parseFloat(f.samplePrice) || 0,
         actualHours: parseFloat(f.actualHours) || 0, massEstMin: parseFloat(f.massEstMin) || 0,
-        assignee: f.assignee || "サンプルチーム", note: f.note.trim(),
+        assignee: f.assignee || "サンプルチーム", tantousha: (f.tantousha || "").trim(), note: f.note.trim(),
         workMonth: f.workMonth || null, deadline: f.deadline || null,
       });
       const nd = Object.assign({}, data, { parts: data.parts.map((p) => p.id === f.id ? updated : p) });
@@ -563,7 +563,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         id: genId(), kind: "sample", partNo: f.partNo.trim(), partName: f.partName.trim(),
         brandId: f.brandId || null, qty: parseFloat(f.qty) || 0, unitPrice: parseFloat(f.samplePrice) || 0,
         actualHours: parseFloat(f.actualHours) || 0, massEstMin: parseFloat(f.massEstMin) || 0,
-        estMinPerUnit: 0, assignee: f.assignee || "サンプルチーム", assigneeType: "team",
+        estMinPerUnit: 0, assignee: f.assignee || "サンプルチーム", assigneeType: "team", tantousha: (f.tantousha || "").trim(),
         note: f.note.trim(), workMonth: f.workMonth || null, deadline: f.deadline || null,
         status: "未着手", sellPrice: 0, vendorPrice: 0, createdAt: today(), closedAt: null,
       };
@@ -2012,6 +2012,14 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           ),
           React.createElement(FormRow, { label: "担当チーム" },
             React.createElement("select", { style: st.input, value: f.assignee, onChange: (e) => setSampleF({ assignee: e.target.value }) }, TEAMS.map((t) => React.createElement("option", { key: t }, t)))
+          ),
+          React.createElement(FormRow, { label: "担当者名" },
+            (data.members || []).length === 0
+              ? React.createElement("div", { style: { color: "#bbb", fontSize: 13 } }, "メンバー未登録")
+              : React.createElement("select", { style: st.input, value: f.tantousha || "", onChange: (e) => setSampleF({ tantousha: e.target.value }) },
+                  React.createElement("option", { value: "" }, "選択しない"),
+                  (data.members || []).map((m) => React.createElement("option", { key: m.id, value: m.name }, m.name))
+                )
           ),
           React.createElement(FormRow, { label: "備考" }, React.createElement("input", { style: st.input, value: f.note, onChange: (e) => setSampleF({ note: e.target.value }) })),
           (parseFloat(f.samplePrice) > 0 && parseFloat(f.qty) > 0) && React.createElement("div", { style: { background: "#f0f8f0", borderRadius: 8, padding: "10px 14px", marginBottom: 12, display: "flex", justifyContent: "space-between" } },
