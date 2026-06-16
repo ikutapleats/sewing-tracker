@@ -126,6 +126,36 @@ async function gasDeletePart(partId) {
   if (result.status !== "saved") throw new Error("deletePart failed");
 }
 
+async function gasUpsertItem(list, item) {
+  const res = await fetch(GAS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ action: "upsertItem", list, item }),
+  });
+  const result = await res.json();
+  if (result.status !== "saved") throw new Error("upsertItem failed: " + JSON.stringify(result));
+}
+
+async function gasDeleteItem(list, itemId) {
+  const res = await fetch(GAS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ action: "deleteItem", list, itemId }),
+  });
+  const result = await res.json();
+  if (result.status !== "saved") throw new Error("deleteItem failed: " + JSON.stringify(result));
+}
+
+async function gasSetTarget(month, team, value) {
+  const res = await fetch(GAS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ action: "setTarget", month, team, value }),
+  });
+  const result = await res.json();
+  if (result.status !== "saved") throw new Error("setTarget failed: " + JSON.stringify(result));
+}
+
 async function gasLoad() {
   const res = await fetch(GAS_URL);
   return await res.json();
@@ -138,6 +168,7 @@ function App() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const saveQueue = useRef(null);
+  const savingRef = useRef(false);
 
   const set = (patch) => setUi((p) => Object.assign({}, p, patch));
   const setAP = (patch) => setUi((p) => Object.assign({}, p, { addPartForm: Object.assign({}, p.addPartForm, patch) }));
@@ -160,6 +191,42 @@ function App() {
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
+  // ── タブが再アクティブになったら最新データを取り直す（古い画面対策）
+  const reloadData = useCallback(async () => {
+    if (savingRef.current) return; // 保存中・保存待ちのときは触らない
+    try {
+      const d = await gasLoad();
+      const merged = Object.assign({}, EMPTY_DATA, d);
+      if (!Array.isArray(merged.members)) merged.members = [];
+      if (!Array.isArray(merged.vendors)) merged.vendors = [];
+      if (!Array.isArray(merged.brands)) merged.brands = [];
+      if (!Array.isArray(merged.parts)) merged.parts = [];
+      if (!Array.isArray(merged.records)) merged.records = [];
+      if (!Array.isArray(merged.qtyRecords)) merged.qtyRecords = [];
+      if (!Array.isArray(merged.saidanReports)) merged.saidanReports = [];
+      setData(merged);
+    } catch (e) {}
+  }, []);
+
+  useEffect(() => { savingRef.current = saving; }, [saving]);
+
+  useEffect(() => {
+    let last = 0;
+    const onActive = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - last < 2000) return; // 連続発火を抑制
+      last = now;
+      reloadData();
+    };
+    document.addEventListener("visibilitychange", onActive);
+    window.addEventListener("focus", onActive);
+    return () => {
+      document.removeEventListener("visibilitychange", onActive);
+      window.removeEventListener("focus", onActive);
+    };
+  }, [reloadData]);
+
   const save = useCallback((nd) => {
     if (saveQueue.current) clearTimeout(saveQueue.current);
     setSaving(true);
@@ -180,6 +247,14 @@ function App() {
     const nd = Object.assign({}, data, patch);
     setData(nd);
     save(nd);
+  }
+
+  // ローカル状態を更新しつつ、1件単位のGAS操作を呼ぶ（古いクライアントが全体を巻き戻さない）
+  function applyLocal(patch, gasFn) {
+    setData(Object.assign({}, data, patch));
+    setSaving(true);
+    setSaveError(false);
+    gasFn().catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
   }
 
   const allSummary = useMemo(() => data.parts.map((part) => {
@@ -349,42 +424,51 @@ function App() {
   function addMember() {
     const name = ui.addMemberForm.name.trim();
     if (!name) return;
-    updateData({ members: data.members.concat([{ id: genId(), name }]) });
+    const m = { id: genId(), name };
+    applyLocal({ members: data.members.concat([m]) }, () => gasUpsertItem("members", m));
     set({ addMemberForm: { name: "" } });
   }
-  function deleteMember(id) { updateData({ members: data.members.filter((m) => m.id !== id) }); }
+  function deleteMember(id) { applyLocal({ members: data.members.filter((m) => m.id !== id) }, () => gasDeleteItem("members", id)); }
   function saveMemberName() {
     const name = ui.editMemberName.trim();
     if (!name) return;
-    updateData({ members: data.members.map((m) => m.id === ui.editMemberId ? Object.assign({}, m, { name }) : m) });
+    const updated = data.members.map((m) => m.id === ui.editMemberId ? Object.assign({}, m, { name }) : m);
+    const item = updated.find((m) => m.id === ui.editMemberId);
+    applyLocal({ members: updated }, () => gasUpsertItem("members", item));
     set({ editMemberId: null, editMemberName: "" });
   }
 
   function addVendor() {
     const name = ui.addVendorForm.name.trim();
     if (!name) return;
-    updateData({ vendors: data.vendors.concat([{ id: genId(), name }]) });
+    const v = { id: genId(), name };
+    applyLocal({ vendors: data.vendors.concat([v]) }, () => gasUpsertItem("vendors", v));
     set({ addVendorForm: { name: "" } });
   }
-  function deleteVendor(id) { updateData({ vendors: data.vendors.filter((v) => v.id !== id) }); }
+  function deleteVendor(id) { applyLocal({ vendors: data.vendors.filter((v) => v.id !== id) }, () => gasDeleteItem("vendors", id)); }
   function saveVendorName() {
     const name = ui.editVendorName.trim();
     if (!name) return;
-    updateData({ vendors: data.vendors.map((v) => v.id === ui.editVendorId ? Object.assign({}, v, { name }) : v) });
+    const updated = data.vendors.map((v) => v.id === ui.editVendorId ? Object.assign({}, v, { name }) : v);
+    const item = updated.find((v) => v.id === ui.editVendorId);
+    applyLocal({ vendors: updated }, () => gasUpsertItem("vendors", item));
     set({ editVendorId: null, editVendorName: "" });
   }
 
   function addBrand() {
     const name = ui.addBrandForm.name.trim();
     if (!name) return;
-    updateData({ brands: (data.brands || []).concat([{ id: genId(), name }]) });
+    const b = { id: genId(), name };
+    applyLocal({ brands: (data.brands || []).concat([b]) }, () => gasUpsertItem("brands", b));
     set({ addBrandForm: { name: "" } });
   }
-  function deleteBrand(id) { updateData({ brands: (data.brands || []).filter((b) => b.id !== id) }); }
+  function deleteBrand(id) { applyLocal({ brands: (data.brands || []).filter((b) => b.id !== id) }, () => gasDeleteItem("brands", id)); }
   function saveBrandName() {
     const name = ui.editBrandName.trim();
     if (!name) return;
-    updateData({ brands: (data.brands || []).map((b) => b.id === ui.editBrandId ? Object.assign({}, b, { name }) : b) });
+    const updated = (data.brands || []).map((b) => b.id === ui.editBrandId ? Object.assign({}, b, { name }) : b);
+    const item = updated.find((b) => b.id === ui.editBrandId);
+    applyLocal({ brands: updated }, () => gasUpsertItem("brands", item));
     set({ editBrandId: null, editBrandName: "" });
   }
 
@@ -426,22 +510,25 @@ function App() {
       return Object.assign({}, c, { useM: useM > 0 ? useM.toFixed(2) : "" });
     });
     const list = (data.saidanReports || []).slice();
+    let rec;
     if (f.id) {
+      rec = Object.assign({}, f, { colors, updatedAt: today() });
       const idx = list.findIndex((r) => r.id === f.id);
-      if (idx >= 0) list[idx] = Object.assign({}, f, { colors, updatedAt: today() });
-      else list.push(Object.assign({}, f, { colors, updatedAt: today() }));
+      if (idx >= 0) list[idx] = rec;
+      else list.push(rec);
     } else {
-      const rec = Object.assign({}, f, { colors, id: genId(), createdAt: today(), updatedAt: today() });
+      rec = Object.assign({}, f, { colors, id: genId(), createdAt: today(), updatedAt: today() });
       const idx = list.findIndex((r) => r.partId === f.partId);
-      if (idx >= 0) list[idx] = Object.assign(rec, { id: list[idx].id });
+      if (idx >= 0) { rec = Object.assign(rec, { id: list[idx].id }); list[idx] = rec; }
       else list.push(rec);
     }
-    updateData({ saidanReports: list });
+    applyLocal({ saidanReports: list }, () => gasUpsertItem("saidanReports", rec));
     set({ screen: "part_detail" });
   }
 
   function deleteSaidan(partId) {
-    updateData({ saidanReports: (data.saidanReports || []).filter((r) => r.partId !== partId) });
+    const rep = (data.saidanReports || []).find((r) => r.partId === partId);
+    applyLocal({ saidanReports: (data.saidanReports || []).filter((r) => r.partId !== partId) }, () => rep ? gasDeleteItem("saidanReports", rep.id) : Promise.resolve());
   }
 
   function printSaidan(form) {
@@ -593,15 +680,16 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
   function saveTarget() {
     const f = ui.targetForm;
     if (!f.month || !f.team) return;
-    const nt = Object.assign({}, data.monthlyTargets);
-    nt[f.month] = Object.assign({}, nt[f.month] || {});
-    nt[f.month][f.team] = {
+    const value = {
       sales: parseFloat(f.sales) || 0,
       members: parseFloat(f.members) || 0,
       workDays: parseFloat(f.workDays) || 0,
       hoursPerDay: parseFloat(f.hoursPerDay) || 0,
     };
-    updateData({ monthlyTargets: nt });
+    const nt = Object.assign({}, data.monthlyTargets);
+    nt[f.month] = Object.assign({}, nt[f.month] || {});
+    nt[f.month][f.team] = value;
+    applyLocal({ monthlyTargets: nt }, () => gasSetTarget(f.month, f.team, value));
     setTF({ sales: "", members: "", workDays: "", hoursPerDay: "" });
   }
 
