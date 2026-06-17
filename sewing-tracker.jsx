@@ -21,7 +21,7 @@ function diffDays(a, b) {
 }
 
 const EMPTY_DATA = {
-  parts: [], records: [], qtyRecords: [], members: [], vendors: [], brands: [], monthlyTargets: {}, saidanReports: [],
+  parts: [], records: [], qtyRecords: [], members: [], vendors: [], brands: [], monthlyTargets: {}, saidanReports: [], koteiSheets: [],
 };
 
 const INIT_UI = {
@@ -53,6 +53,7 @@ const INIT_UI = {
   salesTeam: "all",
   salesSelectedDate: null,
   sampleForm: null,
+  koteiPartId: null,
 };
 
 async function gasSave(data) {
@@ -187,6 +188,7 @@ function App() {
       if (!Array.isArray(merged.records)) merged.records = [];
       if (!Array.isArray(merged.qtyRecords)) merged.qtyRecords = [];
       if (!Array.isArray(merged.saidanReports)) merged.saidanReports = [];
+      if (!Array.isArray(merged.koteiSheets)) merged.koteiSheets = [];
       setData(merged);
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
@@ -204,6 +206,7 @@ function App() {
       if (!Array.isArray(merged.records)) merged.records = [];
       if (!Array.isArray(merged.qtyRecords)) merged.qtyRecords = [];
       if (!Array.isArray(merged.saidanReports)) merged.saidanReports = [];
+      if (!Array.isArray(merged.koteiSheets)) merged.koteiSheets = [];
       setData(merged);
     } catch (e) {}
   }, []);
@@ -529,6 +532,19 @@ function App() {
   function deleteSaidan(partId) {
     const rep = (data.saidanReports || []).find((r) => r.partId === partId);
     applyLocal({ saidanReports: (data.saidanReports || []).filter((r) => r.partId !== partId) }, () => rep ? gasDeleteItem("saidanReports", rep.id) : Promise.resolve());
+  }
+
+  function openKotei(part) {
+    set({ koteiPartId: part.id, screen: "kotei_edit" });
+  }
+  function saveKotei(rec) {
+    const list = (data.koteiSheets || []).slice();
+    const idx = list.findIndex((r) => r.id === rec.id);
+    if (idx >= 0) list[idx] = rec; else list.push(rec);
+    applyLocal({ koteiSheets: list }, () => gasUpsertItem("koteiSheets", rec));
+  }
+  function deleteKotei(id) {
+    applyLocal({ koteiSheets: (data.koteiSheets || []).filter((r) => r.id !== id) }, () => gasDeleteItem("koteiSheets", id));
   }
 
   function printSaidan(form) {
@@ -1099,6 +1115,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         ),
         !p.closedAt && React.createElement("button", { style: Object.assign({}, st.closeBtn, { marginTop: 20 }), onClick: () => { closePart(p.id); set({ screen: "master" }); } }, "この品番を完了にする"),
         React.createElement("button", { style: Object.assign({}, st.closeBtn, { background: "#14555a", marginTop: 8 }), onClick: () => openSaidan(p) }, "✂️ 裁断報告書" + ((data.saidanReports || []).find((r) => r.partId === p.id) ? "　（登録済み）" : "")),
+        React.createElement("button", { style: Object.assign({}, st.closeBtn, { background: "#0f3d4a", marginTop: 8 }), onClick: () => openKotei(p) }, "📐 工程分析表" + ((data.koteiSheets || []).find((r) => r.partId === p.id) ? "　（登録済み）" : "")),
         p.closedAt && React.createElement("button", { style: Object.assign({}, st.closeBtn, { background: "#e8e6e0", color: "#777", marginTop: 16 }), onClick: () => reopenPart(p.id) }, "再開する"),
         React.createElement("button", { style: Object.assign({}, st.closeBtn, { background: "#fff0f0", color: "#c00", marginTop: 8 }), onClick: () => { if (window.confirm("この品番を削除しますか？")) { deletePart(p.id); set({ screen: "master" }); } } }, "削除する")
       ),
@@ -2355,6 +2372,19 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     );
   }
 
+  if (ui.screen === "kotei_edit" && ui.koteiPartId) {
+    const part = data.parts.find((p) => p.id === ui.koteiPartId);
+    if (!part) { return null; }
+    const sheet = (data.koteiSheets || []).find((r) => r.partId === part.id) || null;
+    const brandName = ((data.brands || []).find((b) => b.id === part.brandId) || {}).name || "";
+    return React.createElement(KoteiEditor, {
+      key: part.id, part: part, sheet: sheet, brandName: brandName,
+      onSave: saveKotei, onDelete: deleteKotei,
+      back: () => set({ screen: "part_detail", koteiPartId: null }),
+      SI: SI,
+    });
+  }
+
   return null;
 }
 
@@ -2493,3 +2523,260 @@ const styleEl = document.createElement("style");
 styleEl.textContent = "@keyframes spin { to { transform: rotate(360deg); } }";
 document.head.appendChild(styleEl);
 
+
+// ===================== 工程分析表（KoteiEditor） =====================
+const KOTEI_PARTS = ["芯","甲止め","準備","裏身頃","表身頃","肩ひも","ペプラム","スカート","袖","衿","カフス","ポケット","フリル","ヨーク","見返し","身頃","組立","まとめ","その他"];
+const KOTEI_PHRASES = ["脇はぎ","見返し脇はぎ","後中心はぎ","割りアイロン","キセアイロン","後高0.5cmキセアイロン","中心高アイロン","上高アイロン","裾アイロン","返しアイロン","ロック","イッテコイロック","三巻き","裾三巻き","コバST","裏コバST","中ぬい","本ぬい","仮どめ","糸始末","ダーツぬい","伸止め貼り","コンシールファスナー付け","ファスナー付け","ファスナーアイロン","角カット","ギャザー入れ","プリーツたたんで仮どめ","プリーツ裁断","ブランドネームたたきつけ","センタクネーム仮どめ","衿付け","袖付け","カフス付け","ヨークはぎ","身頃とスカートはぎ","ホールあけ","釦印","ボタン印","根巻き","二の字根巻"];
+const K_INK = "#1a1a1a", K_TIME = "#1558d6", K_NOTE = "#c0271d", K_PART = "#0f3d4a", K_PARTBG = "#e4ecef", K_LINE = "#d9d5c8";
+
+function parseKoteiTime(s) {
+  if (!s) return 0; s = ("" + s).trim();
+  if (s.indexOf(":") >= 0) { const a = s.split(":"); return (parseInt(a[0] || 0, 10) * 60) + (parseInt(a[1] || 0, 10)); }
+  return parseInt(s, 10) || 0;
+}
+function fmtKoteiTime(sec) { sec = Math.round(sec || 0); return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0"); }
+function lastKoteiToken(t) { const m = ("" + (t || "")).split(/[\n、・\s]/); return m[m.length - 1]; }
+function compressDataURL(dataURL, cb) {
+  try {
+    const img = new Image();
+    img.onload = function () {
+      const maxW = 720;
+      const scale = Math.min(1, maxW / img.width);
+      const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+      const c = document.createElement("canvas"); c.width = w; c.height = h;
+      const cx = c.getContext("2d");
+      cx.fillStyle = "#ffffff"; cx.fillRect(0, 0, w, h);
+      cx.drawImage(img, 0, 0, w, h);
+      cb(c.toDataURL("image/jpeg", 0.7));
+    };
+    img.onerror = function () { cb(dataURL); };
+    img.src = dataURL;
+  } catch (e) { cb(dataURL); }
+}
+
+function KoteiEditor(props) {
+  const part = props.part, sheet = props.sheet;
+  const [needle, setNeedle] = useState((sheet && sheet.needle) || "");
+  const [colorQty, setColorQty] = useState((sheet && sheet.colorQty) || "");
+  const [workMin, setWorkMin] = useState((sheet && sheet.workMin) || 420);
+  const [blocks, setBlocks] = useState(function () {
+    if (sheet && sheet.blocks && sheet.blocks.length) return sheet.blocks;
+    return [{ id: genId(), type: "step", part: "準備", act: "", time: "", note: "" }];
+  });
+  const [phrases, setPhrases] = useState(KOTEI_PHRASES);
+  const [activeSugg, setActiveSugg] = useState(null);
+  const [modalId, setModalId] = useState(null);
+  const [tool, setTool] = useState("ink");
+  const [recId, setRecId] = useState(null); // 音声入力中のblock
+  const canvasRef = useRef(null);
+  const draw = useRef({ drawing: false, last: null, color: K_INK, erase: false, penOnly: true, ctx: null });
+
+  function patchBlock(id, patch) { setBlocks(function (bs) { return bs.map(function (b) { return b.id === id ? Object.assign({}, b, patch) : b; }); }); }
+  function addStep() { setBlocks(function (bs) { return bs.concat([{ id: genId(), type: "step", part: "", act: "", time: "", note: "" }]); }); }
+  function addSketch() { setBlocks(function (bs) { return bs.concat([{ id: genId(), type: "sketch", img: "", caption: "", size: "s" }]); }); }
+  function move(id, dir) { setBlocks(function (bs) { const i = bs.findIndex(function (b) { return b.id === id; }); const j = i + dir; if (j < 0 || j >= bs.length) return bs; const c = bs.slice(); const t = c[i]; c[i] = c[j]; c[j] = t; return c; }); }
+  function del(id) { if (!window.confirm("このブロックを削除しますか？")) return; setBlocks(function (bs) { return bs.filter(function (b) { return b.id !== id; }); }); }
+  function learn(p) { p = ("" + (p || "")).trim(); if (p.length < 2) return; setPhrases(function (ps) { return ps.indexOf(p) >= 0 ? ps : [p].concat(ps); }); }
+
+  const summary = useMemo(function () {
+    let tot = 0; const map = {};
+    blocks.forEach(function (b) { if (b.type === "step") { const s = parseKoteiTime(b.time); tot += s; const k = b.part || "(未設定)"; if (!map[k]) map[k] = { n: 0, s: 0 }; map[k].n++; map[k].s += s; } });
+    return { tot: tot, map: map };
+  }, [blocks]);
+
+  function handleSave() {
+    const rec = { id: (sheet && sheet.id) || genId(), partId: part.id, needle: needle, colorQty: colorQty, workMin: workMin, blocks: blocks, totalSec: summary.tot, updatedAt: today() };
+    props.onSave(rec); props.back();
+  }
+
+  // 図モーダル初期化
+  useEffect(function () {
+    if (modalId == null) return;
+    const blk = blocks.find(function (b) { return b.id === modalId; });
+    const cv = canvasRef.current; if (!cv) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = cv.clientWidth, h = cv.clientHeight;
+    cv.width = w * dpr; cv.height = h * dpr;
+    const ctx = cv.getContext("2d"); ctx.scale(dpr, dpr); ctx.clearRect(0, 0, w, h);
+    draw.current.ctx = ctx; draw.current.drawing = false;
+    if (blk && blk.img) { const im = new Image(); im.onload = function () { ctx.drawImage(im, 0, 0, w, h); }; im.src = blk.img; }
+  }, [modalId]);
+
+  function allowDraw(e) { return !draw.current.penOnly || e.pointerType === "pen" || e.pointerType === "mouse"; }
+  function pDown(e) { if (!allowDraw(e)) return; const d = draw.current; d.drawing = true; const r = e.currentTarget.getBoundingClientRect(); d.last = { x: e.clientX - r.left, y: e.clientY - r.top }; }
+  function pMove(e) {
+    const d = draw.current; if (!d.drawing || !allowDraw(e) || !d.ctx) return;
+    const r = e.currentTarget.getBoundingClientRect(); const x = e.clientX - r.left, y = e.clientY - r.top; const ctx = d.ctx;
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    if (d.erase) { ctx.globalCompositeOperation = "destination-out"; ctx.lineWidth = 26; }
+    else { ctx.globalCompositeOperation = "source-over"; ctx.strokeStyle = d.color; ctx.lineWidth = 1.6 + ((e.pressure || 0.5) * 4); }
+    ctx.beginPath(); ctx.moveTo(d.last.x, d.last.y); ctx.lineTo(x, y); ctx.stroke(); d.last = { x: x, y: y };
+  }
+  function pUp() { draw.current.drawing = false; }
+  function pickTool(t) { setTool(t); const d = draw.current; if (t === "erase") { d.erase = true; } else { d.erase = false; d.color = t === "time" ? K_TIME : t === "note" ? K_NOTE : K_INK; } }
+  function clearCanvas() { const d = draw.current, cv = canvasRef.current; if (d.ctx && cv) d.ctx.clearRect(0, 0, cv.clientWidth, cv.clientHeight); }
+  function togglePalm() { draw.current.penOnly = !draw.current.penOnly; setTool(function (t) { return t; }); setActiveSugg(function (s) { return s; }); forceRerender(); }
+  const [, setTick] = useState(0); function forceRerender() { setTick(function (n) { return n + 1; }); }
+  function doneModal() { const cv = canvasRef.current; if (cv) { const raw = cv.toDataURL("image/png"); compressDataURL(raw, function (out) { patchBlock(modalId, { img: out }); setModalId(null); }); } else setModalId(null); }
+  function onPhoto(e) {
+    const f = e.target.files[0]; if (!f) return; const rd = new FileReader();
+    rd.onload = function () { const im = new Image(); im.onload = function () { const cv = canvasRef.current, ctx = draw.current.ctx; if (!cv || !ctx) return; const w = cv.clientWidth, h = cv.clientHeight, r = Math.min(w / im.width, h / im.height); const dw = im.width * r, dh = im.height * r; ctx.drawImage(im, (w - dw) / 2, (h - dh) / 2, dw, dh); }; im.src = rd.result; };
+    rd.readAsDataURL(f);
+  }
+  function startVoice(id) {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { window.alert("この端末・ブラウザは音声入力に対応していません（iPadのSafariは非対応です）"); return; }
+    const rec = new SR(); rec.lang = "ja-JP"; rec.interimResults = false; setRecId(id);
+    rec.onresult = function (ev) { const t = ev.results[0][0].transcript; const cur = (blocks.find(function (b) { return b.id === id; }) || {}).act || ""; patchBlock(id, { act: cur ? cur + " " + t : t }); learn(t); };
+    rec.onerror = function () {}; rec.onend = function () { setRecId(null); };
+    rec.start();
+  }
+
+  const sz = { s: { w: "140px", h: "96px" }, m: { w: "230px", h: "150px" }, l: { w: "100%", h: "240px" } };
+
+  // ── 工程行
+  function renderStep(b) {
+    const tokenList = (function () { const tok = lastKoteiToken(b.act); let list = tok ? phrases.filter(function (p) { return p.indexOf(tok) >= 0 && p !== tok; }) : phrases; return list.slice(0, 8); })();
+    return React.createElement("div", { key: b.id, style: { position: "relative", borderBottom: "1px solid " + K_LINE, padding: "10px 0 12px" } },
+      React.createElement("div", { style: { display: "grid", gridTemplateColumns: "108px 1fr 78px", gap: 8, paddingRight: 76 } },
+        React.createElement("div", null,
+          React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "パーツ"),
+          React.createElement("select", { style: { width: "100%", height: 42, border: "1px solid " + K_LINE, borderRadius: 8, background: K_PARTBG, color: K_PART, fontWeight: 700, fontSize: 14, padding: "0 6px" }, value: b.part, onChange: function (e) { patchBlock(b.id, { part: e.target.value }); } },
+            React.createElement("option", { value: "" }, "—"),
+            KOTEI_PARTS.map(function (p) { return React.createElement("option", { key: p, value: p }, p); })
+          )
+        ),
+        React.createElement("div", null,
+          React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "作業内容"),
+          React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "flex-start" } },
+            React.createElement("textarea", { style: { flex: 1, minHeight: 42, border: "1px solid " + K_LINE, borderRadius: 8, padding: 9, fontSize: 15, color: K_INK, resize: "vertical", lineHeight: 1.35, fontFamily: "inherit", boxSizing: "border-box" }, placeholder: "手打ち / 下の定型句 / 🎤", value: b.act, onFocus: function () { setActiveSugg(b.id); }, onBlur: function () { learn(b.act); setTimeout(function () { setActiveSugg(function (s) { return s === b.id ? null : s; }); }, 200); }, onChange: function (e) { patchBlock(b.id, { act: e.target.value }); } }),
+            React.createElement("button", { style: { width: 42, height: 42, border: "1px solid " + K_LINE, borderRadius: 8, background: recId === b.id ? K_NOTE : "#fff", color: recId === b.id ? "#fff" : "#333", fontSize: 18, flex: "none" }, onClick: function () { startVoice(b.id); } }, "🎤")
+          ),
+          activeSugg === b.id && tokenList.length > 0 && React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6 } },
+            tokenList.map(function (p) {
+              return React.createElement("button", { key: p, style: { border: "1px solid " + K_PART, background: "#eef3f4", color: K_PART, borderRadius: 14, padding: "5px 10px", fontSize: 12 }, onMouseDown: function (e) { e.preventDefault(); const v = b.act || ""; const tk = lastKoteiToken(v); const nv = tk ? v.slice(0, v.length - tk.length) + p : v + p; patchBlock(b.id, { act: nv }); } }, p);
+            })
+          )
+        ),
+        React.createElement("div", null,
+          React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "時間"),
+          React.createElement("input", { style: { width: "100%", height: 42, border: "1px solid " + K_LINE, borderRadius: 8, textAlign: "center", fontSize: 16, color: K_TIME, fontWeight: 700, boxSizing: "border-box" }, inputMode: "numeric", placeholder: "2:10", value: b.time, onChange: function (e) { patchBlock(b.id, { time: e.target.value }); }, onBlur: function () { const s = parseKoteiTime(b.time); if (s) patchBlock(b.id, { time: fmtKoteiTime(s) }); } })
+        )
+      ),
+      React.createElement("div", { style: { marginTop: 8, paddingRight: 76 } },
+        React.createElement("input", { style: { width: "100%", height: 38, border: "1px dashed " + K_NOTE, borderRadius: 8, padding: "0 9px", fontSize: 13, color: K_NOTE, background: "#fffafa", boxSizing: "border-box" }, placeholder: "注意点（赤）", value: b.note, onChange: function (e) { patchBlock(b.id, { note: e.target.value }); } })
+      ),
+      moveButtons(b.id)
+    );
+  }
+
+  // ── 図ブロック
+  function renderSketch(b) {
+    const s = sz[b.size || "s"];
+    return React.createElement("div", { key: b.id, style: { position: "relative", borderBottom: "1px solid " + K_LINE, padding: "10px 0 12px" } },
+      React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6 } },
+        React.createElement("span", { style: { fontSize: 10, color: "#999" } }, "図・写真"),
+        React.createElement("div", { style: { display: "flex", gap: 4 } },
+          ["s", "m", "l"].map(function (k) { return React.createElement("button", { key: k, style: Object.assign({ border: "1px solid " + K_LINE, background: b.size === k ? K_PART : "#fff", color: b.size === k ? "#fff" : "#555", borderRadius: 6, padding: "4px 9px", fontSize: 12 }), onClick: function () { patchBlock(b.id, { size: k }); } }, k === "s" ? "小" : k === "m" ? "中" : "大"); })
+        )
+      ),
+      React.createElement("div", { style: { width: s.w, height: s.h, border: "1px solid " + K_LINE, borderRadius: 8, overflow: "hidden", background: "#fff", cursor: "pointer", position: "relative", display: "flex", alignItems: "center", justifyContent: "center", color: "#aaa", fontSize: 13 }, onClick: function () { setModalId(b.id); } },
+        b.img ? React.createElement("img", { src: b.img, style: { width: "100%", height: "100%", objectFit: "contain" } }) : "タップして描く / 写真",
+        React.createElement("span", { style: { position: "absolute", right: 6, bottom: 5, background: "rgba(15,61,74,.85)", color: "#fff", fontSize: 10, padding: "2px 7px", borderRadius: 10 } }, "編集")
+      ),
+      React.createElement("input", { style: { width: "100%", border: "none", borderBottom: "1px solid " + K_LINE, background: "transparent", padding: "6px 2px", fontSize: 13, color: "#555", marginTop: 8, boxSizing: "border-box" }, placeholder: "図の説明（任意）", value: b.caption, onChange: function (e) { patchBlock(b.id, { caption: e.target.value }); } }),
+      moveButtons(b.id)
+    );
+  }
+
+  function moveButtons(id) {
+    return React.createElement("div", { style: { position: "absolute", top: 8, right: 0, display: "flex", gap: 4 } },
+      React.createElement("button", { style: mvBtn, onClick: function () { move(id, -1); } }, "↑"),
+      React.createElement("button", { style: mvBtn, onClick: function () { move(id, 1); } }, "↓"),
+      React.createElement("button", { style: Object.assign({}, mvBtn, { color: K_NOTE }), onClick: function () { del(id); } }, "✕")
+    );
+  }
+  const mvBtn = { width: 30, height: 30, border: "1px solid " + K_LINE, background: "#fff", borderRadius: 7, fontSize: 14, color: "#555" };
+
+  // ── 集計
+  function renderSummary() {
+    const tot = summary.tot, map = summary.map;
+    const rows = Object.keys(map).map(function (p) { const o = map[p]; const pct = tot ? Math.round(o.s / tot * 100) : 0; return { p: p, n: o.n, s: o.s, pct: pct }; });
+    return React.createElement("div", { style: { background: "#fff", borderRadius: 12, padding: 14, marginTop: 16, boxShadow: "0 1px 4px rgba(0,0,0,.06)" } },
+      React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
+        React.createElement("span", { style: { fontSize: 13, fontWeight: 700 } }, "集計"),
+        React.createElement("span", { style: { fontSize: 13 } }, "1着 総工数 ", React.createElement("b", { style: { fontSize: 20, color: K_TIME } }, fmtKoteiTime(tot)))
+      ),
+      React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 13 } },
+        React.createElement("span", null, "1日実働"),
+        React.createElement("input", { style: { width: 70, border: "1px solid " + K_LINE, borderRadius: 6, padding: 6, textAlign: "center", color: K_TIME, fontWeight: 700 }, type: "number", value: workMin, onChange: function (e) { setWorkMin(parseInt(e.target.value, 10) || 0); } }),
+        React.createElement("span", { style: { color: "#999" } }, "分")
+      ),
+      [3, 4, 5].map(function (ppl) { const per = tot / 60 / ppl; const day = per ? workMin / per : 0; return React.createElement("div", { key: ppl, style: { display: "flex", gap: 12, padding: "6px 0", borderBottom: "1px solid #eee", fontSize: 13 } }, React.createElement("b", null, ppl + "人"), React.createElement("span", null, "1着 ", React.createElement("b", { style: { color: K_TIME } }, per.toFixed(1) + "分")), React.createElement("span", null, "1日 ", React.createElement("b", { style: { color: K_TIME } }, day.toFixed(1) + "着"))); }),
+      React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13, marginTop: 8 } },
+        React.createElement("thead", null, React.createElement("tr", null,
+          React.createElement("th", { style: thKotei }, "パーツ"), React.createElement("th", { style: thKotei }, "工程"), React.createElement("th", { style: thKotei }, "合計"), React.createElement("th", { style: thKotei }, "比")
+        )),
+        React.createElement("tbody", null, rows.map(function (r) {
+          return React.createElement("tr", { key: r.p },
+            React.createElement("td", { style: Object.assign({}, tdKotei, { textAlign: "left", fontWeight: 700, color: K_PART }) }, r.p),
+            React.createElement("td", { style: tdKotei }, r.n),
+            React.createElement("td", { style: tdKotei }, fmtKoteiTime(r.s)),
+            React.createElement("td", { style: tdKotei }, r.pct + "%")
+          );
+        }))
+      )
+    );
+  }
+  const thKotei = { border: "1px solid #eee", padding: "6px 8px", background: K_PARTBG, color: K_PART, textAlign: "center" };
+  const tdKotei = { border: "1px solid #eee", padding: "6px 8px", textAlign: "center" };
+
+  // ── 図モーダル
+  function renderModal() {
+    const penBtn = function (c, label) { return React.createElement("button", { style: { width: 30, height: 30, borderRadius: "50%", border: "2px solid #fff", boxShadow: "0 0 0 1px " + K_LINE + (((tool === "ink" && c === K_INK) || (tool === "time" && c === K_TIME) || (tool === "note" && c === K_NOTE)) ? ",0 0 0 3px " + K_PART : ""), background: c, padding: 0 }, onClick: function () { pickTool(c === K_TIME ? "time" : c === K_NOTE ? "note" : "ink"); }, title: label }); };
+    return React.createElement("div", { style: { position: "fixed", inset: 0, zIndex: 100, background: "rgba(20,20,20,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12 } },
+      React.createElement("div", { style: { background: "#fff", borderRadius: 12, width: "100%", maxWidth: 760, padding: 12 } },
+        React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginBottom: 8 } },
+          penBtn(K_INK, "黒"), penBtn(K_TIME, "青"), penBtn(K_NOTE, "赤"),
+          React.createElement("button", { style: Object.assign({}, mTool, tool === "erase" ? mToolOn : {}), onClick: function () { pickTool("erase"); } }, "消しゴム"),
+          React.createElement("label", { style: mTool }, "写真", React.createElement("input", { type: "file", accept: "image/*", capture: "environment", style: { display: "none" }, onChange: onPhoto })),
+          React.createElement("button", { style: mTool, onClick: clearCanvas }, "全消去"),
+          React.createElement("button", { style: Object.assign({}, mTool, draw.current.penOnly ? mToolOn : {}), onClick: togglePalm }, draw.current.penOnly ? "✏️ペンのみ" : "✋指もOK"),
+          React.createElement("button", { style: { marginLeft: "auto", border: "1px solid " + K_PART, background: K_PART, color: "#fff", borderRadius: 8, padding: "9px 14px", fontWeight: 700 }, onClick: doneModal }, "完了")
+        ),
+        React.createElement("div", { style: { border: "1px solid " + K_LINE, borderRadius: 8, overflow: "hidden", background: "#fff" } },
+          React.createElement("canvas", { ref: canvasRef, style: { display: "block", width: "100%", height: "62vh", touchAction: "none" }, onPointerDown: pDown, onPointerMove: pMove, onPointerUp: pUp, onPointerLeave: pUp })
+        )
+      )
+    );
+  }
+  const mTool = { border: "1px solid " + K_LINE, background: "#fff", borderRadius: 8, padding: "9px 12px", fontSize: 14, color: "#333", display: "inline-flex", alignItems: "center", gap: 5 };
+  const mToolOn = { background: K_PART, color: "#fff", borderColor: K_PART };
+
+  return React.createElement(Shell, null,
+    React.createElement(Header, { title: "📐 工程分析表", back: props.back }),
+    React.createElement(Body, null,
+      React.createElement("div", { style: { background: "#fff", borderRadius: 12, padding: "12px 16px", marginBottom: 14, boxShadow: "0 1px 4px rgba(0,0,0,.06)" } },
+        React.createElement("div", { style: { fontSize: 16, fontWeight: 700 } }, part.partNo + (part.partName ? "　" + part.partName : "")),
+        props.brandName && React.createElement("div", { style: { fontSize: 12, color: "#888", marginTop: 2 } }, "🏷 " + props.brandName),
+        React.createElement("div", { style: { display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" } },
+          React.createElement("div", null, React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "針・針数"), React.createElement("input", { style: { width: 120, border: "1px solid " + K_LINE, borderRadius: 8, padding: "8px 9px", fontSize: 14 }, placeholder: "#50 12針/3cm", value: needle, onChange: function (e) { setNeedle(e.target.value); } })),
+          React.createElement("div", null, React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "色・枚数メモ"), React.createElement("input", { style: { width: 120, border: "1px solid " + K_LINE, borderRadius: 8, padding: "8px 9px", fontSize: 14 }, placeholder: "クロ81", value: colorQty, onChange: function (e) { setColorQty(e.target.value); } }))
+        )
+      ),
+      React.createElement("div", { style: { background: "#fbfaf6", borderRadius: 10, padding: "4px 12px", boxShadow: "0 1px 4px rgba(0,0,0,.06)" } },
+        blocks.map(function (b) { return b.type === "step" ? renderStep(b) : renderSketch(b); })
+      ),
+      React.createElement("div", { style: { display: "flex", gap: 10, marginTop: 12 } },
+        React.createElement("button", { style: addBtn, onClick: addStep }, "＋ 工程を追加"),
+        React.createElement("button", { style: addBtn, onClick: addSketch }, "＋ 図・写真")
+      ),
+      renderSummary(),
+      React.createElement("button", { style: { width: "100%", background: K_PART, color: "#fff", border: "none", borderRadius: 8, padding: 14, fontSize: 15, fontWeight: 700, marginTop: 16 }, onClick: handleSave }, "保存する"),
+      (sheet && sheet.id) && React.createElement("button", { style: { width: "100%", background: "#fff0f0", color: "#c00", border: "none", borderRadius: 8, padding: 12, fontSize: 13, fontWeight: 700, marginTop: 8 }, onClick: function () { if (window.confirm("この工程表を削除しますか？")) { props.onDelete(sheet.id); props.back(); } } }, "削除する")
+    ),
+    modalId != null && renderModal(),
+    React.createElement(props.SI)
+  );
+}
+const addBtn = { flex: 1, border: "2px dashed " + K_PART, background: "#fff", color: K_PART, borderRadius: 10, padding: 14, fontSize: 15, fontWeight: 700 };
