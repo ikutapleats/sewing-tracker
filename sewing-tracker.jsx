@@ -2693,8 +2693,16 @@ function KoteiEditor(props) {
   }
 
   const summary = useMemo(function () {
-    let tot = 0; const map = {};
-    blocks.forEach(function (b) { if (b.type === "step") { const s = parseKoteiTime(b.time); tot += s; const k = b.part || "(未設定)"; if (!map[k]) map[k] = { n: 0, s: 0 }; map[k].n++; map[k].s += s; } });
+    let tot = 0; const map = {}; let curPart = null;
+    blocks.forEach(function (b) {
+      if (b.type === "step") {
+        const s = parseKoteiTime(b.time); tot += s;
+        if (b.part) curPart = b.part;
+        const k = curPart || "(未設定)";
+        if (!map[k]) map[k] = { n: 0, s: 0 };
+        map[k].n++; map[k].s += s;
+      }
+    });
     return { tot: tot, map: map };
   }, [blocks]);
 
@@ -2724,7 +2732,7 @@ function KoteiEditor(props) {
         colors.map(function (c) { const rt = (c.counts || []).reduce(function (a, v) { return a + num(v); }, 0); return "<tr><td class='cn'>" + esc(c.name) + "</td>" + (c.counts || []).map(function (v) { return "<td>" + (num(v) || "") + "</td>"; }).join("") + "<td class='rt'>" + (rt || "") + "</td></tr>"; }).join("") +
         "<tr class='sum'><td>合計</td>" + colT.map(function (n) { return "<td>" + (n || "") + "</td>"; }).join("") + "<td>" + (grand || "") + "</td></tr></table>";
     }
-    const wmap = { s: "42mm", m: "72mm", l: "100%" };
+    const wmap = { s: "34mm", m: "58mm", l: "100%" };
     const groups = []; let g = null;
     blocks.forEach(function (b) {
       if (b.type === "step" && b.part) {
@@ -2737,7 +2745,7 @@ function KoteiEditor(props) {
     });
     let proc = "";
     groups.forEach(function (grp) {
-      proc += '<div class="phead"><span>' + esc(grp.part || "—") + '</span><span class="psum">' + fmtKoteiTime(grp.sec) + '</span></div>';
+      proc += '<div class="pgroup"><div class="phead"><span>' + esc(grp.part || "—") + '</span><span class="psum">' + fmtKoteiTime(grp.sec) + '</span></div>';
       grp.items.forEach(function (b) {
         if (b.type === "step") {
           proc += '<div class="prow"><span class="time">' + esc(b.time || "") + '</span><span class="act">' + esc(b.act || "") + '</span></div>';
@@ -2747,20 +2755,21 @@ function KoteiEditor(props) {
           if (src) proc += '<div class="sk">' + (b.caption ? '<div class="cap">' + esc(b.caption) + '</div>' : '') + '<img style="width:' + (wmap[b.size || "s"]) + '" src="' + src + '"></div>';
         }
       });
+      proc += '</div>';
     });
     const html = '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>工程分析表 ' + esc(part.partNo || "") + '</title><style>' +
       '*{box-sizing:border-box;margin:0;padding:0}' +
-      "body{font-family:'Hiragino Sans','Noto Sans JP',sans-serif;font-size:10pt;color:#1a1a1a;padding:8mm 10mm}" +
+      "body{font-family:'Hiragino Sans','Noto Sans JP',sans-serif;font-size:8pt;color:#1a1a1a;padding:6mm 7mm;line-height:1.25}" +
       '.head{display:flex;gap:6mm;flex-wrap:wrap;align-items:baseline;border-bottom:2px solid #1a1a1a;padding-bottom:2mm;margin-bottom:3mm}' +
       '.head .big{font-size:13pt;font-weight:700}.head .m{font-size:9pt;color:#555}.head .tt{font-size:13pt;font-weight:700;color:#1558d6}' +
       'table.qty{border-collapse:collapse;font-size:8.5pt;margin-bottom:3mm}' +
       'table.qty th,table.qty td{border:1px solid #aaa;padding:1mm 2.5mm;text-align:center}' +
       'table.qty th{background:#e4ecef}table.qty td.cn{text-align:left;font-weight:700}table.qty td.rt{font-weight:700;background:#f5f4f0}table.qty tr.sum td{background:#e8e6e0;font-weight:700}' +
-      '.proc{column-count:2;column-gap:7mm}' +
-      '.phead{font-weight:700;color:#0f3d4a;background:#e4ecef;padding:1mm 2mm;font-size:9pt;margin:1.5mm 0 1mm;break-inside:avoid;display:flex;gap:3mm;align-items:center}.phead .psum{color:#1f7a4d;font-size:8.5pt;font-weight:700;border:1.2px solid #1f7a4d;padding:0.2mm 2mm;background:#fff}' +
-      '.prow{display:flex;gap:2.5mm;font-size:8.5pt;padding:0.4mm 0;align-items:baseline;break-inside:avoid}.prow .time{color:#1558d6;font-weight:700;width:11mm;flex:none;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.prow .act{flex:1}' +
-      '.note{color:#c0271d;font-size:7.5pt;padding:0 0 0.8mm 13.5mm;break-inside:avoid}' +
-      '.sk{break-inside:avoid;margin:1.5mm 0}.sk .cap{font-size:7.5pt;color:#666;margin-bottom:0.5mm}.sk img{border:1px solid #ccc;display:block;max-width:100%}' +
+      '.proc{column-count:2;column-gap:5mm}.pgroup{break-inside:avoid;margin-bottom:1mm}' +
+      '.phead{font-weight:700;color:#0f3d4a;background:#e4ecef;padding:0.5mm 1.5mm;font-size:8pt;margin:0 0 0.5mm;display:flex;gap:2.5mm;align-items:center}.phead .psum{color:#1f7a4d;font-size:7.5pt;font-weight:700;border:1px solid #1f7a4d;padding:0 1.5mm;background:#fff}' +
+      '.prow{display:flex;gap:2mm;font-size:7.5pt;padding:0.15mm 0;align-items:baseline}.prow .time{color:#1558d6;font-weight:700;width:9.5mm;flex:none;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.prow .act{flex:1}' +
+      '.note{color:#c0271d;font-size:6.8pt;padding:0 0 0.4mm 11.5mm}' +
+      '.sk{margin:1mm 0;text-align:right}.sk .cap{font-size:6.8pt;color:#666;margin-bottom:0.3mm}.sk img{border:1px solid #ccc;display:inline-block;max-width:100%}' +
       '.footer{margin-top:4mm;border-top:1px solid #ddd;padding-top:1.5mm;font-size:8pt;color:#888;display:flex;justify-content:space-between}' +
       '@media print{body{padding:6mm 8mm}}' +
       '</style></head><body>' +
