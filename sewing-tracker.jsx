@@ -2727,8 +2727,8 @@ function KoteiEditor(props) {
     let proc = ""; let lastPart = null; const wmap = { s: "42mm", m: "72mm", l: "100%" };
     blocks.forEach(function (b) {
       if (b.type === "step") {
-        if (b.part !== lastPart) { proc += '<div class="phead">' + esc(b.part || "—") + '</div>'; lastPart = b.part; }
-        proc += '<div class="prow"><span class="act">' + esc(b.act || "") + '</span><span class="time">' + esc(b.time || "") + '</span></div>';
+        if (b.part !== lastPart) { const pk = b.part || "(未設定)"; const ps = (summary.map[pk] || {}).s || 0; proc += '<div class="phead"><span>' + esc(b.part || "—") + '</span><span class="psum">' + fmtKoteiTime(ps) + '</span></div>'; lastPart = b.part; }
+        proc += '<div class="prow"><span class="time">' + esc(b.time || "") + '</span><span class="act">' + esc(b.act || "") + '</span></div>';
         if (b.note) proc += '<div class="note">⚠ ' + esc(b.note) + '</div>';
       } else {
         const src = b.imgId ? imgMap[b.imgId] : b.img;
@@ -2744,9 +2744,9 @@ function KoteiEditor(props) {
       'table.qty th,table.qty td{border:1px solid #aaa;padding:1mm 2.5mm;text-align:center}' +
       'table.qty th{background:#e4ecef}table.qty td.cn{text-align:left;font-weight:700}table.qty td.rt{font-weight:700;background:#f5f4f0}table.qty tr.sum td{background:#e8e6e0;font-weight:700}' +
       '.proc{column-count:2;column-gap:7mm}' +
-      '.phead{font-weight:700;color:#0f3d4a;background:#e4ecef;padding:1mm 2mm;font-size:9pt;margin:1.5mm 0 1mm;break-inside:avoid}' +
-      '.prow{display:flex;gap:2mm;font-size:8.5pt;padding:0.4mm 0;align-items:baseline;break-inside:avoid}.prow .act{flex:1}.prow .time{color:#1558d6;font-weight:700;white-space:nowrap}' +
-      '.note{color:#c0271d;font-size:7.5pt;padding:0 0 0.8mm 2mm;break-inside:avoid}' +
+      '.phead{font-weight:700;color:#0f3d4a;background:#e4ecef;padding:1mm 2mm;font-size:9pt;margin:1.5mm 0 1mm;break-inside:avoid;display:flex;justify-content:space-between;align-items:baseline}.phead .psum{color:#1558d6;font-size:8.5pt;font-weight:700}' +
+      '.prow{display:flex;gap:2.5mm;font-size:8.5pt;padding:0.4mm 0;align-items:baseline;break-inside:avoid}.prow .time{color:#1558d6;font-weight:700;width:11mm;flex:none;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.prow .act{flex:1}' +
+      '.note{color:#c0271d;font-size:7.5pt;padding:0 0 0.8mm 13.5mm;break-inside:avoid}' +
       '.sk{break-inside:avoid;margin:1.5mm 0}.sk .cap{font-size:7.5pt;color:#666;margin-bottom:0.5mm}.sk img{border:1px solid #ccc;display:block;max-width:100%}' +
       '.footer{margin-top:4mm;border-top:1px solid #ddd;padding-top:1.5mm;font-size:8pt;color:#888;display:flex;justify-content:space-between}' +
       '@media print{body{padding:6mm 8mm}}' +
