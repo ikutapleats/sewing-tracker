@@ -632,11 +632,16 @@ td.rem{color:${sumRem < 0 ? "#c00" : "#1a1a1a"}}
 </div>
 ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;margin-bottom:1mm'>特記事項・申し送り</div><div class='note'>" + esc(f.note) + "</div></div>" : ""}
 <div class="footer"><span>株式会社生田プリーツ</span><span>出力: ${today()}</span></div>
-<script>window.onload=function(){window.print()}<\/script>
+<script>window.onload=function(){setTimeout(function(){window.focus();window.print();},250)}<\/script>
 </body></html>`;
-    const w = window.open("", "_blank");
-    w.document.write(html);
-    w.document.close();
+    let frame = document.getElementById("saidan-print-frame");
+    if (frame && frame.parentNode) frame.parentNode.removeChild(frame);
+    frame = document.createElement("iframe");
+    frame.id = "saidan-print-frame";
+    frame.setAttribute("style", "position:fixed;left:-9999px;top:0;width:1px;height:1px;border:0;");
+    document.body.appendChild(frame);
+    const d = frame.contentWindow.document;
+    d.open(); d.write(html); d.close();
   }
 
   function openSampleNew() {
@@ -2419,7 +2424,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const brandName = ((data.brands || []).find((b) => b.id === part.brandId) || {}).name || "";
     const stdSet = {}; KOTEI_PARTS.forEach(function (p) { stdSet[p] = true; });
     const extraParts = [];
-    const phSet = {}; KOTEI_PHRASES.forEach(function (p) { phSet[p] = true; });
+    const phSet = {}; Object.keys(KOTEI_PHRASE_CATS).forEach(function (c) { KOTEI_PHRASE_CATS[c].forEach(function (p) { phSet[p] = true; }); });
     const extraPhrases = [];
     (data.koteiSheets || []).forEach(function (s) { (s.blocks || []).forEach(function (b) {
       if (b.type === "step") {
@@ -2576,7 +2581,11 @@ document.head.appendChild(styleEl);
 
 // ===================== 工程分析表（KoteiEditor） =====================
 const KOTEI_PARTS = ["芯","甲止め","伸止め","準備","裏身頃","前身頃","表身頃","身頃","肩ひも","ヨーク","衿","衿吊り","カフス","袖","表袖","裏袖","袖リブ","ポケット","内ポケット","ポケットフラップ","フリル","前端フリル","袖裾フリル","ペプラム","スカート","ベルト","見返し","組立","まとめ","その他"];
-const KOTEI_PHRASES = ["割りアイロン","キセアイロン","高アイロン","上高アイロン","中心高アイロン","後高アイロン","後高0.5cmキセアイロン","裾アイロン","返しアイロン","ケンボロアイロン","脇はぎ","見返し脇はぎ","後中心はぎ","見返しとはぎ","身頃とスカートはぎ","CB見返しはぎ","2枚はぎ","3枚はぎ","外袖と内袖はぎ","つなぎ合わせ","ロック","イッテコイロック","見返しロック","下側ロック始末","中ぬい","本ぬい","周りぬい","袋ぬい","外表でぬい","仮どめ","タックとめ","ゴムとめ","釦とめ","三角どめ","ぬいどめ","三巻き","裾三巻き","スリット三巻り","コバST","裏コバST","ステッチ","糸始末","たたきつけ","ギャザー入れ","ホールあけ","ホール印","ネーム付け","ブランドネームたたきつけ","センタクネーム仮どめ","矢羽に切り込み","ケバカット","パイピング","ケンボロ口折り","ケンボロ付け","シャーリング位置ぬい","伸止め貼り","芯貼り","口布折り"];
+const KOTEI_PHRASE_CATS = {
+  "アイロン": ["割りアイロン","方倒しアイロン","キセアイロン","キセ","高アイロン","上高アイロン","中心高アイロン","後高アイロン","後高0.5cmキセアイロン","裾アイロン","返しアイロン","ケンボロアイロン"],
+  "ミシン": ["脇はぎ","見返し脇はぎ","後中心はぎ","見返しとはぎ","身頃とスカートはぎ","CB見返しはぎ","2枚はぎ","3枚はぎ","外袖と内袖はぎ","つなぎ合わせ","ロック","イッテコイロック","見返しロック","下側ロック始末","中ぬい","本ぬい","周りぬい","袋ぬい","外表でぬい","仮どめ","タックとめ","ゴムとめ","釦とめ","三角どめ","ぬいどめ","三巻き","裾三巻き","スリット三巻り","コバST","裏コバST","ステッチ","シャーリング位置ぬい"],
+  "その他": ["糸始末","たたきつけ","ギャザー入れ","ホールあけ","ホール印","ネーム付け","ブランドネームたたきつけ","センタクネーム仮どめ","矢羽に切り込み","ケバカット","パイピング","ケンボロ口折り","ケンボロ付け","伸止め貼り","芯貼り","口布折り"]
+};
 const K_INK = "#1a1a1a", K_TIME = "#1558d6", K_NOTE = "#c0271d", K_PART = "#0f3d4a", K_PARTBG = "#e4ecef", K_LINE = "#d9d5c8";
 
 function parseKoteiTime(s) {
@@ -2623,7 +2632,8 @@ function KoteiEditor(props) {
     if (sheet && sheet.blocks && sheet.blocks.length) return sheet.blocks;
     return [{ id: genId(), type: "step", part: "準備", act: "", time: "", note: "" }];
   });
-  const [phrases, setPhrases] = useState(function () { return KOTEI_PHRASES.concat(props.extraPhrases || []); });
+  const [suggCat, setSuggCat] = useState("アイロン");
+  const [histPhrases, setHistPhrases] = useState(props.extraPhrases || []);
   const [activeSugg, setActiveSugg] = useState(null);
   const [modalId, setModalId] = useState(null);
   const [tool, setTool] = useState("ink");
@@ -2638,7 +2648,7 @@ function KoteiEditor(props) {
   function addSketch() { setBlocks(function (bs) { return bs.concat([{ id: genId(), type: "sketch", img: "", caption: "", size: "s" }]); }); }
   function move(id, dir) { setBlocks(function (bs) { const i = bs.findIndex(function (b) { return b.id === id; }); const j = i + dir; if (j < 0 || j >= bs.length) return bs; const c = bs.slice(); const t = c[i]; c[i] = c[j]; c[j] = t; return c; }); }
   function del(id) { if (!window.confirm("このブロックを削除しますか？")) return; setBlocks(function (bs) { return bs.filter(function (b) { return b.id !== id; }); }); }
-  function learn(p) { p = ("" + (p || "")).trim(); if (p.length < 2) return; setPhrases(function (ps) { return ps.indexOf(p) >= 0 ? ps : [p].concat(ps); }); }
+  function learn(p) { p = ("" + (p || "")).trim(); if (p.length < 2) return; setHistPhrases(function (ps) { return ps.indexOf(p) >= 0 ? ps : [p].concat(ps); }); }
 
   const numK = function (v) { const x = parseInt(v, 10); return isNaN(x) ? 0 : x; };
   function setSizeAt(i, v) { setSizes(function (ss) { const c = ss.slice(); c[i] = v; return c; }); }
@@ -2793,9 +2803,15 @@ function KoteiEditor(props) {
       (targetPerDay ? '<span class="m">1日目標 ' + esc(targetPerDay) + '着</span>' : '') +
       '</div>' + tbl + bodyHtml +
       '<div class="footer"><span>株式会社生田プリーツ　工程分析表</span><span>出力 ' + today() + '</span></div>' +
-      '<script>window.onload=function(){window.print()}<\/script></body></html>';
-    const w = window.open("", "_blank");
-    if (w) { w.document.write(html); w.document.close(); }
+      '<script>window.onload=function(){setTimeout(function(){window.focus();window.print();},250)}<\/script></body></html>';
+    let frame = document.getElementById("kotei-print-frame");
+    if (frame && frame.parentNode) frame.parentNode.removeChild(frame);
+    frame = document.createElement("iframe");
+    frame.id = "kotei-print-frame";
+    frame.setAttribute("style", "position:fixed;left:-9999px;top:0;width:1px;height:1px;border:0;");
+    document.body.appendChild(frame);
+    const d = frame.contentWindow.document;
+    d.open(); d.write(html); d.close();
   }
 
   // Drive画像の取得（imgId → base64 に解決）
@@ -2871,7 +2887,10 @@ function KoteiEditor(props) {
 
   // ── 工程行
   function renderStep(b) {
-    const tokenList = (function () { const tok = lastKoteiToken(b.act); let list = tok ? phrases.filter(function (p) { return p.indexOf(tok) >= 0 && p !== tok; }) : phrases; return list.slice(0, 8); })();
+    const cats = ["アイロン", "ミシン", "その他"]; if (histPhrases.length) cats.push("履歴");
+    const baseList = suggCat === "履歴" ? histPhrases : (KOTEI_PHRASE_CATS[suggCat] || []);
+    const tokA = lastKoteiToken(b.act);
+    const tokenList = (tokA ? baseList.filter(function (p) { return p.indexOf(tokA) >= 0 && p !== tokA; }) : baseList).slice(0, 14);
     return React.createElement("div", { key: b.id, style: { position: "relative", borderBottom: "1px solid " + K_LINE, padding: "10px 0 12px" } },
       React.createElement("div", { style: { display: "grid", gridTemplateColumns: "108px 1fr 78px", gap: 8, paddingRight: 76 } },
         React.createElement("div", null,
@@ -2888,10 +2907,17 @@ function KoteiEditor(props) {
             React.createElement("textarea", { style: { flex: 1, minHeight: 42, border: "1px solid " + K_LINE, borderRadius: 8, padding: 9, fontSize: 15, color: K_INK, resize: "vertical", lineHeight: 1.35, fontFamily: "inherit", boxSizing: "border-box" }, placeholder: "手打ち / 下の定型句 / 🎤", value: b.act, onFocus: function () { setActiveSugg(b.id); }, onBlur: function () { learn(b.act); setTimeout(function () { setActiveSugg(function (s) { return s === b.id ? null : s; }); }, 200); }, onChange: function (e) { patchBlock(b.id, { act: e.target.value }); } }),
             React.createElement("button", { style: { width: 42, height: 42, border: "1px solid " + K_LINE, borderRadius: 8, background: recId === b.id ? K_NOTE : "#fff", color: recId === b.id ? "#fff" : "#333", fontSize: 18, flex: "none" }, onClick: function () { startVoice(b.id); } }, "🎤")
           ),
-          activeSugg === b.id && tokenList.length > 0 && React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6 } },
-            tokenList.map(function (p) {
-              return React.createElement("button", { key: p, style: { border: "1px solid " + K_PART, background: "#eef3f4", color: K_PART, borderRadius: 14, padding: "5px 10px", fontSize: 12 }, onMouseDown: function (e) { e.preventDefault(); const v = b.act || ""; const tk = lastKoteiToken(v); const nv = tk ? v.slice(0, v.length - tk.length) + p : v + p; patchBlock(b.id, { act: nv }); } }, p);
-            })
+          activeSugg === b.id && React.createElement("div", { style: { marginTop: 6 } },
+            React.createElement("div", { style: { display: "flex", gap: 5, marginBottom: 6, flexWrap: "wrap" } },
+              cats.map(function (c) {
+                return React.createElement("button", { key: c, style: { border: "1px solid " + (suggCat === c ? K_PART : K_LINE), background: suggCat === c ? K_PART : "#fff", color: suggCat === c ? "#fff" : "#555", borderRadius: 12, padding: "4px 12px", fontSize: 12, fontWeight: 700 }, onMouseDown: function (e) { e.preventDefault(); setSuggCat(c); } }, c);
+              })
+            ),
+            tokenList.length > 0 && React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 5 } },
+              tokenList.map(function (p) {
+                return React.createElement("button", { key: p, style: { border: "1px solid " + K_PART, background: "#eef3f4", color: K_PART, borderRadius: 14, padding: "5px 10px", fontSize: 12 }, onMouseDown: function (e) { e.preventDefault(); const v = b.act || ""; let nv; if (v === "" || /[\s、・\n]$/.test(v)) { nv = v + p; } else { const tk = lastKoteiToken(v); nv = v.slice(0, v.length - tk.length) + p; } patchBlock(b.id, { act: nv }); } }, p);
+              })
+            )
           )
         ),
         React.createElement("div", null,
@@ -2978,7 +3004,8 @@ function KoteiEditor(props) {
           React.createElement("label", { style: mTool }, "写真", React.createElement("input", { type: "file", accept: "image/*", capture: "environment", style: { display: "none" }, onChange: onPhoto })),
           React.createElement("button", { style: mTool, onClick: clearCanvas }, "全消去"),
           React.createElement("button", { style: Object.assign({}, mTool, draw.current.penOnly ? mToolOn : {}), onClick: togglePalm }, draw.current.penOnly ? "✏️ペンのみ" : "✋指もOK"),
-          React.createElement("button", { style: { marginLeft: "auto", border: "1px solid " + K_PART, background: uploading ? "#888" : K_PART, color: "#fff", borderRadius: 8, padding: "9px 14px", fontWeight: 700 }, onClick: function () { if (!uploading) doneModal(); } }, uploading ? "保存中…" : "完了")
+          React.createElement("button", { style: { marginLeft: "auto", border: "1px solid " + K_LINE, background: "#fff", color: "#555", borderRadius: 8, padding: "9px 14px" }, onClick: function () { if (!uploading) setModalId(null); } }, "閉じる"),
+          React.createElement("button", { style: { border: "1px solid " + K_PART, background: uploading ? "#888" : K_PART, color: "#fff", borderRadius: 8, padding: "9px 14px", fontWeight: 700 }, onClick: function () { if (!uploading) doneModal(); } }, uploading ? "保存中…" : "完了")
         ),
         React.createElement("div", { style: { border: "1px solid " + K_LINE, borderRadius: 8, overflow: "hidden", background: "#fff" } },
           React.createElement("canvas", { ref: canvasRef, style: { display: "block", width: "100%", height: "62vh", touchAction: "none" }, onPointerDown: pDown, onPointerMove: pMove, onPointerUp: pUp, onPointerLeave: pUp })
