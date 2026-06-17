@@ -56,6 +56,8 @@ const INIT_UI = {
   koteiPartId: null,
   koteiReturn: "part_detail",
   koteiSearch: "",
+  koteiPhCat: "アイロン",
+  koteiPhInput: "",
 };
 
 async function gasSave(data) {
@@ -2381,6 +2383,34 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     );
   }
 
+  if (ui.screen === "kotei_phrases") {
+    const cats = (data.koteiPhrases && Object.keys(data.koteiPhrases).length) ? data.koteiPhrases : KOTEI_PHRASE_CATS;
+    const catKeys = Object.keys(cats);
+    const cur = (ui.koteiPhCat && cats[ui.koteiPhCat]) ? ui.koteiPhCat : catKeys[0];
+    const list = cats[cur] || [];
+    const commit = function (newCats) { const nd = Object.assign({}, data, { koteiPhrases: newCats }); applyLocal({ koteiPhrases: newCats }, () => gasSave(nd)); };
+    const addPhrase = function () { const w = (ui.koteiPhInput || "").trim(); if (!w) return; const nc = JSON.parse(JSON.stringify(cats)); if ((nc[cur] || []).indexOf(w) < 0) nc[cur] = (nc[cur] || []).concat([w]); commit(nc); set({ koteiPhInput: "" }); };
+    const delPhrase = function (w) { const nc = JSON.parse(JSON.stringify(cats)); nc[cur] = (nc[cur] || []).filter(function (x) { return x !== w; }); commit(nc); };
+    return React.createElement(Shell, null,
+      React.createElement(Header, { title: "作業候補の編集", back: () => set({ screen: "kotei_list" }) }),
+      React.createElement(Body, null,
+        React.createElement("div", { style: { fontSize: 12, color: "#888", marginBottom: 12 } }, "分類を選んで、作業の言葉を追加・削除できます。ここで変えた候補は、全員・全工程表に反映されます。"),
+        React.createElement("div", { style: { display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" } },
+          catKeys.map(function (c) { return React.createElement("button", { key: c, style: { border: "1px solid " + (cur === c ? "#0f3d4a" : "#d9d5c8"), background: cur === c ? "#0f3d4a" : "#fff", color: cur === c ? "#fff" : "#555", borderRadius: 14, padding: "6px 16px", fontSize: 13, fontWeight: 700 }, onClick: () => set({ koteiPhCat: c }) }, c); })
+        ),
+        React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 16 } },
+          React.createElement("input", { style: Object.assign({}, st.input, { flex: 1, marginBottom: 0 }), placeholder: "「" + cur + "」に追加する言葉", value: ui.koteiPhInput, onChange: (e) => set({ koteiPhInput: e.target.value }), onKeyDown: function (e) { if (e.key === "Enter") addPhrase(); } }),
+          React.createElement("button", { style: { border: "none", background: "#0f3d4a", color: "#fff", borderRadius: 8, padding: "0 18px", fontSize: 14, fontWeight: 700 }, onClick: addPhrase }, "追加")
+        ),
+        React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 } },
+          list.map(function (w) { return React.createElement("div", { key: w, style: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid #d9d5c8", borderRadius: 16, padding: "6px 6px 6px 13px", fontSize: 13 } }, w, React.createElement("button", { style: { border: "none", background: "none", color: "#c0271d", fontSize: 16, cursor: "pointer", padding: "0 4px", lineHeight: 1 }, onClick: () => delPhrase(w) }, "✕")); })
+        ),
+        list.length === 0 && React.createElement(Empty, null, "この分類の候補はまだありません")
+      ),
+      React.createElement(SI)
+    );
+  }
+
   if (ui.screen === "kotei_list") {
     const q = (ui.koteiSearch || "").trim();
     const withKotei = (data.koteiSheets || []).map(function (s) {
@@ -2392,6 +2422,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     return React.createElement(Shell, null,
       React.createElement(Header, { title: "📐 工程分析表", back: () => set({ screen: "home" }) }),
       React.createElement(Body, null,
+        React.createElement("button", { style: { width: "100%", border: "1px solid #0f3d4a", background: "#eef3f4", color: "#0f3d4a", borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 700, marginBottom: 12 }, onClick: () => set({ screen: "kotei_phrases" }) }, "⚙ 作業候補（アイロン・ミシン・その他）を編集"),
         React.createElement("input", { style: Object.assign({}, st.input, { marginBottom: 12 }), placeholder: "品番・品名で検索", value: ui.koteiSearch, onChange: (e) => set({ koteiSearch: e.target.value }) }),
         React.createElement("div", { style: { fontSize: 12, color: "#aaa", marginBottom: 12 } }, filtered.length + "件"),
         filtered.length === 0 && React.createElement(Empty, null, q ? "該当する工程表がありません" : "まだ工程表がありません（品番詳細の「工程分析表」から作成できます）"),
@@ -2424,7 +2455,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const brandName = ((data.brands || []).find((b) => b.id === part.brandId) || {}).name || "";
     const stdSet = {}; KOTEI_PARTS.forEach(function (p) { stdSet[p] = true; });
     const extraParts = [];
-    const phSet = {}; Object.keys(KOTEI_PHRASE_CATS).forEach(function (c) { KOTEI_PHRASE_CATS[c].forEach(function (p) { phSet[p] = true; }); });
+    const phraseCats = (data.koteiPhrases && Object.keys(data.koteiPhrases).length) ? data.koteiPhrases : KOTEI_PHRASE_CATS;
+    const phSet = {}; Object.keys(phraseCats).forEach(function (c) { (phraseCats[c] || []).forEach(function (p) { phSet[p] = true; }); });
     const extraPhrases = [];
     (data.koteiSheets || []).forEach(function (s) { (s.blocks || []).forEach(function (b) {
       if (b.type === "step") {
@@ -2433,7 +2465,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       }
     }); });
     return React.createElement(KoteiEditor, {
-      key: part.id, part: part, sheet: sheet, brandName: brandName, extraParts: extraParts, extraPhrases: extraPhrases,
+      key: part.id, part: part, sheet: sheet, brandName: brandName, extraParts: extraParts, extraPhrases: extraPhrases, phraseCats: phraseCats,
       onSave: saveKotei, onDelete: deleteKotei,
       back: () => set({ screen: ui.koteiReturn || "part_detail", koteiPartId: null }),
       SI: SI,
@@ -2887,8 +2919,8 @@ function KoteiEditor(props) {
 
   // ── 工程行
   function renderStep(b) {
-    const cats = ["アイロン", "ミシン", "その他"]; if (histPhrases.length) cats.push("履歴");
-    const baseList = suggCat === "履歴" ? histPhrases : (KOTEI_PHRASE_CATS[suggCat] || []);
+    const cats = Object.keys(props.phraseCats || {}); if (histPhrases.length) cats.push("履歴");
+    const baseList = suggCat === "履歴" ? histPhrases : ((props.phraseCats || {})[suggCat] || []);
     const tokA = lastKoteiToken(b.act);
     const tokenList = (tokA ? baseList.filter(function (p) { return p.indexOf(tokA) >= 0 && p !== tokA; }) : baseList).slice(0, 14);
     return React.createElement("div", { key: b.id, style: { position: "relative", borderBottom: "1px solid " + K_LINE, padding: "10px 0 12px" } },
