@@ -2553,6 +2553,14 @@ function compressDataURL(dataURL, cb) {
     img.src = dataURL;
   } catch (e) { cb(dataURL); }
 }
+function uploadKoteiImage(dataUrl) {
+  return fetch(GAS_URL, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify({ action: "saveKoteiImage", dataUrl: dataUrl }) })
+    .then(function (r) { return r.json(); })
+    .then(function (r) { if (r.status !== "saved") throw new Error("img upload failed"); return r.id; });
+}
+function fetchKoteiImage(id) {
+  return fetch(GAS_URL + "?imgKotei=" + encodeURIComponent(id)).then(function (r) { return r.text(); });
+}
 
 function KoteiEditor(props) {
   const part = props.part, sheet = props.sheet;
@@ -2569,6 +2577,8 @@ function KoteiEditor(props) {
   const [activeSugg, setActiveSugg] = useState(null);
   const [modalId, setModalId] = useState(null);
   const [tool, setTool] = useState("ink");
+  const [imgData, setImgData] = useState({});
+  const [uploading, setUploading] = useState(false);
   const [recId, setRecId] = useState(null); // 音声入力中のblock
   const canvasRef = useRef(null);
   const draw = useRef({ drawing: false, last: null, color: K_INK, erase: false, penOnly: true, ctx: null });
@@ -2653,6 +2663,15 @@ function KoteiEditor(props) {
     props.onSave(rec); props.back();
   }
 
+  // Drive画像の取得（imgId → base64 に解決）
+  useEffect(function () {
+    const ids = blocks.filter(function (b) { return b.type === "sketch" && b.imgId && !imgData[b.imgId]; }).map(function (b) { return b.imgId; });
+    if (ids.length === 0) return;
+    ids.forEach(function (id) {
+      fetchKoteiImage(id).then(function (d) { if (d) setImgData(function (m) { const n = Object.assign({}, m); n[id] = d; return n; }); }).catch(function () {});
+    });
+  }, [blocks]);
+
   // 図モーダル初期化
   useEffect(function () {
     if (modalId == null) return;
@@ -2663,8 +2682,9 @@ function KoteiEditor(props) {
     cv.width = w * dpr; cv.height = h * dpr;
     const ctx = cv.getContext("2d"); ctx.scale(dpr, dpr); ctx.clearRect(0, 0, w, h);
     draw.current.ctx = ctx; draw.current.drawing = false;
-    if (blk && blk.img) { const im = new Image(); im.onload = function () { ctx.drawImage(im, 0, 0, w, h); }; im.src = blk.img; }
-  }, [modalId]);
+    const src0 = blk ? (blk.imgId ? imgData[blk.imgId] : blk.img) : "";
+    if (src0) { const im = new Image(); im.onload = function () { ctx.drawImage(im, 0, 0, w, h); }; im.src = src0; }
+  }, [modalId, imgData]);
 
   function allowDraw(e) { return !draw.current.penOnly || e.pointerType === "pen" || e.pointerType === "mouse"; }
   function pDown(e) { if (!allowDraw(e)) return; const d = draw.current; d.drawing = true; const r = e.currentTarget.getBoundingClientRect(); d.last = { x: e.clientX - r.left, y: e.clientY - r.top }; }
@@ -2681,7 +2701,23 @@ function KoteiEditor(props) {
   function clearCanvas() { const d = draw.current, cv = canvasRef.current; if (d.ctx && cv) d.ctx.clearRect(0, 0, cv.clientWidth, cv.clientHeight); }
   function togglePalm() { draw.current.penOnly = !draw.current.penOnly; setTool(function (t) { return t; }); setActiveSugg(function (s) { return s; }); forceRerender(); }
   const [, setTick] = useState(0); function forceRerender() { setTick(function (n) { return n + 1; }); }
-  function doneModal() { const cv = canvasRef.current; if (cv) { const raw = cv.toDataURL("image/png"); compressDataURL(raw, function (out) { patchBlock(modalId, { img: out }); setModalId(null); }); } else setModalId(null); }
+  function doneModal() {
+    const cv = canvasRef.current; const id = modalId;
+    if (!cv) { setModalId(null); return; }
+    const raw = cv.toDataURL("image/png");
+    compressDataURL(raw, function (out) {
+      setUploading(true);
+      uploadKoteiImage(out).then(function (fid) {
+        setImgData(function (m) { const n = Object.assign({}, m); n[fid] = out; return n; });
+        patchBlock(id, { imgId: fid, img: "" });
+        setModalId(null);
+      }).catch(function () {
+        window.alert("図の保存に失敗しました。通信を確認して、もう一度お試しください。");
+        patchBlock(id, { img: out });
+        setModalId(null);
+      }).finally(function () { setUploading(false); });
+    });
+  }
   function onPhoto(e) {
     const f = e.target.files[0]; if (!f) return; const rd = new FileReader();
     rd.onload = function () { const im = new Image(); im.onload = function () { const cv = canvasRef.current, ctx = draw.current.ctx; if (!cv || !ctx) return; const w = cv.clientWidth, h = cv.clientHeight, r = Math.min(w / im.width, h / im.height); const dw = im.width * r, dh = im.height * r; ctx.drawImage(im, (w - dw) / 2, (h - dh) / 2, dw, dh); }; im.src = rd.result; };
@@ -2745,7 +2781,7 @@ function KoteiEditor(props) {
         )
       ),
       React.createElement("div", { style: { width: s.w, height: s.h, border: "1px solid " + K_LINE, borderRadius: 8, overflow: "hidden", background: "#fff", cursor: "pointer", position: "relative", display: "flex", alignItems: "center", justifyContent: "center", color: "#aaa", fontSize: 13 }, onClick: function () { setModalId(b.id); } },
-        b.img ? React.createElement("img", { src: b.img, style: { width: "100%", height: "100%", objectFit: "contain" } }) : "タップして描く / 写真",
+        (function () { const src = b.imgId ? imgData[b.imgId] : b.img; if (src) return React.createElement("img", { src: src, style: { width: "100%", height: "100%", objectFit: "contain" } }); if (b.imgId) return "読み込み中…"; return "タップして描く / 写真"; })(),
         React.createElement("span", { style: { position: "absolute", right: 6, bottom: 5, background: "rgba(15,61,74,.85)", color: "#fff", fontSize: 10, padding: "2px 7px", borderRadius: 10 } }, "編集")
       ),
       React.createElement("input", { style: { width: "100%", border: "none", borderBottom: "1px solid " + K_LINE, background: "transparent", padding: "6px 2px", fontSize: 13, color: "#555", marginTop: 8, boxSizing: "border-box" }, placeholder: "図の説明（任意）", value: b.caption, onChange: function (e) { patchBlock(b.id, { caption: e.target.value }); } }),
@@ -2806,7 +2842,7 @@ function KoteiEditor(props) {
           React.createElement("label", { style: mTool }, "写真", React.createElement("input", { type: "file", accept: "image/*", capture: "environment", style: { display: "none" }, onChange: onPhoto })),
           React.createElement("button", { style: mTool, onClick: clearCanvas }, "全消去"),
           React.createElement("button", { style: Object.assign({}, mTool, draw.current.penOnly ? mToolOn : {}), onClick: togglePalm }, draw.current.penOnly ? "✏️ペンのみ" : "✋指もOK"),
-          React.createElement("button", { style: { marginLeft: "auto", border: "1px solid " + K_PART, background: K_PART, color: "#fff", borderRadius: 8, padding: "9px 14px", fontWeight: 700 }, onClick: doneModal }, "完了")
+          React.createElement("button", { style: { marginLeft: "auto", border: "1px solid " + K_PART, background: uploading ? "#888" : K_PART, color: "#fff", borderRadius: 8, padding: "9px 14px", fontWeight: 700 }, onClick: function () { if (!uploading) doneModal(); } }, uploading ? "保存中…" : "完了")
         ),
         React.createElement("div", { style: { border: "1px solid " + K_LINE, borderRadius: 8, overflow: "hidden", background: "#fff" } },
           React.createElement("canvas", { ref: canvasRef, style: { display: "block", width: "100%", height: "62vh", touchAction: "none" }, onPointerDown: pDown, onPointerMove: pMove, onPointerUp: pUp, onPointerLeave: pUp })
