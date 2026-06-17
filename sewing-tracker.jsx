@@ -2557,8 +2557,10 @@ function compressDataURL(dataURL, cb) {
 function KoteiEditor(props) {
   const part = props.part, sheet = props.sheet;
   const [needle, setNeedle] = useState((sheet && sheet.needle) || "");
-  const [colorQty, setColorQty] = useState((sheet && sheet.colorQty) || "");
+  const [targetPerDay, setTargetPerDay] = useState((sheet && sheet.targetPerDay) || "");
   const [workMin, setWorkMin] = useState((sheet && sheet.workMin) || 420);
+  const [sizes, setSizes] = useState((sheet && sheet.sizes) || ["XS", "S", "M", "L"]);
+  const [colors, setColors] = useState((sheet && sheet.colors) || [{ name: "", counts: ["", "", "", ""] }]);
   const [blocks, setBlocks] = useState(function () {
     if (sheet && sheet.blocks && sheet.blocks.length) return sheet.blocks;
     return [{ id: genId(), type: "step", part: "準備", act: "", time: "", note: "" }];
@@ -2578,6 +2580,68 @@ function KoteiEditor(props) {
   function del(id) { if (!window.confirm("このブロックを削除しますか？")) return; setBlocks(function (bs) { return bs.filter(function (b) { return b.id !== id; }); }); }
   function learn(p) { p = ("" + (p || "")).trim(); if (p.length < 2) return; setPhrases(function (ps) { return ps.indexOf(p) >= 0 ? ps : [p].concat(ps); }); }
 
+  const numK = function (v) { const x = parseInt(v, 10); return isNaN(x) ? 0 : x; };
+  function setSizeAt(i, v) { setSizes(function (ss) { const c = ss.slice(); c[i] = v; return c; }); }
+  function addSize() { setSizes(function (ss) { return ss.concat([""]); }); setColors(function (cs) { return cs.map(function (c) { return Object.assign({}, c, { counts: (c.counts || []).concat([""]) }); }); }); }
+  function removeSize(i) { setSizes(function (ss) { return ss.filter(function (_, k) { return k !== i; }); }); setColors(function (cs) { return cs.map(function (c) { return Object.assign({}, c, { counts: (c.counts || []).filter(function (_, k) { return k !== i; }) }); }); }); }
+  function addColor() { setColors(function (cs) { return cs.concat([{ name: "", counts: sizes.map(function () { return ""; }) }]); }); }
+  function removeColor(ci) { setColors(function (cs) { return cs.filter(function (_, k) { return k !== ci; }); }); }
+  function setColorName(ci, v) { setColors(function (cs) { return cs.map(function (c, k) { return k === ci ? Object.assign({}, c, { name: v }) : c; }); }); }
+  function setCount(ci, si, v) { setColors(function (cs) { return cs.map(function (c, k) { if (k !== ci) return c; const counts = (c.counts || []).slice(); counts[si] = v; return Object.assign({}, c, { counts: counts }); }); }); }
+
+  const colTotals = sizes.map(function (_, si) { return colors.reduce(function (a, c) { return a + numK((c.counts || [])[si]); }, 0); });
+  const grandQty = colTotals.reduce(function (a, n) { return a + n; }, 0);
+
+  function renderQtyTable() {
+    const cell = { border: "1px solid " + K_LINE, padding: 0, textAlign: "center" };
+    const inCell = { width: "100%", border: "none", textAlign: "center", padding: "7px 2px", fontSize: 13, background: "transparent", color: K_INK, boxSizing: "border-box" };
+    return React.createElement("div", { style: { marginTop: 12 } },
+      React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 } },
+        React.createElement("span", { style: { fontSize: 11, color: "#999" } }, "色 × サイズ別 枚数"),
+        React.createElement("div", { style: { display: "flex", gap: 6 } },
+          React.createElement("button", { style: { border: "1px solid " + K_LINE, background: "#fff", borderRadius: 6, padding: "4px 9px", fontSize: 12, color: "#555" }, onClick: addColor }, "＋色"),
+          React.createElement("button", { style: { border: "1px solid " + K_LINE, background: "#fff", borderRadius: 6, padding: "4px 9px", fontSize: 12, color: "#555" }, onClick: addSize }, "＋サイズ")
+        )
+      ),
+      React.createElement("div", { style: { overflowX: "auto" } },
+        React.createElement("table", { style: { borderCollapse: "collapse", fontSize: 13, minWidth: "100%" } },
+          React.createElement("thead", null,
+            React.createElement("tr", null,
+              React.createElement("th", { style: Object.assign({}, cell, { background: K_PARTBG, color: K_PART, padding: "6px 8px", minWidth: 70 }) }, "色"),
+              sizes.map(function (s, i) {
+                return React.createElement("th", { key: i, style: Object.assign({}, cell, { background: K_PARTBG, minWidth: 54 }) },
+                  React.createElement("input", { style: Object.assign({}, inCell, { color: K_PART, fontWeight: 700 }), value: s, onChange: function (e) { setSizeAt(i, e.target.value); } }),
+                  sizes.length > 1 && React.createElement("button", { style: { border: "none", background: "none", color: "#c99", fontSize: 10, cursor: "pointer", padding: 0 }, onClick: function () { removeSize(i); } }, "削除")
+                );
+              }),
+              React.createElement("th", { style: Object.assign({}, cell, { background: "#f5f4f0", padding: "6px 8px" }) }, "計"),
+              React.createElement("th", { style: Object.assign({}, cell, { background: K_PARTBG, width: 30 }) }, "")
+            )
+          ),
+          React.createElement("tbody", null,
+            colors.map(function (c, ci) {
+              const rowTotal = (c.counts || []).reduce(function (a, v) { return a + numK(v); }, 0);
+              return React.createElement("tr", { key: ci },
+                React.createElement("td", { style: cell }, React.createElement("input", { style: Object.assign({}, inCell, { fontWeight: 700, minWidth: 60 }), placeholder: "色名", value: c.name, onChange: function (e) { setColorName(ci, e.target.value); } })),
+                sizes.map(function (_, si) {
+                  return React.createElement("td", { key: si, style: cell }, React.createElement("input", { style: inCell, type: "number", inputMode: "numeric", value: (c.counts || [])[si] || "", onChange: function (e) { setCount(ci, si, e.target.value); } }));
+                }),
+                React.createElement("td", { style: Object.assign({}, cell, { background: "#f5f4f0", fontWeight: 700, padding: "0 8px" }) }, rowTotal || ""),
+                React.createElement("td", { style: cell }, colors.length > 1 && React.createElement("button", { style: { border: "none", background: "none", color: K_NOTE, fontSize: 14, cursor: "pointer", padding: "0 4px" }, onClick: function () { removeColor(ci); } }, "✕"))
+              );
+            }),
+            React.createElement("tr", null,
+              React.createElement("td", { style: Object.assign({}, cell, { background: "#e8e6e0", fontWeight: 700, padding: "6px 8px" }) }, "合計"),
+              colTotals.map(function (n, i) { return React.createElement("td", { key: i, style: Object.assign({}, cell, { background: "#e8e6e0", fontWeight: 700 }) }, n || ""); }),
+              React.createElement("td", { style: Object.assign({}, cell, { background: "#1a1a1a", color: "#fff", fontWeight: 700, padding: "0 8px" }) }, grandQty || ""),
+              React.createElement("td", { style: Object.assign({}, cell, { background: "#e8e6e0" }) }, "")
+            )
+          )
+        )
+      )
+    );
+  }
+
   const summary = useMemo(function () {
     let tot = 0; const map = {};
     blocks.forEach(function (b) { if (b.type === "step") { const s = parseKoteiTime(b.time); tot += s; const k = b.part || "(未設定)"; if (!map[k]) map[k] = { n: 0, s: 0 }; map[k].n++; map[k].s += s; } });
@@ -2585,7 +2649,7 @@ function KoteiEditor(props) {
   }, [blocks]);
 
   function handleSave() {
-    const rec = { id: (sheet && sheet.id) || genId(), partId: part.id, needle: needle, colorQty: colorQty, workMin: workMin, blocks: blocks, totalSec: summary.tot, updatedAt: today() };
+    const rec = { id: (sheet && sheet.id) || genId(), partId: part.id, needle: needle, targetPerDay: targetPerDay, workMin: workMin, sizes: sizes, colors: colors, blocks: blocks, totalSec: summary.tot, updatedAt: today() };
     props.onSave(rec); props.back();
   }
 
@@ -2759,10 +2823,15 @@ function KoteiEditor(props) {
       React.createElement("div", { style: { background: "#fff", borderRadius: 12, padding: "12px 16px", marginBottom: 14, boxShadow: "0 1px 4px rgba(0,0,0,.06)" } },
         React.createElement("div", { style: { fontSize: 16, fontWeight: 700 } }, part.partNo + (part.partName ? "　" + part.partName : "")),
         props.brandName && React.createElement("div", { style: { fontSize: 12, color: "#888", marginTop: 2 } }, "🏷 " + props.brandName),
-        React.createElement("div", { style: { display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" } },
-          React.createElement("div", null, React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "針・針数"), React.createElement("input", { style: { width: 120, border: "1px solid " + K_LINE, borderRadius: 8, padding: "8px 9px", fontSize: 14 }, placeholder: "#50 12針/3cm", value: needle, onChange: function (e) { setNeedle(e.target.value); } })),
-          React.createElement("div", null, React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "色・枚数メモ"), React.createElement("input", { style: { width: 120, border: "1px solid " + K_LINE, borderRadius: 8, padding: "8px 9px", fontSize: 14 }, placeholder: "クロ81", value: colorQty, onChange: function (e) { setColorQty(e.target.value); } }))
-        )
+        React.createElement("div", { style: { display: "flex", gap: 16, marginTop: 10, flexWrap: "wrap", alignItems: "flex-end" } },
+          React.createElement("div", null, React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "針・針数"), React.createElement("input", { style: { width: 130, border: "1px solid " + K_LINE, borderRadius: 8, padding: "8px 9px", fontSize: 14 }, placeholder: "#50 12針/3cm", value: needle, onChange: function (e) { setNeedle(e.target.value); } })),
+          React.createElement("div", null, React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "1着 総工数（自動）"), React.createElement("div", { style: { fontSize: 20, fontWeight: 700, color: K_TIME, lineHeight: "38px" } }, fmtKoteiTime(summary.tot))),
+          React.createElement("div", null, React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "1日の目標枚数"), React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 4 } },
+            React.createElement("input", { style: { width: 90, border: "1px solid " + K_LINE, borderRadius: 8, padding: "8px 9px", fontSize: 14, textAlign: "center" }, placeholder: "12〜15", value: targetPerDay, onChange: function (e) { setTargetPerDay(e.target.value); } }),
+            React.createElement("span", { style: { fontSize: 13, color: "#888" } }, "着")
+          ))
+        ),
+        renderQtyTable()
       ),
       React.createElement("div", { style: { background: "#fbfaf6", borderRadius: 10, padding: "4px 12px", boxShadow: "0 1px 4px rgba(0,0,0,.06)" } },
         blocks.map(function (b) { return b.type === "step" ? renderStep(b) : renderSketch(b); })
