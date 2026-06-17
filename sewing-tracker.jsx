@@ -2750,13 +2750,22 @@ function KoteiEditor(props) {
         if (b.type === "step") {
           proc += '<div class="prow"><span class="time">' + esc(b.time || "") + '</span><span class="act">' + esc(b.act || "") + '</span></div>';
           if (b.note) proc += '<div class="note">⚠ ' + esc(b.note) + '</div>';
-        } else {
-          const src = b.imgId ? imgMap[b.imgId] : b.img;
-          if (src) proc += '<div class="sk">' + (b.caption ? '<div class="cap">' + esc(b.caption) + '</div>' : '') + '<img style="width:' + (wmap[b.size || "s"]) + '" src="' + src + '"></div>';
         }
       });
       proc += '</div>';
     });
+    let figProc = "";
+    groups.forEach(function (grp) {
+      grp.items.forEach(function (b) {
+        if (b.type === "sketch") {
+          const src = b.imgId ? imgMap[b.imgId] : b.img;
+          if (src) figProc += '<div class="fig">' + (grp.part ? '<div class="figlabel">' + esc(grp.part) + '</div>' : '') + (b.caption ? '<div class="cap">' + esc(b.caption) + '</div>' : '') + '<img src="' + src + '"></div>';
+        }
+      });
+    });
+    const bodyHtml = figProc
+      ? '<div class="layout"><div class="textcol"><div class="proc">' + proc + '</div></div><div class="figcol">' + figProc + '</div></div>'
+      : '<div class="proc">' + proc + '</div>';
     const html = '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>工程分析表 ' + esc(part.partNo || "") + '</title><style>' +
       '*{box-sizing:border-box;margin:0;padding:0}' +
       "body{font-family:'Hiragino Sans','Noto Sans JP',sans-serif;font-size:8pt;color:#1a1a1a;padding:6mm 7mm;line-height:1.25}" +
@@ -2765,11 +2774,11 @@ function KoteiEditor(props) {
       'table.qty{border-collapse:collapse;font-size:8.5pt;margin-bottom:3mm}' +
       'table.qty th,table.qty td{border:1px solid #aaa;padding:1mm 2.5mm;text-align:center}' +
       'table.qty th{background:#e4ecef}table.qty td.cn{text-align:left;font-weight:700}table.qty td.rt{font-weight:700;background:#f5f4f0}table.qty tr.sum td{background:#e8e6e0;font-weight:700}' +
-      '.proc{column-count:2;column-gap:5mm}.pgroup{break-inside:avoid;margin-bottom:1mm}' +
+      '.layout{display:flex;gap:4mm;align-items:flex-start}.textcol{flex:5;min-width:0}.figcol{flex:1;display:flex;flex-direction:column;gap:2mm}.proc{column-count:2;column-gap:5mm}.pgroup{break-inside:avoid;margin-bottom:1mm}' +
       '.phead{font-weight:700;color:#0f3d4a;background:#e4ecef;padding:0.5mm 1.5mm;font-size:8pt;margin:0 0 0.5mm;display:flex;gap:2.5mm;align-items:center}.phead .psum{color:#1f7a4d;font-size:7.5pt;font-weight:700;border:1px solid #1f7a4d;padding:0 1.5mm;background:#fff}' +
       '.prow{display:flex;gap:2mm;font-size:7.5pt;padding:0.15mm 0;align-items:baseline}.prow .time{color:#1558d6;font-weight:700;width:9.5mm;flex:none;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.prow .act{flex:1}' +
       '.note{color:#c0271d;font-size:6.8pt;padding:0 0 0.4mm 11.5mm}' +
-      '.sk{margin:1mm 0;text-align:right}.sk .cap{font-size:6.8pt;color:#666;margin-bottom:0.3mm}.sk img{border:1px solid #ccc;display:inline-block;max-width:100%}' +
+      '.fig{break-inside:avoid}.fig .figlabel{font-size:6.5pt;font-weight:700;color:#0f3d4a;background:#e4ecef;padding:0.2mm 1.5mm;display:inline-block;margin-bottom:0.3mm}.fig .cap{font-size:6.5pt;color:#666;margin-bottom:0.3mm}.fig img{border:1px solid #ccc;display:block;width:100%}' +
       '.footer{margin-top:4mm;border-top:1px solid #ddd;padding-top:1.5mm;font-size:8pt;color:#888;display:flex;justify-content:space-between}' +
       '@media print{body{padding:6mm 8mm}}' +
       '</style></head><body>' +
@@ -2779,7 +2788,7 @@ function KoteiEditor(props) {
       (needle ? '<span class="m">針 ' + esc(needle) + '</span>' : '') +
       '<span class="tt">1着 ' + fmtKoteiTime(summary.tot) + '</span>' +
       (targetPerDay ? '<span class="m">1日目標 ' + esc(targetPerDay) + '着</span>' : '') +
-      '</div>' + tbl + '<div class="proc">' + proc + '</div>' +
+      '</div>' + tbl + bodyHtml +
       '<div class="footer"><span>株式会社生田プリーツ　工程分析表</span><span>出力 ' + today() + '</span></div>' +
       '<script>window.onload=function(){window.print()}<\/script></body></html>';
     const w = window.open("", "_blank");
