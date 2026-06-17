@@ -2724,16 +2724,29 @@ function KoteiEditor(props) {
         colors.map(function (c) { const rt = (c.counts || []).reduce(function (a, v) { return a + num(v); }, 0); return "<tr><td class='cn'>" + esc(c.name) + "</td>" + (c.counts || []).map(function (v) { return "<td>" + (num(v) || "") + "</td>"; }).join("") + "<td class='rt'>" + (rt || "") + "</td></tr>"; }).join("") +
         "<tr class='sum'><td>合計</td>" + colT.map(function (n) { return "<td>" + (n || "") + "</td>"; }).join("") + "<td>" + (grand || "") + "</td></tr></table>";
     }
-    let proc = ""; let lastPart = null; const wmap = { s: "42mm", m: "72mm", l: "100%" };
+    const wmap = { s: "42mm", m: "72mm", l: "100%" };
+    const groups = []; let g = null;
     blocks.forEach(function (b) {
-      if (b.type === "step") {
-        if (b.part !== lastPart) { const pk = b.part || "(未設定)"; const ps = (summary.map[pk] || {}).s || 0; proc += '<div class="phead"><span>' + esc(b.part || "—") + '</span><span class="psum">' + fmtKoteiTime(ps) + '</span></div>'; lastPart = b.part; }
-        proc += '<div class="prow"><span class="time">' + esc(b.time || "") + '</span><span class="act">' + esc(b.act || "") + '</span></div>';
-        if (b.note) proc += '<div class="note">⚠ ' + esc(b.note) + '</div>';
+      if (b.type === "step" && b.part) {
+        if (!g || g.part !== b.part) { g = { part: b.part, items: [], sec: 0 }; groups.push(g); }
+        g.items.push(b); g.sec += parseKoteiTime(b.time);
       } else {
-        const src = b.imgId ? imgMap[b.imgId] : b.img;
-        if (src) proc += '<div class="sk">' + (b.caption ? '<div class="cap">' + esc(b.caption) + '</div>' : '') + '<img style="width:' + (wmap[b.size || "s"]) + '" src="' + src + '"></div>';
+        if (!g) { g = { part: "", items: [], sec: 0 }; groups.push(g); }
+        g.items.push(b); if (b.type === "step") g.sec += parseKoteiTime(b.time);
       }
+    });
+    let proc = "";
+    groups.forEach(function (grp) {
+      proc += '<div class="phead"><span>' + esc(grp.part || "—") + '</span><span class="psum">' + fmtKoteiTime(grp.sec) + '</span></div>';
+      grp.items.forEach(function (b) {
+        if (b.type === "step") {
+          proc += '<div class="prow"><span class="time">' + esc(b.time || "") + '</span><span class="act">' + esc(b.act || "") + '</span></div>';
+          if (b.note) proc += '<div class="note">⚠ ' + esc(b.note) + '</div>';
+        } else {
+          const src = b.imgId ? imgMap[b.imgId] : b.img;
+          if (src) proc += '<div class="sk">' + (b.caption ? '<div class="cap">' + esc(b.caption) + '</div>' : '') + '<img style="width:' + (wmap[b.size || "s"]) + '" src="' + src + '"></div>';
+        }
+      });
     });
     const html = '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>工程分析表 ' + esc(part.partNo || "") + '</title><style>' +
       '*{box-sizing:border-box;margin:0;padding:0}' +
@@ -2744,7 +2757,7 @@ function KoteiEditor(props) {
       'table.qty th,table.qty td{border:1px solid #aaa;padding:1mm 2.5mm;text-align:center}' +
       'table.qty th{background:#e4ecef}table.qty td.cn{text-align:left;font-weight:700}table.qty td.rt{font-weight:700;background:#f5f4f0}table.qty tr.sum td{background:#e8e6e0;font-weight:700}' +
       '.proc{column-count:2;column-gap:7mm}' +
-      '.phead{font-weight:700;color:#0f3d4a;background:#e4ecef;padding:1mm 2mm;font-size:9pt;margin:1.5mm 0 1mm;break-inside:avoid;display:flex;justify-content:space-between;align-items:baseline}.phead .psum{color:#1558d6;font-size:8.5pt;font-weight:700}' +
+      '.phead{font-weight:700;color:#0f3d4a;background:#e4ecef;padding:1mm 2mm;font-size:9pt;margin:1.5mm 0 1mm;break-inside:avoid;display:flex;justify-content:space-between;align-items:center}.phead .psum{color:#1558d6;font-size:8.5pt;font-weight:700;border:1.2px solid #1558d6;padding:0.2mm 2mm;background:#fff}' +
       '.prow{display:flex;gap:2.5mm;font-size:8.5pt;padding:0.4mm 0;align-items:baseline;break-inside:avoid}.prow .time{color:#1558d6;font-weight:700;width:11mm;flex:none;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.prow .act{flex:1}' +
       '.note{color:#c0271d;font-size:7.5pt;padding:0 0 0.8mm 13.5mm;break-inside:avoid}' +
       '.sk{break-inside:avoid;margin:1.5mm 0}.sk .cap{font-size:7.5pt;color:#666;margin-bottom:0.5mm}.sk img{border:1px solid #ccc;display:block;max-width:100%}' +
