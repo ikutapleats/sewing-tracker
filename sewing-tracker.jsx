@@ -2757,7 +2757,7 @@ function KoteiEditor(props) {
       'table.qty th,table.qty td{border:1px solid #aaa;padding:1mm 2.5mm;text-align:center}' +
       'table.qty th{background:#e4ecef}table.qty td.cn{text-align:left;font-weight:700}table.qty td.rt{font-weight:700;background:#f5f4f0}table.qty tr.sum td{background:#e8e6e0;font-weight:700}' +
       '.proc{column-count:2;column-gap:7mm}' +
-      '.phead{font-weight:700;color:#0f3d4a;background:#e4ecef;padding:1mm 2mm;font-size:9pt;margin:1.5mm 0 1mm;break-inside:avoid;display:flex;justify-content:space-between;align-items:center}.phead .psum{color:#1558d6;font-size:8.5pt;font-weight:700;border:1.2px solid #1558d6;padding:0.2mm 2mm;background:#fff}' +
+      '.phead{font-weight:700;color:#0f3d4a;background:#e4ecef;padding:1mm 2mm;font-size:9pt;margin:1.5mm 0 1mm;break-inside:avoid;display:flex;gap:3mm;align-items:center}.phead .psum{color:#1f7a4d;font-size:8.5pt;font-weight:700;border:1.2px solid #1f7a4d;padding:0.2mm 2mm;background:#fff}' +
       '.prow{display:flex;gap:2.5mm;font-size:8.5pt;padding:0.4mm 0;align-items:baseline;break-inside:avoid}.prow .time{color:#1558d6;font-weight:700;width:11mm;flex:none;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.prow .act{flex:1}' +
       '.note{color:#c0271d;font-size:7.5pt;padding:0 0 0.8mm 13.5mm;break-inside:avoid}' +
       '.sk{break-inside:avoid;margin:1.5mm 0}.sk .cap{font-size:7.5pt;color:#666;margin-bottom:0.5mm}.sk img{border:1px solid #ccc;display:block;max-width:100%}' +
