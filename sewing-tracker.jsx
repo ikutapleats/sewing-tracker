@@ -54,6 +54,8 @@ const INIT_UI = {
   salesSelectedDate: null,
   sampleForm: null,
   koteiPartId: null,
+  koteiReturn: "part_detail",
+  koteiSearch: "",
 };
 
 async function gasSave(data) {
@@ -535,7 +537,7 @@ function App() {
   }
 
   function openKotei(part) {
-    set({ koteiPartId: part.id, screen: "kotei_edit" });
+    set({ koteiPartId: part.id, koteiReturn: "part_detail", screen: "kotei_edit" });
   }
   function saveKotei(rec) {
     const list = (data.koteiSheets || []).slice();
@@ -760,6 +762,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         React.createElement(BigBtn, { icon: "🏷️", label: "ブランド別仕事一覧", sub: "客先ごとの納品前・納品済みを確認", onClick: () => set({ screen: "brand_jobs", selectedBrandId: null }) }),
         React.createElement(Spacer, { h: 8 }),
         React.createElement(BigBtn, { icon: "✂️", label: "サンプル管理", sub: "サンプル作成の記録・実働時間・サンプル代", onClick: () => set({ screen: "sample_list" }) }),
+        React.createElement(Spacer, { h: 8 }),
+        React.createElement(BigBtn, { icon: "📐", label: "工程分析表", sub: "品番ごとの工程・時間・図を一覧／作成・印刷", onClick: () => set({ screen: "kotei_list", koteiSearch: "" }) }),
         React.createElement(Spacer, { h: 8 }),
         React.createElement(BigBtn, { icon: "📋", label: "品番マスター", sub: "全品番の登録・割当管理" + (unassigned > 0 ? "　⚠️ 未割当 " + unassigned + "件" : ""), onClick: () => set({ screen: "master", masterFilter: "all" }) }),
         React.createElement(Spacer, { h: 12 }),
@@ -2372,6 +2376,42 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     );
   }
 
+  if (ui.screen === "kotei_list") {
+    const q = (ui.koteiSearch || "").trim();
+    const withKotei = (data.koteiSheets || []).map(function (s) {
+      const p = data.parts.find(function (x) { return x.id === s.partId; });
+      return p ? { sheet: s, part: p } : null;
+    }).filter(Boolean);
+    const filtered = (q ? withKotei.filter(function (o) { return (o.part.partNo || "").indexOf(q) >= 0 || (o.part.partName || "").indexOf(q) >= 0; }) : withKotei)
+      .sort(function (a, b) { return (b.sheet.updatedAt || "").localeCompare(a.sheet.updatedAt || ""); });
+    return React.createElement(Shell, null,
+      React.createElement(Header, { title: "📐 工程分析表", back: () => set({ screen: "home" }) }),
+      React.createElement(Body, null,
+        React.createElement("input", { style: Object.assign({}, st.input, { marginBottom: 12 }), placeholder: "品番・品名で検索", value: ui.koteiSearch, onChange: (e) => set({ koteiSearch: e.target.value }) }),
+        React.createElement("div", { style: { fontSize: 12, color: "#aaa", marginBottom: 12 } }, filtered.length + "件"),
+        filtered.length === 0 && React.createElement(Empty, null, q ? "該当する工程表がありません" : "まだ工程表がありません（品番詳細の「工程分析表」から作成できます）"),
+        filtered.map(function (o) {
+          const steps = (o.sheet.blocks || []).filter(function (b) { return b.type === "step"; }).length;
+          const figs = (o.sheet.blocks || []).filter(function (b) { return b.type === "sketch"; }).length;
+          const brand = ((data.brands || []).find(function (b) { return b.id === o.part.brandId; }) || {}).name || "";
+          return React.createElement("button", { key: o.sheet.id, style: Object.assign({}, st.summaryCard, { textAlign: "left" }), onClick: () => set({ koteiPartId: o.part.id, koteiReturn: "kotei_list", screen: "kotei_edit" }) },
+            React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } },
+              React.createElement("div", null,
+                React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, o.part.partNo + (o.part.partName ? " " + o.part.partName : "")),
+                brand && React.createElement("div", { style: { fontSize: 11, color: "#888", marginTop: 2 } }, "🏷 " + brand)
+              ),
+              React.createElement("div", { style: { textAlign: "right", fontSize: 12, color: "#888" } },
+                React.createElement("div", { style: { fontWeight: 700, color: "#1558d6", fontSize: 15 } }, fmtKoteiTime(o.sheet.totalSec || 0)),
+                React.createElement("div", { style: { marginTop: 2 } }, steps + "工程" + (figs ? " ・ 図" + figs : ""))
+              )
+            )
+          );
+        })
+      ),
+      React.createElement(SI)
+    );
+  }
+
   if (ui.screen === "kotei_edit" && ui.koteiPartId) {
     const part = data.parts.find((p) => p.id === ui.koteiPartId);
     if (!part) { return null; }
@@ -2380,7 +2420,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     return React.createElement(KoteiEditor, {
       key: part.id, part: part, sheet: sheet, brandName: brandName,
       onSave: saveKotei, onDelete: deleteKotei,
-      back: () => set({ screen: "part_detail", koteiPartId: null }),
+      back: () => set({ screen: ui.koteiReturn || "part_detail", koteiPartId: null }),
       SI: SI,
     });
   }
@@ -2663,6 +2703,67 @@ function KoteiEditor(props) {
     props.onSave(rec); props.back();
   }
 
+  function doPrint() {
+    const need = blocks.filter(function (b) { return b.type === "sketch" && b.imgId && !imgData[b.imgId]; }).map(function (b) { return b.imgId; });
+    if (need.length === 0) { openPrintWindow(imgData); return; }
+    setUploading(true);
+    Promise.all(need.map(function (id) { return fetchKoteiImage(id).then(function (d) { return { id: id, d: d }; }).catch(function () { return { id: id, d: "" }; }); }))
+      .then(function (arr) { const m = Object.assign({}, imgData); arr.forEach(function (o) { if (o.d) m[o.id] = o.d; }); setImgData(m); setUploading(false); openPrintWindow(m); })
+      .catch(function () { setUploading(false); openPrintWindow(imgData); });
+  }
+
+  function openPrintWindow(imgMap) {
+    const esc = function (s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); };
+    const num = function (v) { const x = parseInt(v, 10); return isNaN(x) ? 0 : x; };
+    let tbl = "";
+    const hasQty = colors.some(function (c) { return c.name || (c.counts || []).some(function (v) { return v; }); });
+    if (hasQty) {
+      const colT = sizes.map(function (_, si) { return colors.reduce(function (a, c) { return a + num((c.counts || [])[si]); }, 0); });
+      const grand = colT.reduce(function (a, n) { return a + n; }, 0);
+      tbl = '<table class="qty"><tr><th>色</th>' + sizes.map(function (s) { return "<th>" + esc(s) + "</th>"; }).join("") + '<th>計</th></tr>' +
+        colors.map(function (c) { const rt = (c.counts || []).reduce(function (a, v) { return a + num(v); }, 0); return "<tr><td class='cn'>" + esc(c.name) + "</td>" + (c.counts || []).map(function (v) { return "<td>" + (num(v) || "") + "</td>"; }).join("") + "<td class='rt'>" + (rt || "") + "</td></tr>"; }).join("") +
+        "<tr class='sum'><td>合計</td>" + colT.map(function (n) { return "<td>" + (n || "") + "</td>"; }).join("") + "<td>" + (grand || "") + "</td></tr></table>";
+    }
+    let proc = ""; let lastPart = null; const wmap = { s: "42mm", m: "72mm", l: "100%" };
+    blocks.forEach(function (b) {
+      if (b.type === "step") {
+        if (b.part !== lastPart) { proc += '<div class="phead">' + esc(b.part || "—") + '</div>'; lastPart = b.part; }
+        proc += '<div class="prow"><span class="act">' + esc(b.act || "") + '</span><span class="time">' + esc(b.time || "") + '</span></div>';
+        if (b.note) proc += '<div class="note">⚠ ' + esc(b.note) + '</div>';
+      } else {
+        const src = b.imgId ? imgMap[b.imgId] : b.img;
+        if (src) proc += '<div class="sk">' + (b.caption ? '<div class="cap">' + esc(b.caption) + '</div>' : '') + '<img style="width:' + (wmap[b.size || "s"]) + '" src="' + src + '"></div>';
+      }
+    });
+    const html = '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>工程分析表 ' + esc(part.partNo || "") + '</title><style>' +
+      '*{box-sizing:border-box;margin:0;padding:0}' +
+      "body{font-family:'Hiragino Sans','Noto Sans JP',sans-serif;font-size:10pt;color:#1a1a1a;padding:8mm 10mm}" +
+      '.head{display:flex;gap:6mm;flex-wrap:wrap;align-items:baseline;border-bottom:2px solid #1a1a1a;padding-bottom:2mm;margin-bottom:3mm}' +
+      '.head .big{font-size:13pt;font-weight:700}.head .m{font-size:9pt;color:#555}.head .tt{font-size:13pt;font-weight:700;color:#1558d6}' +
+      'table.qty{border-collapse:collapse;font-size:8.5pt;margin-bottom:3mm}' +
+      'table.qty th,table.qty td{border:1px solid #aaa;padding:1mm 2.5mm;text-align:center}' +
+      'table.qty th{background:#e4ecef}table.qty td.cn{text-align:left;font-weight:700}table.qty td.rt{font-weight:700;background:#f5f4f0}table.qty tr.sum td{background:#e8e6e0;font-weight:700}' +
+      '.proc{column-count:2;column-gap:7mm}' +
+      '.phead{font-weight:700;color:#0f3d4a;background:#e4ecef;padding:1mm 2mm;font-size:9pt;margin:1.5mm 0 1mm;break-inside:avoid}' +
+      '.prow{display:flex;gap:2mm;font-size:8.5pt;padding:0.4mm 0;align-items:baseline;break-inside:avoid}.prow .act{flex:1}.prow .time{color:#1558d6;font-weight:700;white-space:nowrap}' +
+      '.note{color:#c0271d;font-size:7.5pt;padding:0 0 0.8mm 2mm;break-inside:avoid}' +
+      '.sk{break-inside:avoid;margin:1.5mm 0}.sk .cap{font-size:7.5pt;color:#666;margin-bottom:0.5mm}.sk img{border:1px solid #ccc;display:block;max-width:100%}' +
+      '.footer{margin-top:4mm;border-top:1px solid #ddd;padding-top:1.5mm;font-size:8pt;color:#888;display:flex;justify-content:space-between}' +
+      '@media print{body{padding:6mm 8mm}}' +
+      '</style></head><body>' +
+      '<div class="head"><span class="big">' + esc(part.partNo || "") + '</span>' +
+      (part.partName ? '<span class="m">' + esc(part.partName) + '</span>' : '') +
+      (props.brandName ? '<span class="m">🏷 ' + esc(props.brandName) + '</span>' : '') +
+      (needle ? '<span class="m">針 ' + esc(needle) + '</span>' : '') +
+      '<span class="tt">1着 ' + fmtKoteiTime(summary.tot) + '</span>' +
+      (targetPerDay ? '<span class="m">1日目標 ' + esc(targetPerDay) + '着</span>' : '') +
+      '</div>' + tbl + '<div class="proc">' + proc + '</div>' +
+      '<div class="footer"><span>株式会社生田プリーツ　工程分析表</span><span>出力 ' + today() + '</span></div>' +
+      '<script>window.onload=function(){window.print()}<\/script></body></html>';
+    const w = window.open("", "_blank");
+    if (w) { w.document.write(html); w.document.close(); }
+  }
+
   // Drive画像の取得（imgId → base64 に解決）
   useEffect(function () {
     const ids = blocks.filter(function (b) { return b.type === "sketch" && b.imgId && !imgData[b.imgId]; }).map(function (b) { return b.imgId; });
@@ -2878,6 +2979,7 @@ function KoteiEditor(props) {
       ),
       renderSummary(),
       React.createElement("button", { style: { width: "100%", background: K_PART, color: "#fff", border: "none", borderRadius: 8, padding: 14, fontSize: 15, fontWeight: 700, marginTop: 16 }, onClick: handleSave }, "保存する"),
+      React.createElement("button", { style: { width: "100%", background: "#14555a", color: "#fff", border: "none", borderRadius: 8, padding: 13, fontSize: 14, fontWeight: 700, marginTop: 8 }, onClick: function () { if (!uploading) doPrint(); } }, uploading ? "図を準備中…" : "🖨 A4印刷 / PDF保存"),
       (sheet && sheet.id) && React.createElement("button", { style: { width: "100%", background: "#fff0f0", color: "#c00", border: "none", borderRadius: 8, padding: 12, fontSize: 13, fontWeight: 700, marginTop: 8 }, onClick: function () { if (window.confirm("この工程表を削除しますか？")) { props.onDelete(sheet.id); props.back(); } } }, "削除する")
     ),
     modalId != null && renderModal(),
