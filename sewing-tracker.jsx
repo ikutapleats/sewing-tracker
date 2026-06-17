@@ -2417,8 +2417,18 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     if (!part) { return null; }
     const sheet = (data.koteiSheets || []).find((r) => r.partId === part.id) || null;
     const brandName = ((data.brands || []).find((b) => b.id === part.brandId) || {}).name || "";
+    const stdSet = {}; KOTEI_PARTS.forEach(function (p) { stdSet[p] = true; });
+    const extraParts = [];
+    const phSet = {}; KOTEI_PHRASES.forEach(function (p) { phSet[p] = true; });
+    const extraPhrases = [];
+    (data.koteiSheets || []).forEach(function (s) { (s.blocks || []).forEach(function (b) {
+      if (b.type === "step") {
+        if (b.part && !stdSet[b.part] && extraParts.indexOf(b.part) < 0) extraParts.push(b.part);
+        if (b.act) b.act.split(/[、・\n\s]+/).forEach(function (w) { w = w.trim(); if (w.length >= 2 && !phSet[w]) { phSet[w] = true; extraPhrases.push(w); } });
+      }
+    }); });
     return React.createElement(KoteiEditor, {
-      key: part.id, part: part, sheet: sheet, brandName: brandName,
+      key: part.id, part: part, sheet: sheet, brandName: brandName, extraParts: extraParts, extraPhrases: extraPhrases,
       onSave: saveKotei, onDelete: deleteKotei,
       back: () => set({ screen: ui.koteiReturn || "part_detail", koteiPartId: null }),
       SI: SI,
@@ -2565,8 +2575,8 @@ document.head.appendChild(styleEl);
 
 
 // ===================== 工程分析表（KoteiEditor） =====================
-const KOTEI_PARTS = ["芯","甲止め","準備","裏身頃","表身頃","肩ひも","ペプラム","スカート","袖","衿","カフス","ポケット","フリル","ヨーク","見返し","身頃","組立","まとめ","その他"];
-const KOTEI_PHRASES = ["脇はぎ","見返し脇はぎ","後中心はぎ","割りアイロン","キセアイロン","後高0.5cmキセアイロン","中心高アイロン","上高アイロン","裾アイロン","返しアイロン","ロック","イッテコイロック","三巻き","裾三巻き","コバST","裏コバST","中ぬい","本ぬい","仮どめ","糸始末","ダーツぬい","伸止め貼り","コンシールファスナー付け","ファスナー付け","ファスナーアイロン","角カット","ギャザー入れ","プリーツたたんで仮どめ","プリーツ裁断","ブランドネームたたきつけ","センタクネーム仮どめ","衿付け","袖付け","カフス付け","ヨークはぎ","身頃とスカートはぎ","ホールあけ","釦印","ボタン印","根巻き","二の字根巻"];
+const KOTEI_PARTS = ["芯","甲止め","伸止め","準備","裏身頃","前身頃","表身頃","身頃","肩ひも","ヨーク","衿","衿吊り","カフス","袖","表袖","裏袖","袖リブ","ポケット","内ポケット","ポケットフラップ","フリル","前端フリル","袖裾フリル","ペプラム","スカート","ベルト","見返し","組立","まとめ","その他"];
+const KOTEI_PHRASES = ["割りアイロン","キセアイロン","高アイロン","上高アイロン","中心高アイロン","後高アイロン","後高0.5cmキセアイロン","裾アイロン","返しアイロン","ケンボロアイロン","脇はぎ","見返し脇はぎ","後中心はぎ","見返しとはぎ","身頃とスカートはぎ","CB見返しはぎ","2枚はぎ","3枚はぎ","外袖と内袖はぎ","つなぎ合わせ","ロック","イッテコイロック","見返しロック","下側ロック始末","中ぬい","本ぬい","周りぬい","袋ぬい","外表でぬい","仮どめ","タックとめ","ゴムとめ","釦とめ","三角どめ","ぬいどめ","三巻き","裾三巻き","スリット三巻り","コバST","裏コバST","ステッチ","糸始末","たたきつけ","ギャザー入れ","ホールあけ","ホール印","ネーム付け","ブランドネームたたきつけ","センタクネーム仮どめ","矢羽に切り込み","ケバカット","パイピング","ケンボロ口折り","ケンボロ付け","シャーリング位置ぬい","伸止め貼り","芯貼り","口布折り"];
 const K_INK = "#1a1a1a", K_TIME = "#1558d6", K_NOTE = "#c0271d", K_PART = "#0f3d4a", K_PARTBG = "#e4ecef", K_LINE = "#d9d5c8";
 
 function parseKoteiTime(s) {
@@ -2613,7 +2623,7 @@ function KoteiEditor(props) {
     if (sheet && sheet.blocks && sheet.blocks.length) return sheet.blocks;
     return [{ id: genId(), type: "step", part: "準備", act: "", time: "", note: "" }];
   });
-  const [phrases, setPhrases] = useState(KOTEI_PHRASES);
+  const [phrases, setPhrases] = useState(function () { return KOTEI_PHRASES.concat(props.extraPhrases || []); });
   const [activeSugg, setActiveSugg] = useState(null);
   const [modalId, setModalId] = useState(null);
   const [tool, setTool] = useState("ink");
@@ -2745,27 +2755,20 @@ function KoteiEditor(props) {
     });
     let proc = "";
     groups.forEach(function (grp) {
-      proc += '<div class="pgroup"><div class="phead"><span>' + esc(grp.part || "—") + '</span><span class="psum">' + fmtKoteiTime(grp.sec) + '</span></div>';
+      let txt = '<div class="phead"><span>' + esc(grp.part || "—") + '</span><span class="psum">' + fmtKoteiTime(grp.sec) + '</span></div>';
+      let fig = "";
       grp.items.forEach(function (b) {
         if (b.type === "step") {
-          proc += '<div class="prow"><span class="time">' + esc(b.time || "") + '</span><span class="act">' + esc(b.act || "") + '</span></div>';
-          if (b.note) proc += '<div class="note">⚠ ' + esc(b.note) + '</div>';
-        }
-      });
-      proc += '</div>';
-    });
-    let figProc = "";
-    groups.forEach(function (grp) {
-      grp.items.forEach(function (b) {
-        if (b.type === "sketch") {
+          txt += '<div class="prow"><span class="time">' + esc(b.time || "") + '</span><span class="act">' + esc(b.act || "") + '</span></div>';
+          if (b.note) txt += '<div class="note">⚠ ' + esc(b.note) + '</div>';
+        } else {
           const src = b.imgId ? imgMap[b.imgId] : b.img;
-          if (src) figProc += '<div class="fig">' + (grp.part ? '<div class="figlabel">' + esc(grp.part) + '</div>' : '') + (b.caption ? '<div class="cap">' + esc(b.caption) + '</div>' : '') + '<img src="' + src + '"></div>';
+          if (src) fig += '<div class="figitem">' + (b.caption ? '<div class="cap">' + esc(b.caption) + '</div>' : '') + '<img src="' + src + '"></div>';
         }
       });
+      proc += '<div class="pgroup"><div class="ptext">' + txt + '</div>' + (fig ? '<div class="pfig">' + fig + '</div>' : '') + '</div>';
     });
-    const bodyHtml = figProc
-      ? '<div class="layout"><div class="textcol"><div class="proc">' + proc + '</div></div><div class="figcol">' + figProc + '</div></div>'
-      : '<div class="proc">' + proc + '</div>';
+    const bodyHtml = '<div class="proc">' + proc + '</div>';
     const html = '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>工程分析表 ' + esc(part.partNo || "") + '</title><style>' +
       '*{box-sizing:border-box;margin:0;padding:0}' +
       "body{font-family:'Hiragino Sans','Noto Sans JP',sans-serif;font-size:8pt;color:#1a1a1a;padding:6mm 7mm;line-height:1.25}" +
@@ -2774,11 +2777,11 @@ function KoteiEditor(props) {
       'table.qty{border-collapse:collapse;font-size:8.5pt;margin-bottom:3mm}' +
       'table.qty th,table.qty td{border:1px solid #aaa;padding:1mm 2.5mm;text-align:center}' +
       'table.qty th{background:#e4ecef}table.qty td.cn{text-align:left;font-weight:700}table.qty td.rt{font-weight:700;background:#f5f4f0}table.qty tr.sum td{background:#e8e6e0;font-weight:700}' +
-      '.layout{display:flex;gap:4mm;align-items:flex-start}.textcol{flex:5;min-width:0}.figcol{flex:1;display:flex;flex-direction:column;gap:2mm}.proc{column-count:2;column-gap:5mm}.pgroup{break-inside:avoid;margin-bottom:1mm}' +
+      '.proc{column-count:2;column-gap:5mm}.pgroup{break-inside:avoid;margin-bottom:1.5mm;display:flex;gap:2mm;align-items:flex-start}.ptext{flex:1;min-width:0}.pfig{flex:none;width:26mm;display:flex;flex-direction:column;gap:1mm}' +
       '.phead{font-weight:700;color:#0f3d4a;background:#e4ecef;padding:0.5mm 1.5mm;font-size:8pt;margin:0 0 0.5mm;display:flex;gap:2.5mm;align-items:center}.phead .psum{color:#1f7a4d;font-size:7.5pt;font-weight:700;border:1px solid #1f7a4d;padding:0 1.5mm;background:#fff}' +
       '.prow{display:flex;gap:2mm;font-size:7.5pt;padding:0.15mm 0;align-items:baseline}.prow .time{color:#1558d6;font-weight:700;width:9.5mm;flex:none;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.prow .act{flex:1}' +
       '.note{color:#c0271d;font-size:6.8pt;padding:0 0 0.4mm 11.5mm}' +
-      '.fig{break-inside:avoid}.fig .figlabel{font-size:6.5pt;font-weight:700;color:#0f3d4a;background:#e4ecef;padding:0.2mm 1.5mm;display:inline-block;margin-bottom:0.3mm}.fig .cap{font-size:6.5pt;color:#666;margin-bottom:0.3mm}.fig img{border:1px solid #ccc;display:block;width:100%}' +
+      '.figitem .cap{font-size:6.3pt;color:#666;margin-bottom:0.2mm}.figitem img{border:1px solid #ccc;display:block;width:100%}' +
       '.footer{margin-top:4mm;border-top:1px solid #ddd;padding-top:1.5mm;font-size:8pt;color:#888;display:flex;justify-content:space-between}' +
       '@media print{body{padding:6mm 8mm}}' +
       '</style></head><body>' +
@@ -2873,9 +2876,10 @@ function KoteiEditor(props) {
       React.createElement("div", { style: { display: "grid", gridTemplateColumns: "108px 1fr 78px", gap: 8, paddingRight: 76 } },
         React.createElement("div", null,
           React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "パーツ"),
-          React.createElement("select", { style: { width: "100%", height: 42, border: "1px solid " + K_LINE, borderRadius: 8, background: K_PARTBG, color: K_PART, fontWeight: 700, fontSize: 14, padding: "0 6px" }, value: b.part, onChange: function (e) { patchBlock(b.id, { part: e.target.value }); } },
+          React.createElement("select", { style: { width: "100%", height: 42, border: "1px solid " + K_LINE, borderRadius: 8, background: K_PARTBG, color: K_PART, fontWeight: 700, fontSize: 14, padding: "0 6px" }, value: b.part, onChange: function (e) { const v = e.target.value; if (v === "__new__") { const nv = window.prompt("新しいパーツ名を入力"); if (nv && nv.trim()) patchBlock(b.id, { part: nv.trim() }); } else { patchBlock(b.id, { part: v }); } } },
             React.createElement("option", { value: "" }, "—"),
-            KOTEI_PARTS.map(function (p) { return React.createElement("option", { key: p, value: p }, p); })
+            (function () { let list = KOTEI_PARTS.concat(props.extraParts || []); if (b.part && list.indexOf(b.part) < 0) list = list.concat([b.part]); return list; })().map(function (p) { return React.createElement("option", { key: p, value: p }, p); }),
+            React.createElement("option", { value: "__new__" }, "＋ 新しいパーツ…")
           )
         ),
         React.createElement("div", null,
