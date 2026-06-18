@@ -2820,17 +2820,17 @@ function KoteiEditor(props) {
     const bodyHtml = '<div class="proc">' + proc + '</div>';
     const html = '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>工程分析表 ' + esc(part.partNo || "") + '</title><style>' +
       '*{box-sizing:border-box;margin:0;padding:0}' +
-      "body{font-family:'Hiragino Sans','Noto Sans JP',sans-serif;font-size:8pt;color:#1a1a1a;padding:6mm 7mm;line-height:1.25}" +
+      "body{font-family:'Hiragino Sans','Noto Sans JP',sans-serif;font-size:9pt;color:#1a1a1a;padding:6mm 7mm;line-height:1.3}" +
       '.head{display:flex;gap:6mm;flex-wrap:wrap;align-items:baseline;border-bottom:2px solid #1a1a1a;padding-bottom:2mm;margin-bottom:3mm}' +
-      '.head .big{font-size:13pt;font-weight:700}.head .m{font-size:9pt;color:#555}.head .tt{font-size:13pt;font-weight:700;color:#1558d6}' +
-      'table.qty{border-collapse:collapse;font-size:8.5pt;margin-bottom:3mm}' +
+      '.head .big{font-size:14pt;font-weight:700}.head .m{font-size:10pt;color:#555}.head .tt{font-size:14pt;font-weight:700;color:#1558d6}' +
+      'table.qty{border-collapse:collapse;font-size:9.5pt;margin-bottom:3mm}' +
       'table.qty th,table.qty td{border:1px solid #aaa;padding:1mm 2.5mm;text-align:center}' +
       'table.qty th{background:#e4ecef}table.qty td.cn{text-align:left;font-weight:700}table.qty td.rt{font-weight:700;background:#f5f4f0}table.qty tr.sum td{background:#e8e6e0;font-weight:700}' +
       '.proc{column-count:2;column-gap:5mm}.pgroup{break-inside:avoid;margin-bottom:1.5mm;display:flex;gap:2mm;align-items:flex-start}.ptext{flex:1;min-width:0}.pfig{flex:none;width:26mm;display:flex;flex-direction:column;gap:1mm}' +
-      '.phead{font-weight:700;color:#0f3d4a;background:#e4ecef;padding:0.5mm 1.5mm;font-size:8pt;margin:0 0 0.5mm;display:flex;gap:2mm;align-items:center}.phead .fno{color:#1558d6;font-weight:700;flex:none}.phead .pname{flex:none}.phead .psum{color:#1f7a4d;font-size:7.5pt;font-weight:700;border:1px solid #1f7a4d;padding:0 1.5mm;background:#fff;flex:none}.phead .pmemo{color:#333;font-size:7pt;font-weight:400;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.stepno{color:#1558d6;font-weight:700;font-size:7.5pt}.fnofig{color:#1558d6;font-weight:700;font-size:9pt;text-align:center;margin-bottom:0.5mm}' +
-      '.prow{display:flex;gap:2mm;font-size:7.5pt;padding:0.15mm 0;align-items:baseline}.prow .time{color:#1558d6;font-weight:700;width:9.5mm;flex:none;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.prow .act{flex:1}' +
-      '.note{color:#c0271d;font-size:6.8pt;padding:0 0 0.4mm 11.5mm}' +
-      '.figitem .cap{font-size:6.3pt;color:#666;margin-bottom:0.2mm}.figitem img{display:block;width:100%}' +
+      '.phead{font-weight:700;color:#0f3d4a;background:#e4ecef;padding:0.5mm 1.5mm;font-size:9pt;margin:0 0 0.5mm;display:flex;gap:2mm;align-items:center}.phead .fno{color:#1558d6;font-weight:700;flex:none}.phead .pname{flex:none}.phead .psum{color:#1f7a4d;font-size:8.5pt;font-weight:700;border:1px solid #1f7a4d;padding:0 1.5mm;background:#fff;flex:none}.phead .pmemo{color:#333;font-size:8pt;font-weight:400;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.stepno{color:#1558d6;font-weight:700;font-size:8.5pt}.fnofig{color:#1558d6;font-weight:700;font-size:10pt;text-align:center;margin-bottom:0.5mm}' +
+      '.prow{display:flex;gap:2mm;font-size:8.5pt;padding:0.2mm 0;align-items:baseline}.prow .time{color:#1558d6;font-weight:700;width:11mm;flex:none;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.prow .act{flex:1}' +
+      '.note{color:#c0271d;font-size:7.5pt;padding:0 0 0.4mm 13mm}' +
+      '.figitem .cap{font-size:7pt;color:#666;margin-bottom:0.2mm}.figitem img{display:block;width:100%}' +
       '.footer{margin-top:4mm;border-top:1px solid #ddd;padding-top:1.5mm;font-size:8pt;color:#888;display:flex;justify-content:space-between}' +
       '@media print{body{padding:6mm 8mm}}' +
       '</style></head><body>' +
