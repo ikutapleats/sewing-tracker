@@ -2795,24 +2795,27 @@ function KoteiEditor(props) {
         g.items.push(b); if (b.type === "step") g.sec += parseKoteiTime(b.time);
       }
     });
-    let figNo = 0;
-    groups.forEach(function (grp) { if (grp.items.some(function (b) { return b.type === "sketch" && (b.imgId || b.img); })) { figNo++; grp.figNo = figNo; } });
     const circNum = function (n) { return (n >= 1 && n <= 20) ? String.fromCharCode(0x2460 + n - 1) : "(" + n + ")"; };
+    let figSeq = 0; const figNoMap = {}; const stepNoMap = {}; let lastStepId = null;
+    blocks.forEach(function (b) {
+      if (b.type === "step") { lastStepId = b.id; }
+      else if (b.type === "sketch" && (b.imgId || b.img)) { figSeq++; figNoMap[b.id] = figSeq; if (lastStepId) { if (!stepNoMap[lastStepId]) stepNoMap[lastStepId] = []; stepNoMap[lastStepId].push(figSeq); } }
+    });
     let proc = "";
     groups.forEach(function (grp) {
-      const no = grp.figNo ? '<span class="fno">' + circNum(grp.figNo) + '</span>' : '';
-      let txt = '<div class="phead">' + no + '<span class="pname">' + esc(grp.part || "—") + '</span><span class="psum">' + fmtKoteiTime(grp.sec) + '</span>' + (grp.memo ? '<span class="pmemo">' + esc(grp.memo) + '</span>' : '') + '</div>';
+      let txt = '<div class="phead"><span class="pname">' + esc(grp.part || "—") + '</span><span class="psum">' + fmtKoteiTime(grp.sec) + '</span>' + (grp.memo ? '<span class="pmemo">' + esc(grp.memo) + '</span>' : '') + '</div>';
       let fig = "";
       grp.items.forEach(function (b) {
         if (b.type === "step") {
-          txt += '<div class="prow"><span class="time">' + esc(b.time || "") + '</span><span class="act">' + esc(b.act || "") + '</span></div>';
+          const sn = stepNoMap[b.id] ? ' <span class="stepno">' + stepNoMap[b.id].map(circNum).join("") + '</span>' : '';
+          txt += '<div class="prow"><span class="time">' + esc(b.time || "") + '</span><span class="act">' + esc(b.act || "") + sn + '</span></div>';
           if (b.note) txt += '<div class="note">⚠ ' + esc(b.note) + '</div>';
         } else {
           const src = b.imgId ? imgMap[b.imgId] : b.img;
-          if (src) fig += '<div class="figitem">' + (b.caption ? '<div class="cap">' + esc(b.caption) + '</div>' : '') + '<img src="' + src + '"></div>';
+          if (src) fig += '<div class="figitem">' + (figNoMap[b.id] ? '<div class="fnofig">' + circNum(figNoMap[b.id]) + '</div>' : '') + (b.caption ? '<div class="cap">' + esc(b.caption) + '</div>' : '') + '<img src="' + src + '"></div>';
         }
       });
-      proc += '<div class="pgroup"><div class="ptext">' + txt + '</div>' + (fig ? '<div class="pfig">' + (grp.figNo ? '<div class="fnofig">' + circNum(grp.figNo) + '</div>' : '') + fig + '</div>' : '') + '</div>';
+      proc += '<div class="pgroup"><div class="ptext">' + txt + '</div>' + (fig ? '<div class="pfig">' + fig + '</div>' : '') + '</div>';
     });
     const bodyHtml = '<div class="proc">' + proc + '</div>';
     const html = '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>工程分析表 ' + esc(part.partNo || "") + '</title><style>' +
@@ -2824,7 +2827,7 @@ function KoteiEditor(props) {
       'table.qty th,table.qty td{border:1px solid #aaa;padding:1mm 2.5mm;text-align:center}' +
       'table.qty th{background:#e4ecef}table.qty td.cn{text-align:left;font-weight:700}table.qty td.rt{font-weight:700;background:#f5f4f0}table.qty tr.sum td{background:#e8e6e0;font-weight:700}' +
       '.proc{column-count:2;column-gap:5mm}.pgroup{break-inside:avoid;margin-bottom:1.5mm;display:flex;gap:2mm;align-items:flex-start}.ptext{flex:1;min-width:0}.pfig{flex:none;width:26mm;display:flex;flex-direction:column;gap:1mm}' +
-      '.phead{font-weight:700;color:#0f3d4a;background:#e4ecef;padding:0.5mm 1.5mm;font-size:8pt;margin:0 0 0.5mm;display:flex;gap:2mm;align-items:center}.phead .fno{color:#1558d6;font-weight:700;flex:none}.phead .pname{flex:none}.phead .psum{color:#1f7a4d;font-size:7.5pt;font-weight:700;border:1px solid #1f7a4d;padding:0 1.5mm;background:#fff;flex:none}.phead .pmemo{color:#333;font-size:7pt;font-weight:400;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.fnofig{color:#1558d6;font-weight:700;font-size:9pt;text-align:center;margin-bottom:0.5mm}' +
+      '.phead{font-weight:700;color:#0f3d4a;background:#e4ecef;padding:0.5mm 1.5mm;font-size:8pt;margin:0 0 0.5mm;display:flex;gap:2mm;align-items:center}.phead .fno{color:#1558d6;font-weight:700;flex:none}.phead .pname{flex:none}.phead .psum{color:#1f7a4d;font-size:7.5pt;font-weight:700;border:1px solid #1f7a4d;padding:0 1.5mm;background:#fff;flex:none}.phead .pmemo{color:#333;font-size:7pt;font-weight:400;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.stepno{color:#1558d6;font-weight:700;font-size:7.5pt}.fnofig{color:#1558d6;font-weight:700;font-size:9pt;text-align:center;margin-bottom:0.5mm}' +
       '.prow{display:flex;gap:2mm;font-size:7.5pt;padding:0.15mm 0;align-items:baseline}.prow .time{color:#1558d6;font-weight:700;width:9.5mm;flex:none;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.prow .act{flex:1}' +
       '.note{color:#c0271d;font-size:6.8pt;padding:0 0 0.4mm 11.5mm}' +
       '.figitem .cap{font-size:6.3pt;color:#666;margin-bottom:0.2mm}.figitem img{border:1px solid #ccc;display:block;width:100%}' +
