@@ -2830,7 +2830,7 @@ function KoteiEditor(props) {
       '.phead{font-weight:700;color:#0f3d4a;background:#e4ecef;padding:0.5mm 1.5mm;font-size:8pt;margin:0 0 0.5mm;display:flex;gap:2mm;align-items:center}.phead .fno{color:#1558d6;font-weight:700;flex:none}.phead .pname{flex:none}.phead .psum{color:#1f7a4d;font-size:7.5pt;font-weight:700;border:1px solid #1f7a4d;padding:0 1.5mm;background:#fff;flex:none}.phead .pmemo{color:#333;font-size:7pt;font-weight:400;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.stepno{color:#1558d6;font-weight:700;font-size:7.5pt}.fnofig{color:#1558d6;font-weight:700;font-size:9pt;text-align:center;margin-bottom:0.5mm}' +
       '.prow{display:flex;gap:2mm;font-size:7.5pt;padding:0.15mm 0;align-items:baseline}.prow .time{color:#1558d6;font-weight:700;width:9.5mm;flex:none;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.prow .act{flex:1}' +
       '.note{color:#c0271d;font-size:6.8pt;padding:0 0 0.4mm 11.5mm}' +
-      '.figitem .cap{font-size:6.3pt;color:#666;margin-bottom:0.2mm}.figitem img{border:1px solid #ccc;display:block;width:100%}' +
+      '.figitem .cap{font-size:6.3pt;color:#666;margin-bottom:0.2mm}.figitem img{display:block;width:100%}' +
       '.footer{margin-top:4mm;border-top:1px solid #ddd;padding-top:1.5mm;font-size:8pt;color:#888;display:flex;justify-content:space-between}' +
       '@media print{body{padding:6mm 8mm}}' +
       '</style></head><body>' +
