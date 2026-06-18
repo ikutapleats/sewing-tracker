@@ -2724,7 +2724,7 @@ function KoteiEditor(props) {
             colors.map(function (c, ci) {
               const rowTotal = (c.counts || []).reduce(function (a, v) { return a + numK(v); }, 0);
               return React.createElement("tr", { key: ci },
-                React.createElement("td", { style: cell }, React.createElement("input", { style: Object.assign({}, inCell, { fontWeight: 700, minWidth: 60 }), placeholder: "色名", value: c.name, onChange: function (e) { setColorName(ci, e.target.value); } })),
+                React.createElement("td", { style: cell }, React.createElement("input", { style: Object.assign({}, inCell, { fontWeight: 700, minWidth: 60 }), placeholder: "糸色・色名", value: c.name, onChange: function (e) { setColorName(ci, e.target.value); } })),
                 sizes.map(function (_, si) {
                   return React.createElement("td", { key: si, style: cell }, React.createElement("input", { style: inCell, type: "number", inputMode: "numeric", value: (c.counts || [])[si] || "", onChange: function (e) { setCount(ci, si, e.target.value); } }));
                 }),
@@ -2788,16 +2788,20 @@ function KoteiEditor(props) {
     const groups = []; let g = null;
     blocks.forEach(function (b) {
       if (b.type === "step" && b.part) {
-        if (!g || g.part !== b.part) { g = { part: b.part, items: [], sec: 0 }; groups.push(g); }
+        if (!g || g.part !== b.part) { g = { part: b.part, items: [], sec: 0, memo: b.gmemo || "" }; groups.push(g); }
         g.items.push(b); g.sec += parseKoteiTime(b.time);
       } else {
-        if (!g) { g = { part: "", items: [], sec: 0 }; groups.push(g); }
+        if (!g) { g = { part: "", items: [], sec: 0, memo: "" }; groups.push(g); }
         g.items.push(b); if (b.type === "step") g.sec += parseKoteiTime(b.time);
       }
     });
+    let figNo = 0;
+    groups.forEach(function (grp) { if (grp.items.some(function (b) { return b.type === "sketch" && (b.imgId || b.img); })) { figNo++; grp.figNo = figNo; } });
+    const circNum = function (n) { return (n >= 1 && n <= 20) ? String.fromCharCode(0x2460 + n - 1) : "(" + n + ")"; };
     let proc = "";
     groups.forEach(function (grp) {
-      let txt = '<div class="phead"><span>' + esc(grp.part || "—") + '</span><span class="psum">' + fmtKoteiTime(grp.sec) + '</span></div>';
+      const no = grp.figNo ? '<span class="fno">' + circNum(grp.figNo) + '</span>' : '';
+      let txt = '<div class="phead">' + no + '<span class="pname">' + esc(grp.part || "—") + '</span><span class="psum">' + fmtKoteiTime(grp.sec) + '</span>' + (grp.memo ? '<span class="pmemo">' + esc(grp.memo) + '</span>' : '') + '</div>';
       let fig = "";
       grp.items.forEach(function (b) {
         if (b.type === "step") {
@@ -2808,7 +2812,7 @@ function KoteiEditor(props) {
           if (src) fig += '<div class="figitem">' + (b.caption ? '<div class="cap">' + esc(b.caption) + '</div>' : '') + '<img src="' + src + '"></div>';
         }
       });
-      proc += '<div class="pgroup"><div class="ptext">' + txt + '</div>' + (fig ? '<div class="pfig">' + fig + '</div>' : '') + '</div>';
+      proc += '<div class="pgroup"><div class="ptext">' + txt + '</div>' + (fig ? '<div class="pfig">' + (grp.figNo ? '<div class="fnofig">' + circNum(grp.figNo) + '</div>' : '') + fig + '</div>' : '') + '</div>';
     });
     const bodyHtml = '<div class="proc">' + proc + '</div>';
     const html = '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>工程分析表 ' + esc(part.partNo || "") + '</title><style>' +
@@ -2820,7 +2824,7 @@ function KoteiEditor(props) {
       'table.qty th,table.qty td{border:1px solid #aaa;padding:1mm 2.5mm;text-align:center}' +
       'table.qty th{background:#e4ecef}table.qty td.cn{text-align:left;font-weight:700}table.qty td.rt{font-weight:700;background:#f5f4f0}table.qty tr.sum td{background:#e8e6e0;font-weight:700}' +
       '.proc{column-count:2;column-gap:5mm}.pgroup{break-inside:avoid;margin-bottom:1.5mm;display:flex;gap:2mm;align-items:flex-start}.ptext{flex:1;min-width:0}.pfig{flex:none;width:26mm;display:flex;flex-direction:column;gap:1mm}' +
-      '.phead{font-weight:700;color:#0f3d4a;background:#e4ecef;padding:0.5mm 1.5mm;font-size:8pt;margin:0 0 0.5mm;display:flex;gap:2.5mm;align-items:center}.phead .psum{color:#1f7a4d;font-size:7.5pt;font-weight:700;border:1px solid #1f7a4d;padding:0 1.5mm;background:#fff}' +
+      '.phead{font-weight:700;color:#0f3d4a;background:#e4ecef;padding:0.5mm 1.5mm;font-size:8pt;margin:0 0 0.5mm;display:flex;gap:2mm;align-items:center}.phead .fno{color:#1558d6;font-weight:700;flex:none}.phead .pname{flex:none}.phead .psum{color:#1f7a4d;font-size:7.5pt;font-weight:700;border:1px solid #1f7a4d;padding:0 1.5mm;background:#fff;flex:none}.phead .pmemo{color:#333;font-size:7pt;font-weight:400;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.fnofig{color:#1558d6;font-weight:700;font-size:9pt;text-align:center;margin-bottom:0.5mm}' +
       '.prow{display:flex;gap:2mm;font-size:7.5pt;padding:0.15mm 0;align-items:baseline}.prow .time{color:#1558d6;font-weight:700;width:9.5mm;flex:none;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.prow .act{flex:1}' +
       '.note{color:#c0271d;font-size:6.8pt;padding:0 0 0.4mm 11.5mm}' +
       '.figitem .cap{font-size:6.3pt;color:#666;margin-bottom:0.2mm}.figitem img{border:1px solid #ccc;display:block;width:100%}' +
@@ -2959,6 +2963,9 @@ function KoteiEditor(props) {
       ),
       React.createElement("div", { style: { marginTop: 8, paddingRight: 76 } },
         React.createElement("input", { style: { width: "100%", height: 38, border: "1px dashed " + K_NOTE, borderRadius: 8, padding: "0 9px", fontSize: 13, color: K_NOTE, background: "#fffafa", boxSizing: "border-box" }, placeholder: "注意点（赤）", value: b.note, onChange: function (e) { patchBlock(b.id, { note: e.target.value }); } })
+      ),
+      b.part && React.createElement("div", { style: { marginTop: 6, paddingRight: 76 } },
+        React.createElement("input", { style: { width: "100%", height: 36, border: "1px solid " + K_LINE, borderRadius: 8, padding: "0 9px", fontSize: 12, color: "#555", boxSizing: "border-box" }, placeholder: "📝 パーツのメモ（印刷でパーツ名の横に出ます）", value: b.gmemo || "", onChange: function (e) { patchBlock(b.id, { gmemo: e.target.value }); } })
       ),
       moveButtons(b.id)
     );
