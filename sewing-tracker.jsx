@@ -58,6 +58,9 @@ const INIT_UI = {
   koteiSearch: "",
   koteiPhCat: "アイロン",
   koteiPhInput: "",
+  koteiDrag: null,
+  koteiPartsInput: "",
+  koteiPartsDrag: null,
 };
 
 async function gasSave(data) {
@@ -2383,6 +2386,39 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     );
   }
 
+  if (ui.screen === "kotei_parts") {
+    const plist = (data.koteiParts && data.koteiParts.length) ? data.koteiParts : KOTEI_PARTS;
+    const commitP = function (arr) { const nd = Object.assign({}, data, { koteiParts: arr }); applyLocal({ koteiParts: arr }, () => gasSave(nd)); };
+    const addP = function () { const w = (ui.koteiPartsInput || "").trim(); if (!w) return; if (plist.indexOf(w) < 0) commitP(plist.concat([w])); set({ koteiPartsInput: "" }); };
+    const delP = function (w) { commitP(plist.filter(function (x) { return x !== w; })); };
+    const reorderP = function (from, to) { if (from == null || from === to) return; const arr = plist.slice(); const item = arr.splice(from, 1)[0]; arr.splice(to, 0, item); commitP(arr); };
+    return React.createElement(Shell, null,
+      React.createElement(Header, { title: "パーツ名の編集", back: () => set({ screen: "kotei_list" }) }),
+      React.createElement(Body, null,
+        React.createElement("div", { style: { fontSize: 12, color: "#888", marginBottom: 12 } }, "工程表で選ぶパーツ名を、追加・削除・並べ替えできます。ドラッグで順番を変えられます（PC）。ここで変えた内容は全員・全工程表に反映されます。"),
+        React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 16 } },
+          React.createElement("input", { style: Object.assign({}, st.input, { flex: 1, marginBottom: 0 }), placeholder: "追加するパーツ名", value: ui.koteiPartsInput, onChange: (e) => set({ koteiPartsInput: e.target.value }), onKeyDown: function (e) { if (e.key === "Enter") addP(); } }),
+          React.createElement("button", { style: { border: "none", background: "#0f3d4a", color: "#fff", borderRadius: 8, padding: "0 18px", fontSize: 14, fontWeight: 700 }, onClick: addP }, "追加")
+        ),
+        React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 } },
+          plist.map(function (w, i) { return React.createElement("div", {
+            key: w, draggable: true,
+            onDragStart: function (e) { e.dataTransfer.effectAllowed = "move"; set({ koteiPartsDrag: i }); },
+            onDragOver: function (e) { e.preventDefault(); },
+            onDrop: function (e) { e.preventDefault(); reorderP(ui.koteiPartsDrag, i); set({ koteiPartsDrag: null }); },
+            onDragEnd: function () { set({ koteiPartsDrag: null }); },
+            style: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid " + (ui.koteiPartsDrag === i ? "#0f3d4a" : "#d9d5c8"), borderRadius: 16, padding: "6px 6px 6px 8px", fontSize: 13, cursor: "grab", background: ui.koteiPartsDrag === i ? "#eef3f4" : "#fff" }
+          },
+            React.createElement("span", { style: { color: "#bbb", fontSize: 13, cursor: "grab", userSelect: "none" } }, "⠿"),
+            w,
+            React.createElement("button", { style: { border: "none", background: "none", color: "#c0271d", fontSize: 16, cursor: "pointer", padding: "0 4px", lineHeight: 1 }, onClick: () => delP(w) }, "✕")
+          ); })
+        )
+      ),
+      React.createElement(SI)
+    );
+  }
+
   if (ui.screen === "kotei_phrases") {
     const cats = (data.koteiPhrases && Object.keys(data.koteiPhrases).length) ? data.koteiPhrases : KOTEI_PHRASE_CATS;
     const catKeys = Object.keys(cats);
@@ -2391,6 +2427,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const commit = function (newCats) { const nd = Object.assign({}, data, { koteiPhrases: newCats }); applyLocal({ koteiPhrases: newCats }, () => gasSave(nd)); };
     const addPhrase = function () { const w = (ui.koteiPhInput || "").trim(); if (!w) return; const nc = JSON.parse(JSON.stringify(cats)); if ((nc[cur] || []).indexOf(w) < 0) nc[cur] = (nc[cur] || []).concat([w]); commit(nc); set({ koteiPhInput: "" }); };
     const delPhrase = function (w) { const nc = JSON.parse(JSON.stringify(cats)); nc[cur] = (nc[cur] || []).filter(function (x) { return x !== w; }); commit(nc); };
+    const reorder = function (from, to) { if (from == null || from === to) return; const nc = JSON.parse(JSON.stringify(cats)); const arr = nc[cur]; const item = arr.splice(from, 1)[0]; arr.splice(to, 0, item); commit(nc); };
     return React.createElement(Shell, null,
       React.createElement(Header, { title: "作業候補の編集", back: () => set({ screen: "kotei_list" }) }),
       React.createElement(Body, null,
@@ -2403,7 +2440,18 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement("button", { style: { border: "none", background: "#0f3d4a", color: "#fff", borderRadius: 8, padding: "0 18px", fontSize: 14, fontWeight: 700 }, onClick: addPhrase }, "追加")
         ),
         React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 } },
-          list.map(function (w) { return React.createElement("div", { key: w, style: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid #d9d5c8", borderRadius: 16, padding: "6px 6px 6px 13px", fontSize: 13 } }, w, React.createElement("button", { style: { border: "none", background: "none", color: "#c0271d", fontSize: 16, cursor: "pointer", padding: "0 4px", lineHeight: 1 }, onClick: () => delPhrase(w) }, "✕")); })
+          list.map(function (w, i) { return React.createElement("div", {
+            key: w, draggable: true,
+            onDragStart: function (e) { e.dataTransfer.effectAllowed = "move"; set({ koteiDrag: i }); },
+            onDragOver: function (e) { e.preventDefault(); },
+            onDrop: function (e) { e.preventDefault(); reorder(ui.koteiDrag, i); set({ koteiDrag: null }); },
+            onDragEnd: function () { set({ koteiDrag: null }); },
+            style: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid " + (ui.koteiDrag === i ? "#0f3d4a" : "#d9d5c8"), borderRadius: 16, padding: "6px 6px 6px 8px", fontSize: 13, cursor: "grab", background: ui.koteiDrag === i ? "#eef3f4" : "#fff" }
+          },
+            React.createElement("span", { style: { color: "#bbb", fontSize: 13, cursor: "grab", userSelect: "none" } }, "⠿"),
+            w,
+            React.createElement("button", { style: { border: "none", background: "none", color: "#c0271d", fontSize: 16, cursor: "pointer", padding: "0 4px", lineHeight: 1 }, onClick: () => delPhrase(w) }, "✕")
+          ); })
         ),
         list.length === 0 && React.createElement(Empty, null, "この分類の候補はまだありません")
       ),
@@ -2422,7 +2470,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     return React.createElement(Shell, null,
       React.createElement(Header, { title: "📐 工程分析表", back: () => set({ screen: "home" }) }),
       React.createElement(Body, null,
-        React.createElement("button", { style: { width: "100%", border: "1px solid #0f3d4a", background: "#eef3f4", color: "#0f3d4a", borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 700, marginBottom: 12 }, onClick: () => set({ screen: "kotei_phrases" }) }, "⚙ 作業候補（アイロン・ミシン・その他）を編集"),
+        React.createElement("button", { style: { width: "100%", border: "1px solid #0f3d4a", background: "#eef3f4", color: "#0f3d4a", borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 700, marginBottom: 8 }, onClick: () => set({ screen: "kotei_phrases" }) }, "⚙ 作業候補（アイロン・ミシン・その他）を編集"),
+        React.createElement("button", { style: { width: "100%", border: "1px solid #0f3d4a", background: "#eef3f4", color: "#0f3d4a", borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 700, marginBottom: 12 }, onClick: () => set({ screen: "kotei_parts" }) }, "⚙ パーツ名を編集"),
         React.createElement("input", { style: Object.assign({}, st.input, { marginBottom: 12 }), placeholder: "品番・品名で検索", value: ui.koteiSearch, onChange: (e) => set({ koteiSearch: e.target.value }) }),
         React.createElement("div", { style: { fontSize: 12, color: "#aaa", marginBottom: 12 } }, filtered.length + "件"),
         filtered.length === 0 && React.createElement(Empty, null, q ? "該当する工程表がありません" : "まだ工程表がありません（品番詳細の「工程分析表」から作成できます）"),
@@ -2453,7 +2502,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     if (!part) { return null; }
     const sheet = (data.koteiSheets || []).find((r) => r.partId === part.id) || null;
     const brandName = ((data.brands || []).find((b) => b.id === part.brandId) || {}).name || "";
-    const stdSet = {}; KOTEI_PARTS.forEach(function (p) { stdSet[p] = true; });
+    const partList = (data.koteiParts && data.koteiParts.length) ? data.koteiParts : KOTEI_PARTS;
+    const stdSet = {}; partList.forEach(function (p) { stdSet[p] = true; });
     const extraParts = [];
     const phraseCats = (data.koteiPhrases && Object.keys(data.koteiPhrases).length) ? data.koteiPhrases : KOTEI_PHRASE_CATS;
     const phSet = {}; Object.keys(phraseCats).forEach(function (c) { (phraseCats[c] || []).forEach(function (p) { phSet[p] = true; }); });
@@ -2465,7 +2515,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       }
     }); });
     return React.createElement(KoteiEditor, {
-      key: part.id, part: part, sheet: sheet, brandName: brandName, extraParts: extraParts, extraPhrases: extraPhrases, phraseCats: phraseCats,
+      key: part.id, part: part, sheet: sheet, brandName: brandName, extraParts: extraParts, extraPhrases: extraPhrases, phraseCats: phraseCats, partList: partList,
       onSave: saveKotei, onDelete: deleteKotei,
       back: () => set({ screen: ui.koteiReturn || "part_detail", koteiPartId: null }),
       SI: SI,
@@ -2936,7 +2986,7 @@ function KoteiEditor(props) {
           React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "パーツ"),
           React.createElement("select", { style: { width: "100%", height: 42, border: "1px solid " + K_LINE, borderRadius: 8, background: K_PARTBG, color: K_PART, fontWeight: 700, fontSize: 14, padding: "0 6px" }, value: b.part, onChange: function (e) { const v = e.target.value; if (v === "__new__") { const nv = window.prompt("新しいパーツ名を入力"); if (nv && nv.trim()) patchBlock(b.id, { part: nv.trim() }); } else { patchBlock(b.id, { part: v }); } } },
             React.createElement("option", { value: "" }, "—"),
-            (function () { let list = KOTEI_PARTS.concat(props.extraParts || []); if (b.part && list.indexOf(b.part) < 0) list = list.concat([b.part]); return list; })().map(function (p) { return React.createElement("option", { key: p, value: p }, p); }),
+            (function () { let list = (props.partList || KOTEI_PARTS).concat(props.extraParts || []); if (b.part && list.indexOf(b.part) < 0) list = list.concat([b.part]); return list; })().map(function (p) { return React.createElement("option", { key: p, value: p }, p); }),
             React.createElement("option", { value: "__new__" }, "＋ 新しいパーツ…")
           )
         ),
