@@ -1887,7 +1887,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const vid = ui.activeVendorId;
     const vendor = data.vendors.find((v) => v.id === vid);
     if (!vendor) { set({ activeVendorId: null, screen: "vendor_mgmt" }); return null; }
-    const vparts = partSummary.filter((p) => p.assigneeType === "outsource" && p.assignee === vid);
+    const vparts = partSummary.filter((p) => p.assigneeType === "outsource" && p.assignee === vid && p.closedAt);
     const sale = (p) => (p.sellPrice || 0) * (p.qty || 0);
     const cost = (p) => (p.vendorPrice || 0) * (p.qty || 0);
     const totSale = vparts.reduce((a, p) => a + sale(p), 0);
@@ -1904,20 +1904,22 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       React.createElement(Header, { title: vendor.name, back: () => set({ activeVendorId: null, screen: "vendor_mgmt" }) }),
       React.createElement(Body, null,
 
+        React.createElement("div", { style: { fontSize: 11, color: "#999", marginBottom: 10 } }, "※「完了（納品済み）」を押した品番のみ集計しています"),
+
         vparts.length === 0
-          ? React.createElement("div", { style: Object.assign({}, st.card, { textAlign: "center", color: "#bbb", padding: 24 }) }, "この外注先に割り当てられた品番はありません")
+          ? React.createElement("div", { style: Object.assign({}, st.card, { textAlign: "center", color: "#bbb", padding: 24 }) }, "完了した品番がありません")
           : React.createElement("div", null,
 
               React.createElement("div", { style: { background: "#1a1a1a", color: "#fff", borderRadius: 12, padding: "16px 18px", marginBottom: 12 } },
-                React.createElement("div", { style: { fontSize: 11, opacity: 0.55, marginBottom: 4 } }, "全期間 本体に残る利益"),
+                React.createElement("div", { style: { fontSize: 11, opacity: 0.55, marginBottom: 4 } }, "本体に残る利益（完了品番）"),
                 React.createElement("div", { style: { fontSize: 28, fontWeight: 700, color: totProfit >= 0 ? "#7dff7d" : "#ff8a8a" } }, "¥" + Math.round(totProfit).toLocaleString()),
                 React.createElement("div", { style: { fontSize: 12, opacity: 0.6, marginTop: 6, borderTop: "1px solid #444", paddingTop: 8 } },
                   "売上 ¥" + Math.round(totSale).toLocaleString() + "　/　外注費 ¥" + Math.round(totCost).toLocaleString() + "　/　利益率 " + (totSale > 0 ? totRate.toFixed(1) + "%" : "—")
                 )
               ),
               React.createElement("div", { style: st.grid2 },
-                React.createElement(SBox, { label: "品番数", value: vparts.length + "件" }),
-                React.createElement(SBox, { label: "納品済み", value: vparts.filter((p) => p.closedAt).length + " / " + vparts.length + "件" })
+                React.createElement(SBox, { label: "完了品番数", value: vparts.length + "件" }),
+                React.createElement(SBox, { label: "売上合計", value: "¥" + Math.round(totSale).toLocaleString() })
               ),
 
               React.createElement(SectionLabel, null, "月ごと"),
@@ -1949,8 +1951,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                     )
                   ),
                   React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 12, color: "#555", marginBottom: 10 } },
-                    React.createElement("span", null, "進捗：納品済み " + mDone + " / " + list.length + "件"),
-                    React.createElement("span", null, mCompleted > 0 ? "完成 " + mCompleted + " / " + mQty + "枚" : "")
+                    React.createElement("span", null, "完了 " + list.length + "品番・" + mQty + "枚"),
+                    React.createElement("span", null, "")
                   ),
                   list.map((p) => React.createElement("button", { key: p.id, style: Object.assign({}, st.summaryCard, { textAlign: "left", marginBottom: 8, borderLeft: "3px solid " + (p.closedAt ? "#2a7a2a" : (p.remainDays !== null && p.remainDays <= 3 ? "#c00" : p.remainDays !== null && p.remainDays <= 7 ? "#c25000" : "#e0deda")) }), onClick: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "vendor_detail" }) },
                     React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } },
@@ -1991,7 +1993,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       React.createElement(SectionLabel, null, "ブランド一覧（" + (data.brands || []).length + "件）　タップで品番ごとの時間単価を確認"),
       (data.brands || []).length === 0 && React.createElement(Empty, null, "ブランドが登録されていません"),
       (data.brands || []).map((b) => {
-        const bp = partSummary.filter((p) => p.brandId === b.id && p.assigneeType !== "outsource");
+        const bp = partSummary.filter((p) => p.brandId === b.id && p.assigneeType !== "outsource" && p.closedAt);
         const sales = bp.reduce((a, p) => a + p.totalSales, 0);
         const hrs = bp.reduce((a, p) => a + p.totalHours, 0);
         const rate = hrs > 0 ? sales / hrs : null;
@@ -2009,7 +2011,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         );
       }),
       (function () {
-        const bp = partSummary.filter((p) => !p.brandId && p.assigneeType !== "outsource");
+        const bp = partSummary.filter((p) => !p.brandId && p.assigneeType !== "outsource" && p.closedAt);
         if (bp.length === 0) return null;
         const sales = bp.reduce((a, p) => a + p.totalSales, 0);
         const hrs = bp.reduce((a, p) => a + p.totalHours, 0);
@@ -2031,7 +2033,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const isNone = bid === "__none__";
     const brand = isNone ? { name: "（ブランド未設定）" } : (data.brands || []).find((b) => b.id === bid);
     if (!brand) { set({ activeBrandId: null, screen: "brand_mgmt" }); return null; }
-    const bparts = partSummary.filter((p) => isNone ? !p.brandId : p.brandId === bid);
+    const bparts = partSummary.filter((p) => (isNone ? !p.brandId : p.brandId === bid) && p.closedAt);
     const inHouse = bparts.filter((p) => p.assigneeType !== "outsource");
     const outParts = bparts.filter((p) => p.assigneeType === "outsource");
 
@@ -2049,20 +2051,22 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       React.createElement(Header, { title: "🏷 " + brand.name, back: () => set({ activeBrandId: null, screen: "brand_mgmt" }) }),
       React.createElement(Body, null,
 
+        React.createElement("div", { style: { fontSize: 11, color: "#999", marginBottom: 10 } }, "※「完了（納品済み）」を押した品番のみ集計しています"),
+
         bparts.length === 0
-          ? React.createElement("div", { style: Object.assign({}, st.card, { textAlign: "center", color: "#bbb", padding: 24 }) }, "このブランドの品番はありません")
+          ? React.createElement("div", { style: Object.assign({}, st.card, { textAlign: "center", color: "#bbb", padding: 24 }) }, "完了した品番がありません")
           : React.createElement("div", null,
 
               React.createElement("div", { style: { background: "#1a1a1a", color: "#fff", borderRadius: 12, padding: "16px 18px", marginBottom: 12 } },
-                React.createElement("div", { style: { fontSize: 11, opacity: 0.55, marginBottom: 4 } }, "自社縫製の時間単価（売上 ÷ 作業時間）"),
+                React.createElement("div", { style: { fontSize: 11, opacity: 0.55, marginBottom: 4 } }, "自社縫製の時間単価（売上 ÷ 作業時間／完了品番）"),
                 React.createElement("div", { style: { fontSize: 28, fontWeight: 700, color: "#7dff7d" } }, totRate !== null ? "¥" + Math.round(totRate).toLocaleString() + "/h" : "—"),
                 React.createElement("div", { style: { fontSize: 12, opacity: 0.6, marginTop: 6, borderTop: "1px solid #444", paddingTop: 8 } },
                   "社内 売上 ¥" + Math.round(totSales).toLocaleString() + "　/　作業 " + totHours.toFixed(1) + "h" + (outParts.length ? "　/　外注利益 ¥" + Math.round(outProfit).toLocaleString() : "")
                 )
               ),
               React.createElement("div", { style: st.grid2 },
-                React.createElement(SBox, { label: "品番数", value: bparts.length + "件" }),
-                React.createElement(SBox, { label: "納品済み", value: bparts.filter((p) => p.closedAt).length + " / " + bparts.length + "件" })
+                React.createElement(SBox, { label: "完了品番数", value: bparts.length + "件" }),
+                React.createElement(SBox, { label: "社内 売上合計", value: "¥" + Math.round(totSales).toLocaleString() })
               ),
 
               React.createElement(SectionLabel, null, "月ごと・品番ごとの時間単価"),
