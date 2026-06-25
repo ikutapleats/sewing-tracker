@@ -1676,7 +1676,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
               },
                 React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
                   React.createElement("div", null,
-                    React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, p.partNo + (p.partName ? " " + p.partName : "")),
+                    React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, (p.kind === "sample" ? "✂ " : "") + p.partNo + (p.partName ? " " + p.partName : "")),
                     p.brandName && React.createElement("div", { style: { fontSize: 11, color: "#888", marginTop: 2 } }, "🏷 " + p.brandName)
                   ),
                   React.createElement("div", { style: { textAlign: "right", fontSize: 12, color: "#aaa" } },
@@ -1957,7 +1957,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                   list.map((p) => React.createElement("button", { key: p.id, style: Object.assign({}, st.summaryCard, { textAlign: "left", marginBottom: 8, borderLeft: "3px solid " + (p.closedAt ? "#2a7a2a" : (p.remainDays !== null && p.remainDays <= 3 ? "#c00" : p.remainDays !== null && p.remainDays <= 7 ? "#c25000" : "#e0deda")) }), onClick: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "vendor_detail" }) },
                     React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } },
                       React.createElement("div", null,
-                        React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, p.partNo + (p.partName ? " " + p.partName : "")),
+                        React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, (p.kind === "sample" ? "✂ " : "") + p.partNo + (p.partName ? " " + p.partName : "")),
                         p.brandName && React.createElement("div", { style: { fontSize: 11, color: "#888", marginTop: 2 } }, "🏷 " + p.brandName)
                       ),
                       React.createElement("div", { style: { textAlign: "right" } },
@@ -2086,7 +2086,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                     return React.createElement("button", { key: p.id, style: Object.assign({}, st.summaryCard, { textAlign: "left", marginBottom: 8 }), onClick: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "brand_detail" }) },
                       React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } },
                         React.createElement("div", { style: { flex: 1, minWidth: 0 } },
-                          React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, p.partNo + (p.partName ? " " + p.partName : "")),
+                          React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, (p.kind === "sample" ? "✂ " : "") + p.partNo + (p.partName ? " " + p.partName : "")),
                           React.createElement("div", { style: { fontSize: 11, color: "#888", marginTop: 2 } }, (isOut ? "外注: " + (p.vendorName || "?") : (p.assignee || "未割当")) + "　" + p.qty + "枚" + (p.closedAt ? "　✅納品済み" : ""))
                         ),
                         React.createElement("div", { style: { textAlign: "right" } },
@@ -2222,7 +2222,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             },
               React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 } },
                 React.createElement("div", null,
-                  React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, p.partNo + (p.partName ? " " + p.partName : "")),
+                  React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, (p.kind === "sample" ? "✂ " : "") + p.partNo + (p.partName ? " " + p.partName : "")),
                   p.workMonth && React.createElement("div", { style: { fontSize: 11, color: "#3b6fd4", marginTop: 2 } }, p.workMonth.replace("-", "年") + "月仕掛り")
                 ),
                 React.createElement("div", { style: { textAlign: "right" } },
@@ -2302,7 +2302,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     },
       React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 } },
         React.createElement("div", null,
-          React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, p.partNo + (p.partName ? " " + p.partName : "")),
+          React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, (p.kind === "sample" ? "✂ " : "") + p.partNo + (p.partName ? " " + p.partName : "")),
           isOutView && React.createElement("div", { style: { fontSize: 11, color: "#888", marginTop: 2 } }, "外注: " + (p.vendorName || "?")),
           p.brandName && React.createElement("div", { style: { fontSize: 11, color: "#888", marginTop: 2 } }, "🏷 " + p.brandName)
         ),
@@ -2570,6 +2570,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                 )
           ),
           React.createElement(FormRow, { label: "仕掛り月" }, React.createElement("input", { style: st.input, type: "month", value: f.workMonth || "", onChange: (e) => setSampleF({ workMonth: e.target.value }) })),
+          React.createElement(FormRow, { label: "納期" }, React.createElement("input", { style: st.input, type: "date", value: f.deadline || "", onChange: (e) => setSampleF({ deadline: e.target.value }) })),
           React.createElement(FormRow, { label: "枚数" }, React.createElement("input", { style: st.input, type: "number", min: "0", placeholder: "例: 2", value: f.qty, onChange: (e) => setSampleF({ qty: e.target.value }) })),
           React.createElement(FormRow, { label: "サンプル代（円・1着あたり）" }, React.createElement("input", { style: st.input, type: "number", min: "0", placeholder: "例: 8000", value: f.samplePrice, onChange: (e) => setSampleF({ samplePrice: e.target.value }) })),
           React.createElement(FormRow, { label: "実働時間（h・合計）" }, React.createElement("input", { style: st.input, type: "number", min: "0", step: "0.5", placeholder: "例: 6", value: f.actualHours, onChange: (e) => setSampleF({ actualHours: e.target.value }) })),
@@ -2614,6 +2615,11 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       if (!dlByDate[p.deadline]) dlByDate[p.deadline] = [];
       dlByDate[p.deadline].push(p);
     });
+    sampleSummary.forEach((p) => {
+      if (!p.deadline || p.deadline.slice(0, 7) !== dlMonth) return;
+      if (!dlByDate[p.deadline]) dlByDate[p.deadline] = [];
+      dlByDate[p.deadline].push(p);
+    });
     const monthDlCount = Object.values(dlByDate).reduce((a, arr) => a + arr.length, 0);
     const dlPlannedSales = Object.values(dlByDate).reduce((a, arr) => a + arr.reduce((b, p) => {
       const sale = p.assigneeType === "outsource" ? (p.sellPrice || 0) * (p.qty || 0) : (p.unitPrice || 0) * (p.qty || 0);
@@ -2626,6 +2632,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const todayStr = today();
 
     const teamColor = (p) => {
+      if (p.kind === "sample") return "#7a2a7a";
       if (p.assigneeType === "outsource") return "#888";
       return TEAM_COLORS[p.assignee] || "#bbb";
     };
@@ -2653,6 +2660,10 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 4 } },
             React.createElement("div", { style: { width: 10, height: 10, borderRadius: 3, background: "#888" } }),
             React.createElement("span", { style: { color: "#888" } }, "外注")
+          ),
+          React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 4 } },
+            React.createElement("div", { style: { width: 10, height: 10, borderRadius: 3, background: "#7a2a7a" } }),
+            React.createElement("span", { style: { color: "#888" } }, "✂ サンプル")
           )
         ),
 
@@ -2690,7 +2701,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                     color: p.closedAt ? "#aaa" : "#333",
                     textDecoration: p.closedAt ? "line-through" : "none",
                     whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                  } }, p.partNo)
+                  } }, (p.kind === "sample" ? "✂" : "") + p.partNo)
                 ),
                 items.length > 3 && React.createElement("div", { style: { fontSize: 9, color: "#aaa", textAlign: "center" } }, "他" + (items.length - 3) + "件")
               );
@@ -2707,7 +2718,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             React.createElement("button", { key: p.id, style: Object.assign({}, st.summaryCard, { textAlign: "left", borderLeft: "4px solid " + teamColor(p) }), onClick: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "deadline_calendar" }) },
               React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
                 React.createElement("div", null,
-                  React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, p.partNo + (p.partName ? " " + p.partName : "")),
+                  React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, (p.kind === "sample" ? "✂ " : "") + p.partNo + (p.partName ? " " + p.partName : "")),
                   React.createElement("div", { style: { fontSize: 11, color: "#888", marginTop: 2 } },
                     (p.assigneeType === "outsource" ? "外注: " + (p.vendorName || "?") : (p.assignee || "未割当")) + "　" + p.qty + "枚"
                   )
