@@ -1,4 +1,3 @@
-
 const { useState, useMemo, useEffect, useCallback, useRef } = React;
 
 const GAS_URL = "https://script.google.com/macros/s/AKfycbxN7_GWK5xxPJm79eq2uvA1AIVRI6x_g0fD1HHng_Eyo51JEw5JVC3021iYYz_Y3yjxcw/exec";
@@ -21,7 +20,7 @@ function diffDays(a, b) {
 }
 
 const EMPTY_DATA = {
-  parts: [], records: [], qtyRecords: [], members: [], vendors: [], brands: [], monthlyTargets: {}, saidanReports: [], koteiSheets: [],
+  parts: [], records: [], qtyRecords: [], members: [], vendors: [], brands: [], monthlyTargets: {}, saidanReports: [], koteiSheets: [], koteiRecords: [],
 };
 
 const INIT_UI = {
@@ -61,6 +60,9 @@ const INIT_UI = {
   koteiDrag: null,
   koteiPartsInput: "",
   koteiPartsDrag: null,
+  kEntryMode: "hours",
+  kEntryPartId: "",
+  kEntryQty: {},
 };
 
 async function gasSave(data) {
@@ -102,6 +104,16 @@ async function gasAddQtyRecord(record) {
   });
   const result = await res.json();
   if (result.status !== "saved") throw new Error("addQtyRecord failed");
+}
+
+async function gasAddKoteiRecords(records) {
+  const res = await fetch(GAS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ action: "addKoteiRecords", records }),
+  });
+  const result = await res.json();
+  if (result.status !== "saved") throw new Error("addKoteiRecords failed: " + JSON.stringify(result));
 }
 
 async function gasAddPart(part) {
@@ -169,6 +181,17 @@ async function gasLoad() {
   return await res.json();
 }
 
+// 生産価値 = 工程の実測秒数 × 枚数 × レート
+// レート = 受注単価 ÷ 1着総工数（秒）。単価が無い品番は暫定レート 1秒=1円。
+// 単価は品番（live）優先。総工数・単価は日報レコードにも写してあり、工程表が消えても壊れない。
+function koteiValue(rec, parts) {
+  const part = (parts || []).find(function (p) { return p.id === rec.partId; });
+  const unit = part ? (part.unitPrice || 0) : (rec.unitPrice || 0);
+  const total = rec.totalSec || 0;
+  const rate = (unit > 0 && total > 0) ? unit / total : 1; // 暫定1秒1円
+  return (rec.stepSec || 0) * (rec.qty || 0) * rate;
+}
+
 function App() {
   const [data, setData] = useState(EMPTY_DATA);
   const [ui, setUi] = useState(INIT_UI);
@@ -184,6 +207,7 @@ function App() {
   const setMF = (patch) => setUi((p) => Object.assign({}, p, { memberForm: Object.assign({}, p.memberForm, patch) }));
   const setQF = (patch) => setUi((p) => Object.assign({}, p, { qtyForm: Object.assign({}, p.qtyForm, patch) }));
   const setTF = (patch) => setUi((p) => Object.assign({}, p, { targetForm: Object.assign({}, p.targetForm, patch) }));
+  const setKQ = (patch) => setUi((p) => Object.assign({}, p, { kEntryQty: Object.assign({}, p.kEntryQty, patch) }));
 
   useEffect(() => {
     gasLoad().then((d) => {
@@ -196,6 +220,7 @@ function App() {
       if (!Array.isArray(merged.qtyRecords)) merged.qtyRecords = [];
       if (!Array.isArray(merged.saidanReports)) merged.saidanReports = [];
       if (!Array.isArray(merged.koteiSheets)) merged.koteiSheets = [];
+      if (!Array.isArray(merged.koteiRecords)) merged.koteiRecords = [];
       setData(merged);
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
@@ -214,6 +239,7 @@ function App() {
       if (!Array.isArray(merged.qtyRecords)) merged.qtyRecords = [];
       if (!Array.isArray(merged.saidanReports)) merged.saidanReports = [];
       if (!Array.isArray(merged.koteiSheets)) merged.koteiSheets = [];
+      if (!Array.isArray(merged.koteiRecords)) merged.koteiRecords = [];
       setData(merged);
     } catch (e) {}
   }, []);
@@ -429,6 +455,45 @@ function App() {
     setSaving(true);
     setSaveError(false);
     gasAddQtyRecord(newRecord).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
+  }
+
+  // 生産価値の日報：選択中の品番の工程表から、枚数を入れた工程だけを一括追記
+  function addKoteiRecords() {
+    const partId = ui.kEntryPartId;
+    const member = data.members.find((m) => m.id === ui.memberForm.memberId);
+    if (!partId || !member) return;
+    const sheet = (data.koteiSheets || []).find((s) => s.partId === partId);
+    if (!sheet) return;
+    const part = data.parts.find((p) => p.id === partId) || {};
+    const date = ui.memberForm.date || today();
+    const totalSec = sheet.totalSec || 0;
+    const steps = (sheet.blocks || []).filter((b) => b.type === "step");
+    let curPart = "";
+    const newRecs = [];
+    steps.forEach((b) => {
+      if (b.part) curPart = b.part;
+      const q = parseFloat((ui.kEntryQty || {})[b.id]);
+      if (!q || q <= 0) return;
+      newRecs.push({
+        id: genId(), date: date, memberId: member.id, memberName: member.name,
+        partId: partId, stepId: b.id, stepPart: curPart, stepAct: b.act || "",
+        stepSec: parseKoteiTime(b.time), qty: q,
+        totalSec: totalSec, unitPrice: part.unitPrice || 0,
+      });
+    });
+    if (newRecs.length === 0) return;
+    const nd = Object.assign({}, data, { koteiRecords: (data.koteiRecords || []).concat(newRecs) });
+    setData(nd);
+    set({ kEntryQty: {}, kEntryPartId: "" });
+    setSaving(true); setSaveError(false);
+    gasAddKoteiRecords(newRecs).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
+  }
+
+  function deleteKoteiRecord(id) {
+    const nd = Object.assign({}, data, { koteiRecords: (data.koteiRecords || []).filter((r) => r.id !== id) });
+    setData(nd);
+    setSaving(true); setSaveError(false);
+    gasDeleteItem("koteiRecords", id).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
   }
 
   function addMember() {
@@ -1031,7 +1096,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
               React.createElement("div", { style: { fontSize: 10, color: "#aaa", marginTop: 2 } }, (p.qty || 0) + "枚ぶん")
             )
           ),
-          // 1日8時間でいくら稼げるか = 単価 ÷ 1着あたり時間 × 8時間
           (() => {
             const perHour = p.estHoursPerUnit > 0 ? (p.unitPrice || 0) / p.estHoursPerUnit : 0;
             const perDay8 = perHour * 8;
@@ -1102,7 +1166,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement(SectionLabel, null, "作業明細"),
           p.recs.length === 0 && React.createElement(Empty, null, "まだ記録がありません"),
           (() => {
-            // 日付ごとにグループ化
             const byDate = {};
             p.recs.forEach((r) => {
               if (!byDate[r.date]) byDate[r.date] = [];
@@ -1139,7 +1202,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
 
   if (ui.screen === "dashboard") {
     const isDelivered = ui.dashFilter === "delivered";
-    // 納品済み = closedAt がある品番、納品前 = closedAt がない品番
     const baseItems = isDelivered
       ? partSummary.filter((p) => p.closedAt)
       : partSummary.filter((p) => !p.closedAt);
@@ -1217,31 +1279,112 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
 
   if (ui.screen === "member_entry") {
     const f = ui.memberForm;
+    const mode = ui.kEntryMode || "hours";
     const todayRecs = data.records.filter((r) => { const part = data.parts.find((p) => p.id === r.partId); return r.date === f.date && part && part.assignee === ui.selectedTeam; });
     const ready = f.memberId && f.partId && f.hours;
+
+    // 工程記録：このチームの進行中品番のうち、工程表があるもの
+    const koteiPartsList = teamParts.filter((p) => (data.koteiSheets || []).some((s) => s.partId === p.id));
+    const kSheet = (data.koteiSheets || []).find((s) => s.partId === ui.kEntryPartId);
+    const kSteps = kSheet ? (kSheet.blocks || []).filter((b) => b.type === "step") : [];
+    // 印刷と同じ継承ルールでパーツごとにグループ化
+    const kGroups = []; let kg = null;
+    kSteps.forEach((b) => {
+      if (b.part) { if (!kg || kg.part !== b.part) { kg = { part: b.part, steps: [] }; kGroups.push(kg); } }
+      else { if (!kg) { kg = { part: "—", steps: [] }; kGroups.push(kg); } }
+      kg.steps.push(b);
+    });
+    const kReady = f.memberId && ui.kEntryPartId && Object.keys(ui.kEntryQty || {}).some((id) => parseFloat((ui.kEntryQty || {})[id]) > 0);
+    const setGroupQty = (steps, v) => { const patch = {}; steps.forEach((s) => { patch[s.id] = v; }); setKQ(patch); };
+
+    // 本日の生産価値（選択中の作業者）
+    const myKotei = f.memberId ? (data.koteiRecords || []).filter((r) => r.memberId === f.memberId && r.date === f.date) : [];
+    const myKoteiTotal = myKotei.reduce((a, r) => a + koteiValue(r, data.parts), 0);
+    const myMemberName = (data.members.find((m) => m.id === f.memberId) || {}).name || "";
+
     return React.createElement(Shell, null,
       React.createElement(Header, { title: ui.selectedTeam + "　作業記録", back: () => set({ screen: "home" }) }),
       React.createElement(Body, null,
         data.members.length === 0
           ? React.createElement("div", { style: Object.assign({}, st.card, { textAlign: "center", color: "#aaa", padding: 24 }) }, "メンバーが登録されていません。", React.createElement("br"), "ホーム→メンバー管理から登録してください。")
-          : React.createElement("div", { style: st.card },
-              React.createElement(FormRow, { label: "日付" }, React.createElement("input", { style: st.input, type: "date", value: f.date, onChange: (e) => setMF({ date: e.target.value }) })),
-              React.createElement(FormRow, { label: "自分の名前" }, React.createElement("select", { style: st.input, value: f.memberId, onChange: (e) => setMF({ memberId: e.target.value }) },
-                React.createElement("option", { value: "" }, "選択してください"),
-                data.members.map((m) => React.createElement("option", { key: m.id, value: m.id }, m.name))
-              )),
-              React.createElement(FormRow, { label: "品番を選ぶ" },
-                teamParts.length === 0
-                  ? React.createElement("div", { style: { color: "#bbb", fontSize: 13, padding: "8px 0" } }, "進行中の品番がありません")
-                  : React.createElement("select", { style: st.input, value: f.partId, onChange: (e) => setMF({ partId: e.target.value }) },
-                      React.createElement("option", { value: "" }, "選択してください"),
-                      teamParts.map((p) => React.createElement("option", { key: p.id, value: p.id }, p.partNo + (p.partName ? " (" + p.partName + ")" : "")))
-                    )
+          : React.createElement("div", null,
+              React.createElement("div", { style: st.card },
+                React.createElement(FormRow, { label: "日付" }, React.createElement("input", { style: st.input, type: "date", value: f.date, onChange: (e) => setMF({ date: e.target.value }) })),
+                React.createElement(FormRow, { label: "自分の名前" }, React.createElement("select", { style: st.input, value: f.memberId, onChange: (e) => setMF({ memberId: e.target.value }) },
+                  React.createElement("option", { value: "" }, "選択してください"),
+                  data.members.map((m) => React.createElement("option", { key: m.id, value: m.id }, m.name))
+                )),
+                React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 4 } },
+                  React.createElement("button", { style: Object.assign({}, st.filterBtn, { flex: 1, padding: "10px", fontSize: 13, fontWeight: 700 }, mode === "hours" ? st.filterBtnActive : {}), onClick: () => set({ kEntryMode: "hours" }) }, "⏱ 時間で記録"),
+                  React.createElement("button", { style: Object.assign({}, st.filterBtn, { flex: 1, padding: "10px", fontSize: 13, fontWeight: 700 }, mode === "kotei" ? Object.assign({}, st.filterBtnActive, { background: "#0f3d4a", borderColor: "#0f3d4a" }) : {}), onClick: () => set({ kEntryMode: "kotei" }) }, "📐 工程で記録")
+                )
               ),
-              React.createElement(FormRow, { label: "作業時間（h）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3.5", min: "0", step: "0.5", value: f.hours, onChange: (e) => setMF({ hours: e.target.value }) })),
-              React.createElement("button", { style: Object.assign({}, st.primaryBtn, { opacity: ready ? 1 : 0.35 }), disabled: !ready, onClick: addRecord }, "記録する")
+
+              mode === "hours" && React.createElement("div", { style: st.card },
+                React.createElement(FormRow, { label: "品番を選ぶ" },
+                  teamParts.length === 0
+                    ? React.createElement("div", { style: { color: "#bbb", fontSize: 13, padding: "8px 0" } }, "進行中の品番がありません")
+                    : React.createElement("select", { style: st.input, value: f.partId, onChange: (e) => setMF({ partId: e.target.value }) },
+                        React.createElement("option", { value: "" }, "選択してください"),
+                        teamParts.map((p) => React.createElement("option", { key: p.id, value: p.id }, p.partNo + (p.partName ? " (" + p.partName + ")" : "")))
+                      )
+                ),
+                React.createElement(FormRow, { label: "作業時間（h）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3.5", min: "0", step: "0.5", value: f.hours, onChange: (e) => setMF({ hours: e.target.value }) })),
+                React.createElement("button", { style: Object.assign({}, st.primaryBtn, { opacity: ready ? 1 : 0.35 }), disabled: !ready, onClick: addRecord }, "記録する")
+              ),
+
+              mode === "kotei" && React.createElement("div", { style: st.card },
+                React.createElement(FormRow, { label: "品番を選ぶ（工程表のあるもの）" },
+                  koteiPartsList.length === 0
+                    ? React.createElement("div", { style: { color: "#bbb", fontSize: 13, padding: "8px 0" } }, "工程表のある品番がありません（品番詳細→工程分析表で作成）")
+                    : React.createElement("select", { style: st.input, value: ui.kEntryPartId, onChange: (e) => set({ kEntryPartId: e.target.value, kEntryQty: {} }) },
+                        React.createElement("option", { value: "" }, "選択してください"),
+                        koteiPartsList.map((p) => React.createElement("option", { key: p.id, value: p.id }, p.partNo + (p.partName ? " (" + p.partName + ")" : "")))
+                      )
+                ),
+                ui.kEntryPartId && kGroups.length === 0 && React.createElement("div", { style: { color: "#bbb", fontSize: 13 } }, "この品番の工程表に工程がありません"),
+                ui.kEntryPartId && kGroups.map((grp, gi) => React.createElement("div", { key: gi, style: { background: "#f5f4f0", borderRadius: 10, padding: "10px 12px", marginBottom: 10 } },
+                  React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 } },
+                    React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: "#0f3d4a" } }, grp.part),
+                    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
+                      React.createElement("span", { style: { fontSize: 11, color: "#999" } }, "まとめて"),
+                      React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid #d9d5c8", borderRadius: 8, padding: "6px 4px", fontSize: 14 }, type: "number", min: "0", placeholder: "枚", onChange: (e) => setGroupQty(grp.steps, e.target.value) }),
+                      React.createElement("span", { style: { fontSize: 11, color: "#999" } }, "枚")
+                    )
+                  ),
+                  grp.steps.map((s) => React.createElement("div", { key: s.id, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6 } },
+                    React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+                      React.createElement("div", { style: { fontSize: 13, color: "#333", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, s.act || "（無題の工程）"),
+                      React.createElement("div", { style: { fontSize: 10, color: "#aaa" } }, fmtKoteiTime(parseKoteiTime(s.time)))
+                    ),
+                    React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid #d9d5c8", borderRadius: 8, padding: "8px 4px", fontSize: 15, background: "#fff" }, type: "number", min: "0", placeholder: "枚", value: (ui.kEntryQty || {})[s.id] || "", onChange: (e) => setKQ({ [s.id]: e.target.value }) })
+                  ))
+                )),
+                ui.kEntryPartId && kGroups.length > 0 && React.createElement("button", { style: Object.assign({}, st.primaryBtn, { background: "#0f3d4a", opacity: kReady ? 1 : 0.35 }), disabled: !kReady, onClick: addKoteiRecords }, "記録する")
+              )
             ),
-        React.createElement(SectionLabel, null, "本日の入力 (" + f.date + ")"),
+
+        f.memberId && myKotei.length > 0 && React.createElement("div", null,
+          React.createElement(SectionLabel, null, "本日の生産価値 (" + f.date + ")"),
+          React.createElement("div", { style: { background: "#0f3d4a", color: "#fff", borderRadius: 12, padding: "16px 18px", marginBottom: 12 } },
+            React.createElement("div", { style: { fontSize: 11, opacity: 0.65, marginBottom: 4 } }, myMemberName + " さんの今日の生産価値"),
+            React.createElement("div", { style: { fontSize: 30, fontWeight: 700 } }, "¥" + Math.round(myKoteiTotal).toLocaleString()),
+            React.createElement("div", { style: { fontSize: 11, opacity: 0.65, marginTop: 4 } }, myKotei.length + "工程・計" + myKotei.reduce((a, r) => a + (r.qty || 0), 0) + "枚")
+          ),
+          myKotei.slice().sort((a, b) => koteiValue(b, data.parts) - koteiValue(a, data.parts)).map((r) => {
+            const part = data.parts.find((p) => p.id === r.partId);
+            return React.createElement("div", { key: r.id, style: Object.assign({}, st.recRow, { alignItems: "flex-start" }) },
+              React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+                React.createElement("div", { style: { fontSize: 13, fontWeight: 700 } }, (part ? part.partNo : "?") + "　" + (r.stepPart || "")),
+                React.createElement("div", { style: { fontSize: 12, color: "#777", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, (r.stepAct || "") + " ×" + r.qty + "枚")
+              ),
+              React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: "#0f3d4a", whiteSpace: "nowrap" } }, "¥" + Math.round(koteiValue(r, data.parts)).toLocaleString()),
+              React.createElement("button", { style: st.deleteBtn, onClick: () => deleteKoteiRecord(r.id) }, "✕")
+            );
+          })
+        ),
+
+        React.createElement(SectionLabel, null, "本日の時間入力 (" + f.date + ")"),
         todayRecs.length === 0 && React.createElement(Empty, null, "まだ入力がありません"),
         todayRecs.map((r) => { const part = data.parts.find((x) => x.id === r.partId); return React.createElement("div", { key: r.id, style: st.recRow }, React.createElement("span", { style: { fontSize: 12, color: "#888", minWidth: 64 } }, r.memberName), React.createElement("span", { style: { fontSize: 13, fontWeight: 700, flex: 1 } }, part ? part.partNo : "?"), React.createElement("span", { style: { fontSize: 13, color: "#555" } }, r.hours + "h"), React.createElement("button", { style: st.deleteBtn, onClick: () => deleteRecord(r.id) }, "✕")); })
       ),
@@ -1251,7 +1394,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
 
   if (ui.screen === "summary") {
     const sm = ui.summaryMonth;
-    // 仕掛り月でフィルタリングした品番
     const monthParts = partSummary.filter((p) => p.workMonth === sm);
     const allMonths = Array.from(new Set(partSummary.map((p) => p.workMonth).filter(Boolean))).sort().reverse();
 
@@ -1262,14 +1404,12 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const mTotalProfit = monthParts.filter((p) => p.assigneeType === "outsource" && p.profit !== null).reduce((a, p) => a + p.profit, 0);
     const mOutsourceSales = monthParts.filter((p) => p.assigneeType === "outsource").reduce((a, p) => a + (p.sellPrice || 0) * (p.qty || 0), 0);
     const mHourlyRate = mTotalHours > 0 ? mTotalSales / mTotalHours : 0;
-    // この月の全品番の予定売上合計（社内・単価×数量）
     const mPlannedSales = monthParts.filter((p) => p.assigneeType !== "outsource").reduce((a, p) => a + (p.unitPrice || 0) * (p.qty || 0), 0);
 
     return React.createElement(Shell, null,
       React.createElement(Header, { title: "集計・仕事量管理", back: () => set({ screen: "home" }) }),
       React.createElement(Body, null,
 
-        // 月選択
         React.createElement("div", { style: Object.assign({}, st.card, { padding: "12px 16px", marginBottom: 12 }) },
           React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginBottom: 8 } }, "仕掛り月を選択"),
           React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 } },
@@ -1282,7 +1422,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement("input", { style: Object.assign({}, st.input, { marginTop: 4 }), type: "month", value: sm, onChange: (e) => set({ summaryMonth: e.target.value }) })
         ),
 
-        // この月のサマリー
         monthParts.length === 0
           ? React.createElement("div", { style: Object.assign({}, st.card, { textAlign: "center", color: "#bbb", padding: 24 }) },
               sm.replace("-", "年") + "月の仕掛り品番はありません"
@@ -1293,7 +1432,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                 sm.replace("-", "年") + "月仕掛り — " + monthParts.length + "品番"
               ),
 
-              // 売上ハイライト
               React.createElement("div", { style: { background: "#1a1a1a", borderRadius: 12, padding: "16px 18px", marginBottom: 12, color: "#fff" } },
                 React.createElement("div", { style: { fontSize: 11, opacity: 0.55, marginBottom: 4 } }, "この月の予定売上合計（社内・単価×数量）"),
                 React.createElement("div", { style: { fontSize: 28, fontWeight: 700 } }, "¥" + Math.round(mPlannedSales).toLocaleString()),
@@ -1309,7 +1447,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                 React.createElement(SBox, { label: "時間単価（実績）", value: mTotalHours > 0 ? "¥" + Math.round(mHourlyRate).toLocaleString() + "/h" : "—" })
               ),
 
-              // チーム別目標 vs 割当 vs 実績
               React.createElement(SectionLabel, null, "チーム別 予定 / 割当 / 実績"),
               TEAMS.map((team) => {
                 const tParts = monthParts.filter((p) => p.assignee === team && p.assigneeType === "team");
@@ -1317,12 +1454,9 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                 const tSales = tParts.reduce((a, p) => a + p.totalSales, 0);
                 const tQty = tParts.reduce((a, p) => a + (p.qty || 0), 0);
                 const tCompletedQty = tParts.reduce((a, p) => a + p.completedQty, 0);
-                // 見込み時間 = 品番の見積もり総時間
                 const tAssignedHours = tParts.reduce((a, p) => a + (p.estTotalHours || 0), 0);
                 const tRate = tHours > 0 ? tSales / tHours : 0;
-                // 予定売上 = 割り当てられた品番の単価×数量の合計（= このチームの目標）
                 const tPlannedSales = tParts.reduce((a, p) => a + (p.unitPrice || 0) * (p.qty || 0), 0);
-                // 売上達成率 = 完成枚数ベースの実績売上 ÷ 予定売上
                 const tRealSales = tParts.reduce((a, p) => a + (p.unitPrice || 0) * (p.completedQty || 0), 0);
                 const salesProgress = tPlannedSales > 0 ? Math.min(tRealSales / tPlannedSales, 1) : null;
                 if (tParts.length === 0) return null;
@@ -1335,7 +1469,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                     React.createElement("span", { style: { fontSize: 12, color: "#aaa" } }, tParts.length + "品番 / " + tQty + "枚")
                   ),
 
-                  // 予定売上（= 目標）を大きく表示
                   React.createElement("div", { style: { background: "#1a1a1a", borderRadius: 10, padding: "14px 16px", marginBottom: 12, color: "#fff" } },
                     React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
                       React.createElement("div", null,
@@ -1352,7 +1485,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                     )
                   ),
 
-                  // 時間ブロック：見込み / 実績
                   React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 } },
                     React.createElement("div", { style: { background: "#f0f4ff", borderRadius: 10, padding: "10px 12px", textAlign: "center" } },
                       React.createElement("div", { style: { fontSize: 10, color: "#aaa", marginBottom: 4 } }, "見込み時間"),
@@ -1371,7 +1503,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                     )
                   ),
 
-                  // 完成枚数の進捗
                   React.createElement("div", null,
                     React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 3 } },
                       React.createElement("span", null, "完成枚数"),
@@ -1382,7 +1513,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                 );
               }),
 
-              // 外注サマリー
               monthParts.some((p) => p.assigneeType === "outsource") && React.createElement("div", null,
                 React.createElement(SectionLabel, null, "外注 サマリー"),
                 React.createElement("button", { style: Object.assign({}, st.monthlyCard, { width: "100%", border: "none", textAlign: "left", cursor: "pointer", display: "block" }), onClick: () => set({ screen: "team_month", teamMonthTeam: "__outsource__", teamMonthMonth: sm }) },
@@ -1399,7 +1529,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                 )
               ),
 
-              // この月の品番一覧
               React.createElement(SectionLabel, null, "品番一覧"),
               monthParts.map((p) => React.createElement("button", {
                 key: p.id,
@@ -1419,7 +1548,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
               ))
             ),
 
-        // CSV・シート出力
         React.createElement(Spacer, { h: 16 }),
         React.createElement("div", { style: { display: "flex", gap: 8 } },
           React.createElement("button", { style: Object.assign({}, st.quickBtn, { background: "#1a1a1a", color: "#fff" }), onClick: downloadCSV }, "📥 CSVダウンロード"),
@@ -1434,13 +1562,11 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const am = ui.activeMemberId;
     const activeMember = data.members.find((m) => m.id === am);
 
-    // メンバー履歴詳細（カレンダー）
     if (am && activeMember) {
       const calMonth = ui.calMonth || today().slice(0, 7);
       const memberRecs = data.records.filter((r) => r.memberId === am);
       const monthRecs = memberRecs.filter((r) => r.date && r.date.slice(0, 7) === calMonth);
 
-      // 日付ごとにグループ化
       const dayMap = {};
       monthRecs.forEach((r) => {
         if (!dayMap[r.date]) dayMap[r.date] = [];
@@ -1448,14 +1574,12 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         dayMap[r.date].push({ ...r, part });
       });
 
-      // カレンダー構築
       const [year, month] = calMonth.split("-").map(Number);
-      const firstDay = new Date(year, month - 1, 1).getDay(); // 0=日
+      const firstDay = new Date(year, month - 1, 1).getDay();
       const daysInMonth = new Date(year, month, 0).getDate();
       const totalHours = memberRecs.reduce((a, r) => a + r.hours, 0);
       const monthHours = monthRecs.reduce((a, r) => a + r.hours, 0);
 
-      // 前月・次月
       const prevMonth = month === 1 ? year - 1 + "-12" : year + "-" + String(month - 1).padStart(2, "0");
       const nextMonth = month === 12 ? year + 1 + "-01" : year + "-" + String(month + 1).padStart(2, "0");
       const isCurrentMonth = calMonth === today().slice(0, 7);
@@ -1470,28 +1594,23 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         React.createElement(Header, { title: activeMember.name, back: () => set({ activeMemberId: null, calMonth: null }) }),
         React.createElement(Body, null,
 
-          // サマリー
           React.createElement("div", { style: st.grid2 },
             React.createElement(SBox, { label: "累計作業時間", value: totalHours.toFixed(1) + "h" }),
             React.createElement(SBox, { label: calMonth.replace("-", "年") + "月の作業時間", value: monthHours > 0 ? monthHours.toFixed(1) + "h" : "—" })
           ),
 
-          // 月切り替え
           React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 } },
             React.createElement("button", { style: Object.assign({}, st.ghostBtn, { padding: "8px 16px", fontSize: 16 }), onClick: () => set({ calMonth: prevMonth }) }, "‹"),
             React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, year + "年" + month + "月"),
             React.createElement("button", { style: Object.assign({}, st.ghostBtn, { padding: "8px 16px", fontSize: 16, opacity: isCurrentMonth ? 0.3 : 1 }), disabled: isCurrentMonth, onClick: () => !isCurrentMonth && set({ calMonth: nextMonth }) }, "›")
           ),
 
-          // カレンダーグリッド
           React.createElement("div", { style: { background: "#fff", borderRadius: 12, padding: "12px", boxShadow: "0 1px 4px rgba(0,0,0,.06)", marginBottom: 16 } },
-            // 曜日ヘッダー
             React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 6 } },
               ["日", "月", "火", "水", "木", "金", "土"].map((d, i) =>
                 React.createElement("div", { key: d, style: { textAlign: "center", fontSize: 11, fontWeight: 700, color: i === 0 ? "#c00" : i === 6 ? "#3b6fd4" : "#aaa", padding: "4px 0" } }, d)
               )
             ),
-            // 日付セル
             React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 } },
               days.map((d, i) => {
                 if (!d) return React.createElement("div", { key: "empty-" + i });
@@ -1521,7 +1640,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             )
           ),
 
-          // 選択日の詳細 or 月の作業一覧
           ui.calSelectedDate && ui.calSelectedDate.slice(0, 7) === calMonth
             ? React.createElement("div", null,
                 React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } },
@@ -1562,7 +1680,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       );
     }
 
-    // メンバー一覧
     return React.createElement(Shell, null,
       React.createElement(Header, { title: "メンバー管理", back: () => set({ screen: "home" }) }),
       React.createElement(Body, null,
@@ -1650,9 +1767,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const sb = ui.selectedBrandId;
     const selectedBrand = brands.find((b) => b.id === sb);
 
-    // ブランド未選択：ブランド選択画面
     if (!sb) {
-      // ブランドごとの進行中件数を集計
       const brandCounts = {};
       partSummary.forEach((p) => {
         if (!p.brandId) return;
@@ -1660,7 +1775,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         if (p.closedAt) brandCounts[p.brandId].done++;
         else brandCounts[p.brandId].active++;
       });
-      // ブランド未設定の品番
       const noBrandActive = partSummary.filter((p) => !p.brandId && !p.closedAt).length;
       const noBrandDone = partSummary.filter((p) => !p.brandId && p.closedAt).length;
 
@@ -1717,7 +1831,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       );
     }
 
-    // ブランド選択済み：品番一覧
     const isNone = sb === "__none__";
     const filtered = isNone
       ? partSummary.filter((p) => !p.brandId)
@@ -1730,7 +1843,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       (b.closedAt || "").localeCompare(a.closedAt || "")
     );
 
-    // サマリー集計
     const activeSales = activeList.filter((p) => p.assigneeType !== "outsource").reduce((a, p) => a + p.totalSales, 0);
     const activeHours = activeList.filter((p) => p.assigneeType !== "outsource").reduce((a, p) => a + p.totalHours, 0);
     const doneSales = doneList.filter((p) => p.assigneeType !== "outsource").reduce((a, p) => a + p.totalSales, 0);
@@ -1742,7 +1854,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       }),
       React.createElement(Body, null,
 
-        // サマリーボックス
         React.createElement("div", { style: st.grid2 },
           React.createElement(SBox, { label: "納品前 品番数", value: activeList.length + "件" }),
           React.createElement(SBox, { label: "納品済み 品番数", value: doneList.length + "件" }),
@@ -1750,7 +1861,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement(SBox, { label: "納品済み 売上合計", value: "¥" + Math.round(doneSales).toLocaleString(), dark: true })
         ),
 
-        // 納品前
         React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8, marginTop: 8 } },
           React.createElement("div", { style: { background: "#fff3e0", color: "#c25000", fontSize: 12, fontWeight: 700, padding: "4px 12px", borderRadius: 20 } }, "📦 納品前　" + activeList.length + "件")
         ),
@@ -1786,7 +1896,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
               )
             )),
 
-        // 納品済み
         React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8, marginTop: 20 } },
           React.createElement("div", { style: { background: "#e8f5e8", color: "#2a7a2a", fontSize: 12, fontWeight: 700, padding: "4px 12px", borderRadius: 20 } }, "✅ 納品済み　" + doneList.length + "件")
         ),
@@ -1903,15 +2012,11 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const prevMonth = month === 1 ? (year - 1) + "-12" : year + "-" + String(month - 1).padStart(2, "0");
     const nextMonth = month === 12 ? (year + 1) + "-01" : year + "-" + String(month + 1).padStart(2, "0");
 
-    // qtyRecords を完成日ごとに集計（売上 = 枚数 × 単価）
-    // チームフィルター対応
     const salesByDate = {};
-    // 量産：完成枚数記録ベース（サンプルは除外）
     (data.qtyRecords || []).forEach((r) => {
       if (!r.date || r.date.slice(0, 7) !== sMonth) return;
       const part = data.parts.find((p) => p.id === r.partId);
       if (!part || part.kind === "sample") return;
-      // チーム絞り込み
       if (sTeam !== "all") {
         if (part.assigneeType !== "team" || part.assignee !== sTeam) return;
       }
@@ -1921,7 +2026,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       salesByDate[r.date].qty += (r.qty || 0);
       salesByDate[r.date].items.push({ part, qty: r.qty, sale, team: part.assignee });
     });
-    // サンプル：完了日にサンプル代を計上
     data.parts.forEach((part) => {
       if (part.kind !== "sample" || !part.closedAt) return;
       if (part.closedAt.slice(0, 7) !== sMonth) return;
@@ -1953,27 +2057,23 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       React.createElement(Header, { title: "💰 売上カレンダー", back: () => set({ screen: "home" }) }),
       React.createElement(Body, null,
 
-        // チーム切り替え
         React.createElement("div", { style: st.filterRow },
           React.createElement("button", { style: Object.assign({}, st.filterBtn, sTeam === "all" ? st.filterBtnActive : {}), onClick: () => set({ salesTeam: "all", salesSelectedDate: null }) }, "社内全体"),
           TEAMS.map((t) => React.createElement("button", { key: t, style: Object.assign({}, st.filterBtn, sTeam === t ? st.filterBtnActive : {}), onClick: () => set({ salesTeam: t, salesSelectedDate: null }) }, t))
         ),
 
-        // 月切り替え
         React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 } },
           React.createElement("button", { style: Object.assign({}, st.ghostBtn, { padding: "8px 16px", fontSize: 16 }), onClick: () => set({ salesMonth: prevMonth, salesSelectedDate: null }) }, "‹"),
           React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, year + "年" + month + "月"),
           React.createElement("button", { style: Object.assign({}, st.ghostBtn, { padding: "8px 16px", fontSize: 16 }), onClick: () => set({ salesMonth: nextMonth, salesSelectedDate: null }) }, "›")
         ),
 
-        // 月合計
         React.createElement("div", { style: { background: "#1a1a1a", color: "#fff", borderRadius: 12, padding: "16px 18px", marginBottom: 12 } },
           React.createElement("div", { style: { fontSize: 11, opacity: 0.55, marginBottom: 4 } }, (sTeam === "all" ? "社内全体" : sTeam) + "　" + month + "月の完成売上"),
           React.createElement("div", { style: { fontSize: 28, fontWeight: 700 } }, "¥" + Math.round(monthSales).toLocaleString()),
           React.createElement("div", { style: { fontSize: 12, opacity: 0.6, marginTop: 4 } }, "完成 " + monthQty.toLocaleString() + "枚")
         ),
 
-        // カレンダー
         React.createElement("div", { style: { background: "#fff", borderRadius: 12, padding: "10px", boxShadow: "0 1px 4px rgba(0,0,0,.06)", marginBottom: 16 } },
           React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 6 } },
             ["日","月","火","水","木","金","土"].map((d, i) =>
@@ -2008,7 +2108,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           )
         ),
 
-        // 選択日の詳細
         ui.salesSelectedDate && salesByDate[ui.salesSelectedDate] && React.createElement("div", null,
           React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } },
             React.createElement("div", { style: st.sectionLabel }, ui.salesSelectedDate.slice(5).replace("-", "/") + " の完成売上"),
@@ -2160,7 +2259,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const prevMonth = month === 1 ? (year - 1) + "-12" : year + "-" + String(month - 1).padStart(2, "0");
     const nextMonth = month === 12 ? (year + 1) + "-01" : year + "-" + String(month + 1).padStart(2, "0");
 
-    // 納期がこの月の品番を日付ごとにまとめる
     const dlByDate = {};
     partSummary.forEach((p) => {
       if (!p.deadline || p.deadline.slice(0, 7) !== dlMonth) return;
@@ -2168,7 +2266,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       dlByDate[p.deadline].push(p);
     });
     const monthDlCount = Object.values(dlByDate).reduce((a, arr) => a + arr.length, 0);
-    // この月が納期の品番の予定売上合計
     const dlPlannedSales = Object.values(dlByDate).reduce((a, arr) => a + arr.reduce((b, p) => {
       const sale = p.assigneeType === "outsource" ? (p.sellPrice || 0) * (p.qty || 0) : (p.unitPrice || 0) * (p.qty || 0);
       return b + sale;
@@ -2188,20 +2285,17 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       React.createElement(Header, { title: "📅 納期カレンダー", back: () => set({ screen: "home" }) }),
       React.createElement(Body, null,
 
-        // 月切り替え
         React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 } },
           React.createElement("button", { style: Object.assign({}, st.ghostBtn, { padding: "8px 16px", fontSize: 16 }), onClick: () => set({ dlMonth: prevMonth, dlSelectedDate: null }) }, "‹"),
           React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, year + "年" + month + "月　納期 " + monthDlCount + "件"),
           React.createElement("button", { style: Object.assign({}, st.ghostBtn, { padding: "8px 16px", fontSize: 16 }), onClick: () => set({ dlMonth: nextMonth, dlSelectedDate: null }) }, "›")
         ),
 
-        // この月納期の予定売上合計
         monthDlCount > 0 && React.createElement("div", { style: { background: "#1a1a1a", color: "#fff", borderRadius: 10, padding: "12px 16px", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" } },
           React.createElement("span", { style: { fontSize: 12, opacity: 0.6 } }, "この月納期の予定売上合計"),
           React.createElement("span", { style: { fontSize: 20, fontWeight: 700 } }, "¥" + Math.round(dlPlannedSales).toLocaleString())
         ),
 
-        // チーム色凡例
         React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12, fontSize: 11 } },
           TEAMS.map((t) => React.createElement("div", { key: t, style: { display: "flex", alignItems: "center", gap: 4 } },
             React.createElement("div", { style: { width: 10, height: 10, borderRadius: 3, background: TEAM_COLORS[t] } }),
@@ -2213,7 +2307,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           )
         ),
 
-        // カレンダー
         React.createElement("div", { style: { background: "#fff", borderRadius: 12, padding: "10px", boxShadow: "0 1px 4px rgba(0,0,0,.06)", marginBottom: 16 } },
           React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 6 } },
             ["日","月","火","水","木","金","土"].map((d, i) =>
@@ -2256,7 +2349,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           )
         ),
 
-        // 選択日の詳細
         ui.dlSelectedDate && dlByDate[ui.dlSelectedDate] && React.createElement("div", null,
           React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } },
             React.createElement("div", { style: st.sectionLabel }, ui.dlSelectedDate.slice(5).replace("-", "/") + " 納期の品番"),
@@ -2277,7 +2369,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           )
         ),
 
-        // 納期未設定の注意
         !ui.dlSelectedDate && monthDlCount === 0 && React.createElement(Empty, null, year + "年" + month + "月が納期の品番はありません")
       ),
       React.createElement(SI)
@@ -2547,7 +2638,6 @@ function Empty(p) { return React.createElement("div", { style: st.empty }, p.chi
 function FormRow(p) { return React.createElement("div", { style: { marginBottom: 14 } }, React.createElement("div", { style: { fontSize: 11, color: "#888", marginBottom: 4 } }, p.label), p.children); }
 function SBox(p) { return React.createElement("div", { style: Object.assign({}, st.sBox, { background: p.dark ? "#1a1a1a" : "#fff" }) }, React.createElement("div", { style: { fontSize: 10, color: p.dark ? "#777" : "#aaa", marginBottom: 5 } }, p.label), React.createElement("div", { style: { fontSize: 15, fontWeight: 700, color: p.dark ? "#fff" : "#1a1a1a" } }, p.value)); }
 function Badge(p) {
-  // part が渡されればステータスで3段階判定、なければ従来の type 判定
   if (p.part) {
     if (p.part.closedAt) return React.createElement("span", { style: { background: "#e8f5e8", color: "#2a7a2a", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700, whiteSpace: "nowrap" } }, "完了");
     const status = p.part.status || "未着手";
@@ -2903,7 +2993,6 @@ function KoteiEditor(props) {
     d.open(); d.write(html); d.close();
   }
 
-  // Drive画像の取得（imgId → base64 に解決）
   useEffect(function () {
     const ids = blocks.filter(function (b) { return b.type === "sketch" && b.imgId && !imgData[b.imgId]; }).map(function (b) { return b.imgId; });
     if (ids.length === 0) return;
@@ -2912,7 +3001,6 @@ function KoteiEditor(props) {
     });
   }, [blocks]);
 
-  // 図モーダル初期化
   useEffect(function () {
     if (modalId == null) return;
     const blk = blocks.find(function (b) { return b.id === modalId; });
@@ -2974,7 +3062,6 @@ function KoteiEditor(props) {
 
   const sz = { s: { w: "140px", h: "96px" }, m: { w: "230px", h: "150px" }, l: { w: "100%", h: "240px" } };
 
-  // ── 工程行
   function renderStep(b) {
     const cats = Object.keys(props.phraseCats || {}); if (histPhrases.length) cats.push("履歴");
     const baseList = suggCat === "履歴" ? histPhrases : ((props.phraseCats || {})[suggCat] || []);
@@ -3024,7 +3111,6 @@ function KoteiEditor(props) {
     );
   }
 
-  // ── 図ブロック
   function renderSketch(b) {
     const s = sz[b.size || "s"];
     return React.createElement("div", { key: b.id, style: { position: "relative", borderBottom: "1px solid " + K_LINE, padding: "10px 0 12px" } },
@@ -3052,7 +3138,6 @@ function KoteiEditor(props) {
   }
   const mvBtn = { width: 30, height: 30, border: "1px solid " + K_LINE, background: "#fff", borderRadius: 7, fontSize: 14, color: "#555" };
 
-  // ── 集計
   function renderSummary() {
     const tot = summary.tot, map = summary.map;
     const rows = Object.keys(map).map(function (p) { const o = map[p]; const pct = tot ? Math.round(o.s / tot * 100) : 0; return { p: p, n: o.n, s: o.s, pct: pct }; });
@@ -3085,7 +3170,6 @@ function KoteiEditor(props) {
   const thKotei = { border: "1px solid #eee", padding: "6px 8px", background: K_PARTBG, color: K_PART, textAlign: "center" };
   const tdKotei = { border: "1px solid #eee", padding: "6px 8px", textAlign: "center" };
 
-  // ── 図モーダル
   function renderModal() {
     const penBtn = function (c, label) { return React.createElement("button", { style: { width: 30, height: 30, borderRadius: "50%", border: "2px solid #fff", boxShadow: "0 0 0 1px " + K_LINE + (((tool === "ink" && c === K_INK) || (tool === "time" && c === K_TIME) || (tool === "note" && c === K_NOTE)) ? ",0 0 0 3px " + K_PART : ""), background: c, padding: 0 }, onClick: function () { pickTool(c === K_TIME ? "time" : c === K_NOTE ? "note" : "ink"); }, title: label }); };
     return React.createElement("div", { style: { position: "fixed", inset: 0, zIndex: 100, background: "rgba(20,20,20,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12 } },
