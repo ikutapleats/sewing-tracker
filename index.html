@@ -1,28 +1,70 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>作業実績管理 - IQUTA PLEATS</title>
-  <link rel="icon" href="favicon.png" />
-  <link rel="apple-touch-icon" href="icon-192.png" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
-  <meta name="apple-mobile-web-app-title" content="IQUTA" />
-  <link rel="manifest" href="manifest.json" />
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { background: #f5f4f0; overflow-x: hidden; width: 100%; max-width: 100%; }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
+<title>作業実績管理 | IKUTA PLEATS</title>
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
+<style>
+  html, body { margin: 0; padding: 0; background: #f5f4f0; -webkit-text-size-adjust: 100%; }
+  #root { min-height: 100vh; }
+  #boot { font-family: 'Hiragino Sans','Noto Sans JP',sans-serif; color: #aaa; text-align: center; padding-top: 42vh; font-size: 14px; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
 </head>
 <body>
-  <div id="root"></div>
-  <script type="text/babel" src="sewing-tracker.jsx"></script>
-  <script type="text/babel">
-    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
-  </script>
+<div id="root"><div id="boot">読み込み中...</div></div>
+<script>
+(function () {
+  // ▼ JSXのファイル名。ファイル名を変えた場合はここだけ直してください。
+  var JSX_FILE = "sewing-tracker.jsx";
+
+  function showError(msg) {
+    var r = document.getElementById("root");
+    if (r) {
+      r.innerHTML =
+        '<div style="font-family:sans-serif;color:#c00;padding:24px;font-size:14px;line-height:1.7;text-align:center">' +
+        'アプリの読み込みに失敗しました。<br>通信状況を確認して、ページを開き直してください。' +
+        '<br><br><span style="color:#999;font-size:12px">' + (msg || "") + '</span></div>';
+    }
+  }
+
+  // 毎回ユニークなURLにして、ブラウザのキャッシュを必ず回避する
+  var url = JSX_FILE + "?t=" + Date.now();
+
+  fetch(url, { cache: "no-store" })
+    .then(function (res) {
+      if (!res.ok) throw new Error("読み込みエラー HTTP " + res.status);
+      return res.text();
+    })
+    .then(function (code) {
+      var out;
+      try {
+        out = Babel.transform(code, { presets: ["react"] }).code;
+      } catch (e) {
+        throw new Error("変換エラー: " + (e && e.message ? e.message : e));
+      }
+      // JSXは末尾まで読み込んだあと App を返してもらう
+      var factory = new Function("React", "ReactDOM", out + "\n;return App;");
+      var App = factory(React, ReactDOM);
+      if (typeof App !== "function") throw new Error("App が見つかりません");
+      var root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(React.createElement(App));
+    })
+    .catch(function (e) {
+      showError(e && e.message ? e.message : String(e));
+    });
+})();
+</script>
 </body>
 </html>
