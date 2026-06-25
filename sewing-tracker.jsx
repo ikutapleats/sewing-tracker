@@ -38,6 +38,7 @@ const INIT_UI = {
   prevScreen: "master",
   dashFilter: "active",
   selectedBrandId: null,
+  activeBrandId: null,
   activeMemberId: null,
   activeVendorId: null,
   calMonth: null,
@@ -1987,16 +1988,124 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           )
         )
       ),
-      React.createElement(SectionLabel, null, "ブランド一覧（" + (data.brands || []).length + "件）"),
+      React.createElement(SectionLabel, null, "ブランド一覧（" + (data.brands || []).length + "件）　タップで品番ごとの時間単価を確認"),
       (data.brands || []).length === 0 && React.createElement(Empty, null, "ブランドが登録されていません"),
-      (data.brands || []).map((b) => React.createElement("div", { key: b.id, style: st.memberRow },
-        ui.editBrandId === b.id
-          ? React.createElement(React.Fragment, null, React.createElement("input", { style: Object.assign({}, st.input, { flex: 1, fontSize: 14 }), value: ui.editBrandName, onChange: (e) => set({ editBrandName: e.target.value }) }), React.createElement("button", { style: st.inlineBtn, onClick: saveBrandName }, "保存"), React.createElement("button", { style: st.ghostBtn, onClick: () => set({ editBrandId: null }) }, "取消"))
-          : React.createElement(React.Fragment, null, React.createElement("span", { style: { flex: 1, fontSize: 14, fontWeight: 600 } }, b.name), React.createElement("button", { style: st.ghostBtn, onClick: () => set({ editBrandId: b.id, editBrandName: b.name }) }, "編集"), React.createElement("button", { style: Object.assign({}, st.ghostBtn, { color: "#c00" }), onClick: () => deleteBrand(b.id) }, "削除"))
-      ))
+      (data.brands || []).map((b) => {
+        const bp = partSummary.filter((p) => p.brandId === b.id && p.assigneeType !== "outsource");
+        const sales = bp.reduce((a, p) => a + p.totalSales, 0);
+        const hrs = bp.reduce((a, p) => a + p.totalHours, 0);
+        const rate = hrs > 0 ? sales / hrs : null;
+        return React.createElement("div", { key: b.id, style: st.memberRow },
+          ui.editBrandId === b.id
+            ? React.createElement(React.Fragment, null, React.createElement("input", { style: Object.assign({}, st.input, { flex: 1, fontSize: 14 }), value: ui.editBrandName, onChange: (e) => set({ editBrandName: e.target.value }) }), React.createElement("button", { style: st.inlineBtn, onClick: saveBrandName }, "保存"), React.createElement("button", { style: st.ghostBtn, onClick: () => set({ editBrandId: null }) }, "取消"))
+            : React.createElement(React.Fragment, null,
+                React.createElement("button", { style: { flex: 1, background: "none", border: "none", textAlign: "left", cursor: "pointer", padding: 0 }, onClick: () => set({ activeBrandId: b.id, screen: "brand_detail" }) },
+                  React.createElement("div", { style: { fontSize: 14, fontWeight: 600 } }, b.name),
+                  React.createElement("div", { style: { fontSize: 11, color: rate !== null ? "#2a7a2a" : "#bbb", marginTop: 2, fontWeight: 700 } }, rate !== null ? "時間単価 ¥" + Math.round(rate).toLocaleString() + "/h" : "実績なし")
+                ),
+                React.createElement("button", { style: st.ghostBtn, onClick: () => set({ editBrandId: b.id, editBrandName: b.name }) }, "編集"),
+                React.createElement("button", { style: Object.assign({}, st.ghostBtn, { color: "#c00" }), onClick: () => deleteBrand(b.id) }, "削除")
+              )
+        );
+      }),
+      (function () {
+        const bp = partSummary.filter((p) => !p.brandId && p.assigneeType !== "outsource");
+        if (bp.length === 0) return null;
+        const sales = bp.reduce((a, p) => a + p.totalSales, 0);
+        const hrs = bp.reduce((a, p) => a + p.totalHours, 0);
+        const rate = hrs > 0 ? sales / hrs : null;
+        return React.createElement("button", { style: Object.assign({}, st.memberRow, { width: "100%", border: "none", cursor: "pointer", background: "#f5f4f0" }), onClick: () => set({ activeBrandId: "__none__", screen: "brand_detail" }) },
+          React.createElement("div", { style: { flex: 1, textAlign: "left" } },
+            React.createElement("div", { style: { fontSize: 14, fontWeight: 600, color: "#888" } }, "（ブランド未設定）"),
+            React.createElement("div", { style: { fontSize: 11, color: rate !== null ? "#2a7a2a" : "#bbb", marginTop: 2, fontWeight: 700 } }, rate !== null ? "時間単価 ¥" + Math.round(rate).toLocaleString() + "/h" : "実績なし")
+          ),
+          React.createElement("span", { style: { color: "#ccc" } }, "›")
+        );
+      })()
     ),
     React.createElement(SI)
   );
+
+  if (ui.screen === "brand_detail" && ui.activeBrandId) {
+    const bid = ui.activeBrandId;
+    const isNone = bid === "__none__";
+    const brand = isNone ? { name: "（ブランド未設定）" } : (data.brands || []).find((b) => b.id === bid);
+    if (!brand) { set({ activeBrandId: null, screen: "brand_mgmt" }); return null; }
+    const bparts = partSummary.filter((p) => isNone ? !p.brandId : p.brandId === bid);
+    const inHouse = bparts.filter((p) => p.assigneeType !== "outsource");
+    const outParts = bparts.filter((p) => p.assigneeType === "outsource");
+
+    const totSales = inHouse.reduce((a, p) => a + p.totalSales, 0);
+    const totHours = inHouse.reduce((a, p) => a + p.totalHours, 0);
+    const totRate = totHours > 0 ? totSales / totHours : null;
+    const outProfit = outParts.reduce((a, p) => a + (p.profit || 0), 0);
+
+    const byMonth = {};
+    bparts.forEach((p) => { const m = p.workMonth || "未設定"; if (!byMonth[m]) byMonth[m] = []; byMonth[m].push(p); });
+    const months = Object.keys(byMonth).sort((a, b) => b.localeCompare(a));
+    const monthLabel = (m) => m === "未設定" ? "仕掛り月 未設定" : (m.replace("-", "年") + "月");
+
+    return React.createElement(Shell, null,
+      React.createElement(Header, { title: "🏷 " + brand.name, back: () => set({ activeBrandId: null, screen: "brand_mgmt" }) }),
+      React.createElement(Body, null,
+
+        bparts.length === 0
+          ? React.createElement("div", { style: Object.assign({}, st.card, { textAlign: "center", color: "#bbb", padding: 24 }) }, "このブランドの品番はありません")
+          : React.createElement("div", null,
+
+              React.createElement("div", { style: { background: "#1a1a1a", color: "#fff", borderRadius: 12, padding: "16px 18px", marginBottom: 12 } },
+                React.createElement("div", { style: { fontSize: 11, opacity: 0.55, marginBottom: 4 } }, "自社縫製の時間単価（売上 ÷ 作業時間）"),
+                React.createElement("div", { style: { fontSize: 28, fontWeight: 700, color: "#7dff7d" } }, totRate !== null ? "¥" + Math.round(totRate).toLocaleString() + "/h" : "—"),
+                React.createElement("div", { style: { fontSize: 12, opacity: 0.6, marginTop: 6, borderTop: "1px solid #444", paddingTop: 8 } },
+                  "社内 売上 ¥" + Math.round(totSales).toLocaleString() + "　/　作業 " + totHours.toFixed(1) + "h" + (outParts.length ? "　/　外注利益 ¥" + Math.round(outProfit).toLocaleString() : "")
+                )
+              ),
+              React.createElement("div", { style: st.grid2 },
+                React.createElement(SBox, { label: "品番数", value: bparts.length + "件" }),
+                React.createElement(SBox, { label: "納品済み", value: bparts.filter((p) => p.closedAt).length + " / " + bparts.length + "件" })
+              ),
+
+              React.createElement(SectionLabel, null, "月ごと・品番ごとの時間単価"),
+              months.map((m) => {
+                const list = byMonth[m].slice().sort((a, b) => { if (!a.deadline) return 1; if (!b.deadline) return -1; return a.deadline.localeCompare(b.deadline); });
+                const mIn = list.filter((p) => p.assigneeType !== "outsource");
+                const mSales = mIn.reduce((a, p) => a + p.totalSales, 0);
+                const mHours = mIn.reduce((a, p) => a + p.totalHours, 0);
+                const mRate = mHours > 0 ? mSales / mHours : null;
+                return React.createElement("div", { key: m, style: st.monthlyCard },
+                  React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } },
+                    React.createElement("span", { style: { fontSize: 14, fontWeight: 700 } }, monthLabel(m)),
+                    React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: mRate !== null ? "#2a7a2a" : "#bbb" } }, mRate !== null ? "¥" + Math.round(mRate).toLocaleString() + "/h" : "実績なし")
+                  ),
+                  list.map((p) => {
+                    const isOut = p.assigneeType === "outsource";
+                    return React.createElement("button", { key: p.id, style: Object.assign({}, st.summaryCard, { textAlign: "left", marginBottom: 8 }), onClick: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "brand_detail" }) },
+                      React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } },
+                        React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+                          React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, p.partNo + (p.partName ? " " + p.partName : "")),
+                          React.createElement("div", { style: { fontSize: 11, color: "#888", marginTop: 2 } }, (isOut ? "外注: " + (p.vendorName || "?") : (p.assignee || "未割当")) + "　" + p.qty + "枚" + (p.closedAt ? "　✅納品済み" : ""))
+                        ),
+                        React.createElement("div", { style: { textAlign: "right" } },
+                          isOut
+                            ? React.createElement(React.Fragment, null,
+                                React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: "#0f3d4a" } }, "利益 ¥" + (p.profit !== null ? Math.round(p.profit).toLocaleString() : "—")),
+                                React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginTop: 2 } }, p.profitRate !== null ? "利益率 " + p.profitRate.toFixed(1) + "%" : "")
+                              )
+                            : React.createElement(React.Fragment, null,
+                                React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: p.totalHours > 0 ? "#2a7a2a" : "#bbb" } }, p.totalHours > 0 ? "¥" + Math.round(p.hourlyRate).toLocaleString() + "/h" : "実績なし"),
+                                React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginTop: 2 } }, "売上¥" + Math.round(p.totalSales).toLocaleString() + "・" + p.totalHours.toFixed(1) + "h")
+                              )
+                        )
+                      )
+                    );
+                  })
+                );
+              })
+            )
+      ),
+      React.createElement(SI)
+    );
+  }
 
   if (ui.screen === "brand_jobs") {
     const brands = data.brands || [];
