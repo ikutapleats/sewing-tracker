@@ -1355,7 +1355,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const toggleOpen = (key) => set({ kEntryOpen: Object.assign({}, ui.kEntryOpen, { [key]: !ui.kEntryOpen[key] }) });
     // 工程1行（番号＋作業内容＋時間＋枚数）
     const stepRow = (s) => React.createElement("div", { key: s.id, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6 } },
-      React.createElement("div", { style: { width: 26, textAlign: "center", fontSize: 15, fontWeight: 700, color: "#0f3d4a", flex: "none" } }, koteiCircNum(stepNo[s.id])),
+      React.createElement("div", { style: { width: 26, textAlign: "center", fontSize: 15, fontWeight: 700, color: "#0f3d4a", flex: "none" } }, koteiParenNum(stepNo[s.id])),
       React.createElement("div", { style: { flex: 1, minWidth: 0 } },
         React.createElement("div", { style: { fontSize: 13, color: "#333", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, s.act || "（無題の工程）"),
         React.createElement("div", { style: { fontSize: 10, color: "#aaa" } }, (s.part ? s.part + "　" : "") + fmtKoteiTime(parseKoteiTime(s.time)))
@@ -3163,6 +3163,7 @@ function parseKoteiTime(s) {
 function fmtKoteiTime(sec) { sec = Math.round(sec || 0); return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0"); }
 function lastKoteiToken(t) { const m = ("" + (t || "")).split(/[\n、・\s]/); return m[m.length - 1]; }
 function koteiCircNum(n) { return (n >= 1 && n <= 20) ? String.fromCharCode(0x2460 + n - 1) : ("(" + n + ")"); }
+function koteiParenNum(n) { return "(" + n + ")"; }
 function compressDataURL(dataURL, cb) {
   try {
     const img = new Image();
@@ -3421,7 +3422,7 @@ function KoteiEditor(props) {
       grp.items.forEach(function (b) {
         if (b.type === "step") {
           const sn = stepNoMap[b.id] ? ' <span class="stepno">' + stepNoMap[b.id].map(circNum).join("") + '</span>' : '';
-          txt += '<div class="prow"><span class="time">' + esc(b.time || "") + '</span><span class="act">' + circNum(stepSeqMap[b.id]) + ' ' + esc(b.act || "") + sn + '</span></div>';
+          txt += '<div class="prow"><span class="time">' + esc(b.time || "") + '</span><span class="act">' + '(' + stepSeqMap[b.id] + ') ' + esc(b.act || "") + sn + '</span></div>';
           if (b.note) txt += '<div class="note">⚠ ' + esc(b.note) + '</div>';
         } else {
           const src = b.imgId ? imgMap[b.imgId] : b.img;
@@ -3570,7 +3571,7 @@ function KoteiEditor(props) {
     return React.createElement("div", { key: b.id, style: { position: "relative", borderBottom: "1px solid " + K_LINE, padding: "10px 0 12px" } },
       React.createElement("div", { style: { display: "grid", gridTemplateColumns: "108px 1fr 78px", gap: 8, paddingRight: 76 } },
         React.createElement("div", null,
-          React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, React.createElement("span", { style: { color: K_PART, fontWeight: 700, fontSize: 13 } }, koteiCircNum(koteiStepNo[b.id])), " パーツ"),
+          React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, React.createElement("span", { style: { color: K_PART, fontWeight: 700, fontSize: 13 } }, koteiParenNum(koteiStepNo[b.id])), " パーツ"),
           React.createElement("select", { style: { width: "100%", height: 42, border: "1px solid " + K_LINE, borderRadius: 8, background: K_PARTBG, color: K_PART, fontWeight: 700, fontSize: 14, padding: "0 6px" }, value: b.part, onChange: function (e) { const v = e.target.value; if (v === "__new__") { const nv = window.prompt("新しいパーツ名を入力"); if (nv && nv.trim()) patchBlock(b.id, { part: nv.trim() }); } else { patchBlock(b.id, { part: v }); } } },
             React.createElement("option", { value: "" }, "—"),
             (function () { let list = (props.partList || KOTEI_PARTS).concat(props.extraParts || []); if (b.part && list.indexOf(b.part) < 0) list = list.concat([b.part]); return list; })().map(function (p) { return React.createElement("option", { key: p, value: p }, p); }),
