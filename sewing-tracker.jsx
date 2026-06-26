@@ -2578,8 +2578,15 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             React.createElement("input", { style: st.input, type: "number", min: "0", placeholder: "例: 45", value: f.massEstMin, onChange: (e) => setSampleF({ massEstMin: e.target.value }) }),
             actualPerUnit > 0 && React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginTop: 4 } }, "参考: このサンプルの実働は1着あたり約" + actualPerUnit.toFixed(0) + "分")
           ),
-          React.createElement(FormRow, { label: "担当チーム" },
-            React.createElement("select", { style: st.input, value: f.assignee, onChange: (e) => setSampleF({ assignee: e.target.value }) }, TEAMS.map((t) => React.createElement("option", { key: t }, t)))
+          React.createElement(FormRow, { label: "担当（チーム / 外注先）" },
+            React.createElement("select", { style: st.input, value: f.assignee, onChange: (e) => setSampleF({ assignee: e.target.value }) },
+              React.createElement("optgroup", { label: "社内チーム" },
+                TEAMS.map((t) => React.createElement("option", { key: t, value: t }, t))
+              ),
+              data.vendors.length > 0 && React.createElement("optgroup", { label: "外注先" },
+                data.vendors.map((v) => React.createElement("option", { key: v.id, value: v.name }, "外注: " + v.name))
+              )
+            )
           ),
           React.createElement(FormRow, { label: "担当者名" },
             (data.members || []).length === 0
