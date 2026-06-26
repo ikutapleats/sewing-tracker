@@ -65,6 +65,7 @@ const INIT_UI = {
   kEntryMode: "hours",
   kEntryPartId: "",
   kEntryQty: {},
+  kEntryOpen: {},
   vvAxis: "member",
   vvPeriod: "month",
   vvMonth: today().slice(0, 7),
@@ -1343,6 +1344,24 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       kg.steps.push(b);
     });
     const setGroupQty = (steps, v) => { const patch = {}; steps.forEach((s) => { patch[s.id] = v; }); setKQ(patch); };
+    // 全工程に上から通し番号
+    const stepNo = {}; selSteps.forEach((b, i) => { stepNo[b.id] = i + 1; });
+    // 案1：その人がその品番で過去に入力した工程（＝いつもの持ち場）。今も存在する工程だけ。
+    const usualIds = {};
+    if (f.memberId && f.partId) {
+      (data.koteiRecords || []).forEach((r) => { if (r.memberId === f.memberId && r.partId === f.partId) usualIds[r.stepId] = true; });
+    }
+    const usualSteps = selSteps.filter((b) => usualIds[b.id]);
+    const toggleOpen = (key) => set({ kEntryOpen: Object.assign({}, ui.kEntryOpen, { [key]: !ui.kEntryOpen[key] }) });
+    // 工程1行（番号＋作業内容＋時間＋枚数）
+    const stepRow = (s) => React.createElement("div", { key: s.id, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6 } },
+      React.createElement("div", { style: { width: 26, textAlign: "center", fontSize: 15, fontWeight: 700, color: "#0f3d4a", flex: "none" } }, koteiCircNum(stepNo[s.id])),
+      React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+        React.createElement("div", { style: { fontSize: 13, color: "#333", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, s.act || "（無題の工程）"),
+        React.createElement("div", { style: { fontSize: 10, color: "#aaa" } }, (s.part ? s.part + "　" : "") + fmtKoteiTime(parseKoteiTime(s.time)))
+      ),
+      React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid #d9d5c8", borderRadius: 8, padding: "8px 4px", fontSize: 15, background: "#fff" }, type: "number", min: "0", placeholder: "枚", value: (ui.kEntryQty || {})[s.id] || "", onChange: (e) => setKQ({ [s.id]: e.target.value }) })
+    );
     const hasQty = Object.keys(ui.kEntryQty || {}).some((id) => parseFloat((ui.kEntryQty || {})[id]) > 0);
     const ready = f.memberId && f.partId && ((f.hours && parseFloat(f.hours) > 0) || hasQty);
 
@@ -1378,25 +1397,34 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                 ),
                 f.partId && React.createElement(FormRow, { label: "作業時間（h）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3.5", min: "0", step: "0.5", value: f.hours, onChange: (e) => setMF({ hours: e.target.value }) })),
                 f.partId && selSheet && React.createElement("div", null,
-                  React.createElement("div", { style: { fontSize: 11, color: "#888", margin: "4px 0 8px" } }, "📐 工程ごとの枚数（やった工程だけ入力）"),
+                  usualSteps.length > 0 && React.createElement("div", { style: { background: "#eef3f4", borderRadius: 10, padding: "10px 12px", marginBottom: 10, border: "1px solid #cfe0e4" } },
+                    React.createElement("div", { style: { fontSize: 12, color: "#0f3d4a", fontWeight: 700, marginBottom: 8 } }, "⭐ 以前にやった工程"),
+                    usualSteps.map((s) => stepRow(s))
+                  ),
+                  React.createElement("div", { style: { fontSize: 11, color: "#888", margin: "4px 0 8px" } }, "📐 すべての工程（パーツ名をタップで開く）"),
                   kGroups.length === 0 && React.createElement("div", { style: { color: "#bbb", fontSize: 13 } }, "この品番の工程表に工程がありません"),
-                  kGroups.map((grp, gi) => React.createElement("div", { key: gi, style: { background: "#f5f4f0", borderRadius: 10, padding: "10px 12px", marginBottom: 10 } },
-                    React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 } },
-                      React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: "#0f3d4a" } }, grp.part),
-                      React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
-                        React.createElement("span", { style: { fontSize: 11, color: "#999" } }, "まとめて"),
-                        React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid #d9d5c8", borderRadius: 8, padding: "6px 4px", fontSize: 14 }, type: "number", min: "0", placeholder: "枚", onChange: (e) => setGroupQty(grp.steps, e.target.value) }),
-                        React.createElement("span", { style: { fontSize: 11, color: "#999" } }, "枚")
-                      )
-                    ),
-                    grp.steps.map((s) => React.createElement("div", { key: s.id, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6 } },
-                      React.createElement("div", { style: { flex: 1, minWidth: 0 } },
-                        React.createElement("div", { style: { fontSize: 13, color: "#333", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, s.act || "（無題の工程）"),
-                        React.createElement("div", { style: { fontSize: 10, color: "#aaa" } }, fmtKoteiTime(parseKoteiTime(s.time)))
+                  kGroups.map((grp, gi) => {
+                    const gkey = "g" + gi;
+                    const gopen = !!ui.kEntryOpen[gkey];
+                    const gfilled = grp.steps.filter((s) => parseFloat((ui.kEntryQty || {})[s.id]) > 0).length;
+                    return React.createElement("div", { key: gi, style: { background: "#f5f4f0", borderRadius: 10, marginBottom: 8, overflow: "hidden" } },
+                      React.createElement("button", { style: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "12px", background: "none", border: "none", cursor: "pointer" }, onClick: () => toggleOpen(gkey) },
+                        React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: "#0f3d4a" } }, grp.part + "（" + grp.steps.length + "工程）"),
+                        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+                          gfilled > 0 && React.createElement("span", { style: { fontSize: 11, color: "#0f3d4a", fontWeight: 700, background: "#cfe0e4", borderRadius: 10, padding: "2px 8px" } }, gfilled + "件入力済"),
+                          React.createElement("span", { style: { color: "#999", fontSize: 13 } }, gopen ? "▼" : "▶")
+                        )
                       ),
-                      React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid #d9d5c8", borderRadius: 8, padding: "8px 4px", fontSize: 15, background: "#fff" }, type: "number", min: "0", placeholder: "枚", value: (ui.kEntryQty || {})[s.id] || "", onChange: (e) => setKQ({ [s.id]: e.target.value }) })
-                    ))
-                  ))
+                      gopen && React.createElement("div", { style: { padding: "0 12px 10px" } },
+                        React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, marginBottom: 8 } },
+                          React.createElement("span", { style: { fontSize: 11, color: "#999" } }, "まとめて"),
+                          React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid #d9d5c8", borderRadius: 8, padding: "6px 4px", fontSize: 14 }, type: "number", min: "0", placeholder: "枚", onChange: (e) => setGroupQty(grp.steps, e.target.value) }),
+                          React.createElement("span", { style: { fontSize: 11, color: "#999" } }, "枚")
+                        ),
+                        grp.steps.map((s) => stepRow(s))
+                      )
+                    );
+                  })
                 ),
                 f.partId && !selSheet && React.createElement("div", { style: { fontSize: 11, color: "#bbb", margin: "4px 0 8px" } }, "この品番は工程表がないため、時間のみ記録します"),
                 f.partId && React.createElement("button", { style: Object.assign({}, st.primaryBtn, { background: "#0f3d4a", opacity: ready ? 1 : 0.35 }), disabled: !ready, onClick: saveEntry }, "記録する")
@@ -3134,6 +3162,7 @@ function parseKoteiTime(s) {
 }
 function fmtKoteiTime(sec) { sec = Math.round(sec || 0); return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0"); }
 function lastKoteiToken(t) { const m = ("" + (t || "")).split(/[\n、・\s]/); return m[m.length - 1]; }
+function koteiCircNum(n) { return (n >= 1 && n <= 20) ? String.fromCharCode(0x2460 + n - 1) : ("(" + n + ")"); }
 function compressDataURL(dataURL, cb) {
   try {
     const img = new Image();
@@ -3304,8 +3333,9 @@ function KoteiEditor(props) {
     });
     const circNum = function (n) { return (n >= 1 && n <= 20) ? String.fromCharCode(0x2460 + n - 1) : "(" + n + ")"; };
     let figSeq = 0; const figNoMap = {}; const stepNoMap = {}; let lastStepId = null;
+    let stepSeq = 0; const stepSeqMap = {};
     blocks.forEach(function (b) {
-      if (b.type === "step") { lastStepId = b.id; }
+      if (b.type === "step") { lastStepId = b.id; stepSeq++; stepSeqMap[b.id] = stepSeq; }
       else if (b.type === "sketch" && (b.imgId || b.img)) { figSeq++; figNoMap[b.id] = figSeq; if (lastStepId) { if (!stepNoMap[lastStepId]) stepNoMap[lastStepId] = []; stepNoMap[lastStepId].push(figSeq); } }
     });
     let proc = "";
@@ -3315,7 +3345,7 @@ function KoteiEditor(props) {
       grp.items.forEach(function (b) {
         if (b.type === "step") {
           const sn = stepNoMap[b.id] ? ' <span class="stepno">' + stepNoMap[b.id].map(circNum).join("") + '</span>' : '';
-          txt += '<div class="prow"><span class="time">' + esc(b.time || "") + '</span><span class="act">' + esc(b.act || "") + sn + '</span></div>';
+          txt += '<div class="prow"><span class="time">' + esc(b.time || "") + '</span><span class="act">' + circNum(stepSeqMap[b.id]) + ' ' + esc(b.act || "") + sn + '</span></div>';
           if (b.note) txt += '<div class="note">⚠ ' + esc(b.note) + '</div>';
         } else {
           const src = b.imgId ? imgMap[b.imgId] : b.img;
@@ -3429,6 +3459,8 @@ function KoteiEditor(props) {
 
   const sz = { s: { w: "140px", h: "96px" }, m: { w: "230px", h: "150px" }, l: { w: "100%", h: "240px" } };
 
+  const koteiStepNo = {}; (function () { let n = 0; blocks.forEach(function (b) { if (b.type === "step") { n++; koteiStepNo[b.id] = n; } }); })();
+
   function renderStep(b) {
     const cats = Object.keys(props.phraseCats || {}); if (histPhrases.length) cats.push("履歴");
     const baseList = suggCat === "履歴" ? histPhrases : ((props.phraseCats || {})[suggCat] || []);
@@ -3437,7 +3469,7 @@ function KoteiEditor(props) {
     return React.createElement("div", { key: b.id, style: { position: "relative", borderBottom: "1px solid " + K_LINE, padding: "10px 0 12px" } },
       React.createElement("div", { style: { display: "grid", gridTemplateColumns: "108px 1fr 78px", gap: 8, paddingRight: 76 } },
         React.createElement("div", null,
-          React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "パーツ"),
+          React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, React.createElement("span", { style: { color: K_PART, fontWeight: 700, fontSize: 13 } }, koteiCircNum(koteiStepNo[b.id])), " パーツ"),
           React.createElement("select", { style: { width: "100%", height: 42, border: "1px solid " + K_LINE, borderRadius: 8, background: K_PARTBG, color: K_PART, fontWeight: 700, fontSize: 14, padding: "0 6px" }, value: b.part, onChange: function (e) { const v = e.target.value; if (v === "__new__") { const nv = window.prompt("新しいパーツ名を入力"); if (nv && nv.trim()) patchBlock(b.id, { part: nv.trim() }); } else { patchBlock(b.id, { part: v }); } } },
             React.createElement("option", { value: "" }, "—"),
             (function () { let list = (props.partList || KOTEI_PARTS).concat(props.extraParts || []); if (b.part && list.indexOf(b.part) < 0) list = list.concat([b.part]); return list; })().map(function (p) { return React.createElement("option", { key: p, value: p }, p); }),
