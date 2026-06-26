@@ -3192,6 +3192,8 @@ function fetchKoteiImage(id) {
 function KoteiEditor(props) {
   const part = props.part, sheet = props.sheet;
   const [needle, setNeedle] = useState((sheet && sheet.needle) || "");
+  const [unten, setUnten] = useState((sheet && sheet.unten) || "");
+  const [thread, setThread] = useState((sheet && sheet.thread) || "");
   const [targetPerDay, setTargetPerDay] = useState((sheet && sheet.targetPerDay) || "");
   const [workMin, setWorkMin] = useState((sheet && sheet.workMin) || 420);
   const [sizes, setSizes] = useState((sheet && sheet.sizes) || ["XS", "S", "M", "L"]);
@@ -3210,6 +3212,79 @@ function KoteiEditor(props) {
   const [recId, setRecId] = useState(null); // 音声入力中のblock
   const canvasRef = useRef(null);
   const draw = useRef({ drawing: false, last: null, color: K_INK, erase: false, penOnly: true, ctx: null });
+
+  // ── 工程表トップのデザイン画 ──
+  const [designImgId, setDesignImgId] = useState((sheet && sheet.designImgId) || "");
+  const [designOpen, setDesignOpen] = useState(false);
+  const designCanvasRef = useRef(null);
+  const dView = useRef({ img: null, scale: 1, x: 0, y: 0, rot: 0, drag: false, last: null });
+  function redrawDesign() {
+    const cv = designCanvasRef.current; const v = dView.current; if (!cv) return;
+    const ctx = cv.getContext("2d");
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, cv.width, cv.height);
+    if (v.img) {
+      ctx.translate(cv.width / 2 + v.x, cv.height / 2 + v.y);
+      ctx.rotate(v.rot * Math.PI / 180);
+      const iw = v.img.width * v.scale, ih = v.img.height * v.scale;
+      ctx.drawImage(v.img, -iw / 2, -ih / 2, iw, ih);
+    }
+  }
+  function onDesignFile(e) {
+    const f = e.target.files[0]; if (!f) return;
+    const rd = new FileReader();
+    rd.onload = function () {
+      const im = new Image();
+      im.onload = function () {
+        const cv = designCanvasRef.current; const v = dView.current;
+        v.img = im; v.rot = 0; v.x = 0; v.y = 0;
+        v.scale = Math.min(cv.width / im.width, cv.height / im.height);
+        redrawDesign();
+      };
+      im.src = rd.result;
+    };
+    rd.readAsDataURL(f);
+  }
+  function dDown(e) { const v = dView.current; v.drag = true; v.last = { x: e.clientX, y: e.clientY }; }
+  function dMove(e) { const v = dView.current; if (!v.drag) return; const cv = designCanvasRef.current; const r = cv.getBoundingClientRect(); const sx = cv.width / r.width, sy = cv.height / r.height; v.x += (e.clientX - v.last.x) * sx; v.y += (e.clientY - v.last.y) * sy; v.last = { x: e.clientX, y: e.clientY }; redrawDesign(); }
+  function dUp() { dView.current.drag = false; }
+  function dZoom(fac) { dView.current.scale *= fac; redrawDesign(); }
+  function dRotate() { const v = dView.current; v.rot = (v.rot + 90) % 360; redrawDesign(); }
+  function saveDesign() {
+    const cv = designCanvasRef.current;
+    if (!cv || !dView.current.img) { setDesignOpen(false); return; }
+    const raw = cv.toDataURL("image/jpeg", 0.85);
+    compressDataURL(raw, function (out) {
+      setUploading(true);
+      uploadKoteiImage(out).then(function (fid) {
+        setImgData(function (m) { const n = Object.assign({}, m); n[fid] = out; return n; });
+        setDesignImgId(fid);
+        setDesignOpen(false);
+      }).catch(function () { window.alert("デザイン画の保存に失敗しました。通信を確認してください。"); }).finally(function () { setUploading(false); });
+    });
+  }
+  function renderDesignModal() {
+    return React.createElement("div", { style: { position: "fixed", inset: 0, zIndex: 100, background: "rgba(20,20,20,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12 } },
+      React.createElement("div", { style: { background: "#fff", borderRadius: 12, width: "100%", maxWidth: 420, padding: 14 } },
+        React.createElement("div", { style: { fontSize: 14, fontWeight: 700, marginBottom: 6 } }, "デザイン画を貼る"),
+        React.createElement("div", { style: { fontSize: 11, color: "#888", marginBottom: 10 } }, "写真や画像を選び、ドラッグで移動・ボタンで拡大縮小して枠に収めてください。枠の中だけが保存されます。"),
+        React.createElement("div", { style: { display: "flex", justifyContent: "center", marginBottom: 10 } },
+          React.createElement("canvas", { ref: designCanvasRef, width: 600, height: 800, style: { width: 210, height: 280, border: "1px solid " + K_LINE, borderRadius: 8, touchAction: "none", background: "#fff" }, onPointerDown: dDown, onPointerMove: dMove, onPointerUp: dUp, onPointerLeave: dUp })
+        ),
+        React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginBottom: 12 } },
+          React.createElement("label", { style: mTool }, "📷 写真/画像を選ぶ", React.createElement("input", { type: "file", accept: "image/*", style: { display: "none" }, onChange: onDesignFile })),
+          React.createElement("button", { style: mTool, onClick: function () { dZoom(1.15); } }, "＋拡大"),
+          React.createElement("button", { style: mTool, onClick: function () { dZoom(0.87); } }, "－縮小"),
+          React.createElement("button", { style: mTool, onClick: dRotate }, "⟳ 回転")
+        ),
+        React.createElement("div", { style: { display: "flex", gap: 8 } },
+          React.createElement("button", { style: { flex: 1, border: "1px solid " + K_LINE, background: "#fff", color: "#555", borderRadius: 8, padding: "11px" }, onClick: function () { if (!uploading) setDesignOpen(false); } }, "閉じる"),
+          designImgId && React.createElement("button", { style: { border: "1px solid #f0caca", background: "#fff0f0", color: "#c00", borderRadius: 8, padding: "11px 14px" }, onClick: function () { setDesignImgId(""); setDesignOpen(false); } }, "削除"),
+          React.createElement("button", { style: { flex: 1, border: "1px solid " + K_PART, background: uploading ? "#888" : K_PART, color: "#fff", borderRadius: 8, padding: "11px", fontWeight: 700 }, onClick: function () { if (!uploading) saveDesign(); } }, uploading ? "保存中…" : "保存")
+        )
+      )
+    );
+  }
 
   function patchBlock(id, patch) { setBlocks(function (bs) { return bs.map(function (b) { return b.id === id ? Object.assign({}, b, patch) : b; }); }); }
   function addStep() { setBlocks(function (bs) { return bs.concat([{ id: genId(), type: "step", part: "", act: "", time: "", note: "" }]); }); }
@@ -3295,12 +3370,13 @@ function KoteiEditor(props) {
   }, [blocks]);
 
   function handleSave() {
-    const rec = { id: (sheet && sheet.id) || genId(), partId: part.id, needle: needle, targetPerDay: targetPerDay, workMin: workMin, sizes: sizes, colors: colors, blocks: blocks, totalSec: summary.tot, updatedAt: today() };
+    const rec = { id: (sheet && sheet.id) || genId(), partId: part.id, needle: needle, unten: unten, thread: thread, targetPerDay: targetPerDay, workMin: workMin, sizes: sizes, colors: colors, blocks: blocks, totalSec: summary.tot, designImgId: designImgId, updatedAt: today() };
     props.onSave(rec); props.back();
   }
 
   function doPrint() {
     const need = blocks.filter(function (b) { return b.type === "sketch" && b.imgId && !imgData[b.imgId]; }).map(function (b) { return b.imgId; });
+    if (designImgId && !imgData[designImgId]) need.push(designImgId);
     if (need.length === 0) { openPrintWindow(imgData); return; }
     setUploading(true);
     Promise.all(need.map(function (id) { return fetchKoteiImage(id).then(function (d) { return { id: id, d: d }; }).catch(function () { return { id: id, d: "" }; }); }))
@@ -3355,6 +3431,8 @@ function KoteiEditor(props) {
       proc += '<div class="pgroup"><div class="ptext">' + txt + '</div>' + (fig ? '<div class="pfig">' + fig + '</div>' : '') + '</div>';
     });
     const bodyHtml = '<div class="proc">' + proc + '</div>';
+    const designSrc = imgMap[designImgId];
+    const designHtml = designSrc ? '<div class="design"><img src="' + designSrc + '"></div>' : '';
     const html = '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>工程分析表 ' + esc(part.partNo || "") + '</title><style>' +
       '*{box-sizing:border-box;margin:0;padding:0}' +
       "body{font-family:'Hiragino Sans','Noto Sans JP',sans-serif;font-size:9pt;color:#1a1a1a;padding:6mm 7mm;line-height:1.3}" +
@@ -3368,16 +3446,18 @@ function KoteiEditor(props) {
       '.prow{display:flex;gap:2mm;font-size:8.5pt;padding:0.2mm 0;align-items:baseline}.prow .time{color:#1558d6;font-weight:700;width:11mm;flex:none;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.prow .act{flex:1}' +
       '.note{color:#c0271d;font-size:7.5pt;padding:0 0 0.4mm 13mm}' +
       '.figitem .cap{font-size:7pt;color:#666;margin-bottom:0.2mm}.figitem img{display:block;width:100%}' +
+      '.design{float:right;width:36mm;margin:0 0 2mm 4mm;border:1px solid #bbb;border-radius:1mm;overflow:hidden}.design img{display:block;width:100%}' +
       '.footer{margin-top:4mm;border-top:1px solid #ddd;padding-top:1.5mm;font-size:8pt;color:#888;display:flex;justify-content:space-between}' +
       '@media print{body{padding:6mm 8mm}}' +
-      '</style></head><body>' +
+      '</style></head><body>' + designHtml +
       '<div class="head"><span class="big">' + esc(part.partNo || "") + '</span>' +
       (part.partName ? '<span class="m">' + esc(part.partName) + '</span>' : '') +
       (props.brandName ? '<span class="m">🏷 ' + esc(props.brandName) + '</span>' : '') +
-      (needle ? '<span class="m">針 ' + esc(needle) + '</span>' : '') +
       '<span class="tt">1着 ' + fmtKoteiTime(summary.tot) + '</span>' +
       (targetPerDay ? '<span class="m">1日目標 ' + esc(targetPerDay) + '着</span>' : '') +
-      '</div>' + tbl + bodyHtml +
+      (unten ? '<span class="m">運針(3c間) ' + esc(unten) + '</span>' : '') +
+      (thread ? '<span class="m">糸番手 ' + esc(thread) + '</span>' : '') +
+      '</div>' + tbl + '<div style="clear:both"></div>' + bodyHtml +
       '<div class="footer"><span>株式会社生田プリーツ　工程分析表</span><span>出力 ' + today() + '</span></div>' +
       '<script>window.onload=function(){setTimeout(function(){window.focus();window.print();},250)}<\/script></body></html>';
     let frame = document.getElementById("kotei-print-frame");
@@ -3410,6 +3490,27 @@ function KoteiEditor(props) {
     const src0 = blk ? (blk.imgId ? imgData[blk.imgId] : blk.img) : "";
     if (src0) { const im = new Image(); im.onload = function () { ctx.drawImage(im, 0, 0, w, h); }; im.src = src0; }
   }, [modalId, imgData]);
+
+  // デザイン画：保存済み画像の取り込み
+  useEffect(function () {
+    if (designImgId && !imgData[designImgId]) {
+      fetchKoteiImage(designImgId).then(function (d) { if (d) setImgData(function (m) { const n = Object.assign({}, m); n[designImgId] = d; return n; }); }).catch(function () {});
+    }
+  }, [designImgId]);
+  // デザイン画モーダルを開いたら、既存画像があれば初期表示
+  useEffect(function () {
+    if (!designOpen) return;
+    const v = dView.current; v.drag = false;
+    setTimeout(function () {
+      const cv = designCanvasRef.current; if (!cv) return;
+      const src = imgData[designImgId];
+      if (src) {
+        const im = new Image();
+        im.onload = function () { v.img = im; v.rot = 0; v.x = 0; v.y = 0; v.scale = Math.min(cv.width / im.width, cv.height / im.height); redrawDesign(); };
+        im.src = src;
+      } else { v.img = null; redrawDesign(); }
+    }, 30);
+  }, [designOpen]);
 
   function allowDraw(e) { return !draw.current.penOnly || e.pointerType === "pen" || e.pointerType === "mouse"; }
   function pDown(e) { if (!allowDraw(e)) return; const d = draw.current; d.drawing = true; const r = e.currentTarget.getBoundingClientRect(); d.last = { x: e.clientX - r.left, y: e.clientY - r.top }; }
@@ -3595,15 +3696,26 @@ function KoteiEditor(props) {
     React.createElement(Header, { title: "📐 工程分析表", back: props.back }),
     React.createElement(Body, null,
       React.createElement("div", { style: { background: "#fff", borderRadius: 12, padding: "12px 16px", marginBottom: 14, boxShadow: "0 1px 4px rgba(0,0,0,.06)" } },
-        React.createElement("div", { style: { fontSize: 16, fontWeight: 700 } }, part.partNo + (part.partName ? "　" + part.partName : "")),
-        props.brandName && React.createElement("div", { style: { fontSize: 12, color: "#888", marginTop: 2 } }, "🏷 " + props.brandName),
-        React.createElement("div", { style: { display: "flex", gap: 16, marginTop: 10, flexWrap: "wrap", alignItems: "flex-end" } },
-          React.createElement("div", null, React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "針・針数"), React.createElement("input", { style: { width: 130, border: "1px solid " + K_LINE, borderRadius: 8, padding: "8px 9px", fontSize: 14 }, placeholder: "#50 12針/3cm", value: needle, onChange: function (e) { setNeedle(e.target.value); } })),
-          React.createElement("div", null, React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "1着 総工数（自動）"), React.createElement("div", { style: { fontSize: 20, fontWeight: 700, color: K_TIME, lineHeight: "38px" } }, fmtKoteiTime(summary.tot))),
-          React.createElement("div", null, React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "1日の目標枚数"), React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 4 } },
-            React.createElement("input", { style: { width: 90, border: "1px solid " + K_LINE, borderRadius: 8, padding: "8px 9px", fontSize: 14, textAlign: "center" }, placeholder: "12〜15", value: targetPerDay, onChange: function (e) { setTargetPerDay(e.target.value); } }),
-            React.createElement("span", { style: { fontSize: 13, color: "#888" } }, "着")
-          ))
+        React.createElement("div", { style: { display: "flex", gap: 12, alignItems: "flex-start" } },
+          React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+            React.createElement("div", { style: { fontSize: 16, fontWeight: 700 } }, part.partNo + (part.partName ? "　" + part.partName : "")),
+            props.brandName && React.createElement("div", { style: { fontSize: 12, color: "#888", marginTop: 2 } }, "🏷 " + props.brandName),
+            React.createElement("div", { style: { display: "flex", gap: 16, marginTop: 10, flexWrap: "wrap", alignItems: "flex-end" } },
+              React.createElement("div", null, React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "1着 総工数（自動）"), React.createElement("div", { style: { fontSize: 20, fontWeight: 700, color: K_TIME, lineHeight: "38px" } }, fmtKoteiTime(summary.tot))),
+              React.createElement("div", null, React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "1日の目標枚数"), React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 4 } },
+                React.createElement("input", { style: { width: 80, border: "1px solid " + K_LINE, borderRadius: 8, padding: "8px 9px", fontSize: 14, textAlign: "center" }, placeholder: "12〜15", value: targetPerDay, onChange: function (e) { setTargetPerDay(e.target.value); } }),
+                React.createElement("span", { style: { fontSize: 13, color: "#888" } }, "着")
+              )),
+              React.createElement("div", null, React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "運針(3c間)"), React.createElement("input", { style: { width: 90, border: "1px solid " + K_LINE, borderRadius: 8, padding: "8px 9px", fontSize: 14 }, placeholder: "例: 12針", value: unten, onChange: function (e) { setUnten(e.target.value); } })),
+              React.createElement("div", null, React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "糸番手"), React.createElement("input", { style: { width: 90, border: "1px solid " + K_LINE, borderRadius: 8, padding: "8px 9px", fontSize: 14 }, placeholder: "例: #50", value: thread, onChange: function (e) { setThread(e.target.value); } }))
+            )
+          ),
+          React.createElement("button", { style: { flex: "none", width: 92, height: 122, border: "1px dashed " + K_LINE, borderRadius: 8, background: designImgId && imgData[designImgId] ? "#fff" : "#f5f4f0", padding: 0, cursor: "pointer", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }, onClick: function () { setDesignOpen(true); } },
+            (designImgId && imgData[designImgId])
+              ? React.createElement("img", { src: imgData[designImgId], style: { width: "100%", height: "100%", objectFit: "cover" } })
+              : React.createElement("div", { style: { fontSize: 11, color: "#999", textAlign: "center", lineHeight: 1.5 } }, "＋\nデザイン画"),
+            React.createElement("span", { style: { position: "absolute", right: 4, bottom: 4, background: "rgba(15,61,74,.85)", color: "#fff", fontSize: 9, padding: "1px 6px", borderRadius: 8 } }, designImgId ? "変更" : "追加")
+          )
         ),
         renderQtyTable()
       ),
@@ -3620,6 +3732,7 @@ function KoteiEditor(props) {
       (sheet && sheet.id) && React.createElement("button", { style: { width: "100%", background: "#fff0f0", color: "#c00", border: "none", borderRadius: 8, padding: 12, fontSize: 13, fontWeight: 700, marginTop: 8 }, onClick: function () { if (window.confirm("この工程表を削除しますか？")) { props.onDelete(sheet.id); props.back(); } } }, "削除する")
     ),
     modalId != null && renderModal(),
+    designOpen && renderDesignModal(),
     React.createElement(props.SI)
   );
 }
