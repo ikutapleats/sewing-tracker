@@ -3299,9 +3299,10 @@ function KoteiEditor(props) {
   function setSizeAt(i, v) { setSizes(function (ss) { const c = ss.slice(); c[i] = v; return c; }); }
   function addSize() { setSizes(function (ss) { return ss.concat([""]); }); setColors(function (cs) { return cs.map(function (c) { return Object.assign({}, c, { counts: (c.counts || []).concat([""]) }); }); }); }
   function removeSize(i) { setSizes(function (ss) { return ss.filter(function (_, k) { return k !== i; }); }); setColors(function (cs) { return cs.map(function (c) { return Object.assign({}, c, { counts: (c.counts || []).filter(function (_, k) { return k !== i; }) }); }); }); }
-  function addColor() { setColors(function (cs) { return cs.concat([{ name: "", counts: sizes.map(function () { return ""; }) }]); }); }
+  function addColor() { setColors(function (cs) { return cs.concat([{ name: "", thread: "", counts: sizes.map(function () { return ""; }) }]); }); }
   function removeColor(ci) { setColors(function (cs) { return cs.filter(function (_, k) { return k !== ci; }); }); }
   function setColorName(ci, v) { setColors(function (cs) { return cs.map(function (c, k) { return k === ci ? Object.assign({}, c, { name: v }) : c; }); }); }
+  function setColorThread(ci, v) { setColors(function (cs) { return cs.map(function (c, k) { return k === ci ? Object.assign({}, c, { thread: v }) : c; }); }); }
   function setCount(ci, si, v) { setColors(function (cs) { return cs.map(function (c, k) { if (k !== ci) return c; const counts = (c.counts || []).slice(); counts[si] = v; return Object.assign({}, c, { counts: counts }); }); }); }
 
   const colTotals = sizes.map(function (_, si) { return colors.reduce(function (a, c) { return a + numK((c.counts || [])[si]); }, 0); });
@@ -3322,7 +3323,8 @@ function KoteiEditor(props) {
         React.createElement("table", { style: { borderCollapse: "collapse", fontSize: 13, minWidth: "100%" } },
           React.createElement("thead", null,
             React.createElement("tr", null,
-              React.createElement("th", { style: Object.assign({}, cell, { background: K_PARTBG, color: K_PART, padding: "6px 8px", minWidth: 70 }) }, "色"),
+              React.createElement("th", { style: Object.assign({}, cell, { background: K_PARTBG, color: K_PART, padding: "6px 8px", minWidth: 64 }) }, "色名"),
+              React.createElement("th", { style: Object.assign({}, cell, { background: K_PARTBG, color: K_PART, padding: "6px 8px", minWidth: 64 }) }, "糸色"),
               sizes.map(function (s, i) {
                 return React.createElement("th", { key: i, style: Object.assign({}, cell, { background: K_PARTBG, minWidth: 54 }) },
                   React.createElement("input", { style: Object.assign({}, inCell, { color: K_PART, fontWeight: 700 }), value: s, onChange: function (e) { setSizeAt(i, e.target.value); } }),
@@ -3337,7 +3339,8 @@ function KoteiEditor(props) {
             colors.map(function (c, ci) {
               const rowTotal = (c.counts || []).reduce(function (a, v) { return a + numK(v); }, 0);
               return React.createElement("tr", { key: ci },
-                React.createElement("td", { style: cell }, React.createElement("input", { style: Object.assign({}, inCell, { fontWeight: 700, minWidth: 60 }), placeholder: "糸色・色名", value: c.name, onChange: function (e) { setColorName(ci, e.target.value); } })),
+                React.createElement("td", { style: cell }, React.createElement("input", { style: Object.assign({}, inCell, { fontWeight: 700, minWidth: 56 }), placeholder: "色名", value: c.name, onChange: function (e) { setColorName(ci, e.target.value); } })),
+                React.createElement("td", { style: cell }, React.createElement("input", { style: Object.assign({}, inCell, { minWidth: 56 }), placeholder: "糸色", value: c.thread || "", onChange: function (e) { setColorThread(ci, e.target.value); } })),
                 sizes.map(function (_, si) {
                   return React.createElement("td", { key: si, style: cell }, React.createElement("input", { style: inCell, type: "number", inputMode: "numeric", value: (c.counts || [])[si] || "", onChange: function (e) { setCount(ci, si, e.target.value); } }));
                 }),
@@ -3347,6 +3350,7 @@ function KoteiEditor(props) {
             }),
             React.createElement("tr", null,
               React.createElement("td", { style: Object.assign({}, cell, { background: "#e8e6e0", fontWeight: 700, padding: "6px 8px" }) }, "合計"),
+              React.createElement("td", { style: Object.assign({}, cell, { background: "#e8e6e0" }) }, ""),
               colTotals.map(function (n, i) { return React.createElement("td", { key: i, style: Object.assign({}, cell, { background: "#e8e6e0", fontWeight: 700 }) }, n || ""); }),
               React.createElement("td", { style: Object.assign({}, cell, { background: "#1a1a1a", color: "#fff", fontWeight: 700, padding: "0 8px" }) }, grandQty || ""),
               React.createElement("td", { style: Object.assign({}, cell, { background: "#e8e6e0" }) }, "")
@@ -3394,9 +3398,9 @@ function KoteiEditor(props) {
     if (hasQty) {
       const colT = sizes.map(function (_, si) { return colors.reduce(function (a, c) { return a + num((c.counts || [])[si]); }, 0); });
       const grand = colT.reduce(function (a, n) { return a + n; }, 0);
-      tbl = '<table class="qty"><tr><th>色</th>' + sizes.map(function (s) { return "<th>" + esc(s) + "</th>"; }).join("") + '<th>計</th></tr>' +
-        colors.map(function (c) { const rt = (c.counts || []).reduce(function (a, v) { return a + num(v); }, 0); return "<tr><td class='cn'>" + esc(c.name) + "</td>" + (c.counts || []).map(function (v) { return "<td>" + (num(v) || "") + "</td>"; }).join("") + "<td class='rt'>" + (rt || "") + "</td></tr>"; }).join("") +
-        "<tr class='sum'><td>合計</td>" + colT.map(function (n) { return "<td>" + (n || "") + "</td>"; }).join("") + "<td>" + (grand || "") + "</td></tr></table>";
+      tbl = '<table class="qty"><tr><th>色名</th><th>糸色</th>' + sizes.map(function (s) { return "<th>" + esc(s) + "</th>"; }).join("") + '<th>計</th></tr>' +
+        colors.map(function (c) { const rt = (c.counts || []).reduce(function (a, v) { return a + num(v); }, 0); return "<tr><td class='cn'>" + esc(c.name) + "</td><td class='cn'>" + esc(c.thread || "") + "</td>" + (c.counts || []).map(function (v) { return "<td>" + (num(v) || "") + "</td>"; }).join("") + "<td class='rt'>" + (rt || "") + "</td></tr>"; }).join("") +
+        "<tr class='sum'><td>合計</td><td></td>" + colT.map(function (n) { return "<td>" + (n || "") + "</td>"; }).join("") + "<td>" + (grand || "") + "</td></tr></table>";
     }
     const wmap = { s: "34mm", m: "58mm", l: "100%" };
     const groups = []; let g = null;
@@ -3451,7 +3455,7 @@ function KoteiEditor(props) {
       '.figitem .cap{font-size:7pt;color:#666;margin-bottom:0.2mm}.figitem img{display:block;width:100%}' +
       '.design{float:right;width:36mm;margin:0 0 2mm 4mm;border:1px solid #bbb;border-radius:1mm;overflow:hidden}.design img{display:block;width:100%}' +
       '.qtywrap{display:flex;gap:4mm;align-items:flex-start;overflow:hidden;margin-bottom:3mm}' +
-      '.hnote{flex:1;border:1px solid #ccc;border-radius:1mm;padding:2mm 3mm;font-size:8.5pt;line-height:1.4;min-width:0}.hnote .ht{font-size:8pt;color:#888;margin-bottom:1mm;font-weight:700}' +
+      '.hnote{flex:1;border:1px solid #ccc;border-radius:1mm;padding:2mm 3mm;font-size:8.5pt;line-height:1.4;min-width:0;font-weight:700;color:#c0271d}.hnote .ht{font-size:8pt;color:#888;margin-bottom:1mm;font-weight:700}' +
       '.footer{margin-top:4mm;border-top:1px solid #ddd;padding-top:1.5mm;font-size:8pt;color:#888;display:flex;justify-content:space-between}' +
       '@media print{body{padding:6mm 8mm}}' +
       '</style></head><body>' + designHtml +
@@ -3726,7 +3730,7 @@ function KoteiEditor(props) {
           React.createElement("div", { style: { flex: "1 1 auto", minWidth: 0 } }, renderQtyTable()),
           React.createElement("div", { style: { flex: "1 1 200px", minWidth: 180 } },
             React.createElement("div", { style: { fontSize: 11, color: "#999", marginBottom: 4 } }, "全体の注意事項・コメント"),
-            React.createElement("textarea", { style: { width: "100%", minHeight: 96, border: "1px solid " + K_LINE, borderRadius: 8, padding: 9, fontSize: 13, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box", lineHeight: 1.5 }, placeholder: "全体への注意点・申し送りなど", value: headNote, onChange: function (e) { setHeadNote(e.target.value); } })
+            React.createElement("textarea", { style: { width: "100%", minHeight: 96, border: "1px solid " + K_LINE, borderRadius: 8, padding: 9, fontSize: 13, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box", lineHeight: 1.5, fontWeight: 700, color: K_NOTE }, placeholder: "全体への注意点・申し送りなど", value: headNote, onChange: function (e) { setHeadNote(e.target.value); } })
           )
         )
       ),
