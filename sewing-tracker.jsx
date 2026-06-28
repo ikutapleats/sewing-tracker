@@ -3195,6 +3195,7 @@ function KoteiEditor(props) {
   const [needle, setNeedle] = useState((sheet && sheet.needle) || "");
   const [unten, setUnten] = useState((sheet && sheet.unten) || "");
   const [thread, setThread] = useState((sheet && sheet.thread) || "");
+  const [headNote, setHeadNote] = useState((sheet && sheet.headNote) || "");
   const [targetPerDay, setTargetPerDay] = useState((sheet && sheet.targetPerDay) || "");
   const [workMin, setWorkMin] = useState((sheet && sheet.workMin) || 420);
   const [sizes, setSizes] = useState((sheet && sheet.sizes) || ["XS", "S", "M", "L"]);
@@ -3371,7 +3372,7 @@ function KoteiEditor(props) {
   }, [blocks]);
 
   function handleSave() {
-    const rec = { id: (sheet && sheet.id) || genId(), partId: part.id, needle: needle, unten: unten, thread: thread, targetPerDay: targetPerDay, workMin: workMin, sizes: sizes, colors: colors, blocks: blocks, totalSec: summary.tot, designImgId: designImgId, updatedAt: today() };
+    const rec = { id: (sheet && sheet.id) || genId(), partId: part.id, needle: needle, unten: unten, thread: thread, headNote: headNote, targetPerDay: targetPerDay, workMin: workMin, sizes: sizes, colors: colors, blocks: blocks, totalSec: summary.tot, designImgId: designImgId, updatedAt: today() };
     props.onSave(rec); props.back();
   }
 
@@ -3408,7 +3409,7 @@ function KoteiEditor(props) {
         g.items.push(b); if (b.type === "step") g.sec += parseKoteiTime(b.time);
       }
     });
-    const circNum = function (n) { return (n >= 1 && n <= 20) ? String.fromCharCode(0x2460 + n - 1) : "(" + n + ")"; };
+    const circNum = function (n) { var s = ""; n = n - 1; do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0); return s; };
     let figSeq = 0; const figNoMap = {}; const stepNoMap = {}; let lastStepId = null;
     let stepSeq = 0; const stepSeqMap = {};
     blocks.forEach(function (b) {
@@ -3434,6 +3435,7 @@ function KoteiEditor(props) {
     const bodyHtml = '<div class="proc">' + proc + '</div>';
     const designSrc = imgMap[designImgId];
     const designHtml = designSrc ? '<div class="design"><img src="' + designSrc + '"></div>' : '';
+    const commentHtml = headNote ? '<div class="hnote"><div class="ht">注意事項・コメント</div>' + esc(headNote).replace(/\n/g, '<br>') + '</div>' : '';
     const html = '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>工程分析表 ' + esc(part.partNo || "") + '</title><style>' +
       '*{box-sizing:border-box;margin:0;padding:0}' +
       "body{font-family:'Hiragino Sans','Noto Sans JP',sans-serif;font-size:9pt;color:#1a1a1a;padding:6mm 7mm;line-height:1.3}" +
@@ -3448,6 +3450,8 @@ function KoteiEditor(props) {
       '.note{color:#c0271d;font-size:7.5pt;padding:0 0 0.4mm 13mm}' +
       '.figitem .cap{font-size:7pt;color:#666;margin-bottom:0.2mm}.figitem img{display:block;width:100%}' +
       '.design{float:right;width:36mm;margin:0 0 2mm 4mm;border:1px solid #bbb;border-radius:1mm;overflow:hidden}.design img{display:block;width:100%}' +
+      '.qtywrap{display:flex;gap:4mm;align-items:flex-start;overflow:hidden;margin-bottom:3mm}' +
+      '.hnote{flex:1;border:1px solid #ccc;border-radius:1mm;padding:2mm 3mm;font-size:8.5pt;line-height:1.4;min-width:0}.hnote .ht{font-size:8pt;color:#888;margin-bottom:1mm;font-weight:700}' +
       '.footer{margin-top:4mm;border-top:1px solid #ddd;padding-top:1.5mm;font-size:8pt;color:#888;display:flex;justify-content:space-between}' +
       '@media print{body{padding:6mm 8mm}}' +
       '</style></head><body>' + designHtml +
@@ -3458,7 +3462,7 @@ function KoteiEditor(props) {
       (targetPerDay ? '<span class="m">1日目標 ' + esc(targetPerDay) + '着</span>' : '') +
       (unten ? '<span class="m">運針(3c間) ' + esc(unten) + '</span>' : '') +
       (thread ? '<span class="m">糸番手 ' + esc(thread) + '</span>' : '') +
-      '</div>' + tbl + '<div style="clear:both"></div>' + bodyHtml +
+      '</div>' + '<div class="qtywrap">' + tbl + commentHtml + '</div>' + '<div style="clear:both"></div>' + bodyHtml +
       '<div class="footer"><span>株式会社生田プリーツ　工程分析表</span><span>出力 ' + today() + '</span></div>' +
       '<script>window.onload=function(){setTimeout(function(){window.focus();window.print();},250)}<\/script></body></html>';
     let frame = document.getElementById("kotei-print-frame");
@@ -3718,7 +3722,13 @@ function KoteiEditor(props) {
             React.createElement("span", { style: { position: "absolute", right: 4, bottom: 4, background: "rgba(15,61,74,.85)", color: "#fff", fontSize: 9, padding: "1px 6px", borderRadius: 8 } }, designImgId ? "変更" : "追加")
           )
         ),
-        renderQtyTable()
+        React.createElement("div", { style: { display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-start", marginTop: 4 } },
+          React.createElement("div", { style: { flex: "1 1 auto", minWidth: 0 } }, renderQtyTable()),
+          React.createElement("div", { style: { flex: "1 1 200px", minWidth: 180 } },
+            React.createElement("div", { style: { fontSize: 11, color: "#999", marginBottom: 4 } }, "全体の注意事項・コメント"),
+            React.createElement("textarea", { style: { width: "100%", minHeight: 96, border: "1px solid " + K_LINE, borderRadius: 8, padding: 9, fontSize: 13, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box", lineHeight: 1.5 }, placeholder: "全体への注意点・申し送りなど", value: headNote, onChange: function (e) { setHeadNote(e.target.value); } })
+          )
+        )
       ),
       React.createElement("div", { style: { background: "#fbfaf6", borderRadius: 10, padding: "4px 12px", boxShadow: "0 1px 4px rgba(0,0,0,.06)" } },
         blocks.map(function (b) { return b.type === "step" ? renderStep(b) : renderSketch(b); })
