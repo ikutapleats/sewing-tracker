@@ -3442,14 +3442,14 @@ function KoteiEditor(props) {
     const commentHtml = headNote ? '<div class="hnote"><div class="ht">注意事項・コメント</div>' + esc(headNote).replace(/\n/g, '<br>') + '</div>' : '';
     const html = '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>工程分析表 ' + esc(part.partNo || "") + '</title><style>' +
       '*{box-sizing:border-box;margin:0;padding:0}' +
-      "body{font-family:'Hiragino Sans','Noto Sans JP',sans-serif;font-size:9pt;color:#1a1a1a;padding:6mm 7mm;line-height:1.3}" +
+      "body{font-family:'Hiragino Sans','Noto Sans JP',sans-serif;font-size:9pt;color:#1a1a1a;padding:6mm 7mm;line-height:1.3;-webkit-print-color-adjust:exact;print-color-adjust:exact}" +
       '.head{display:flex;gap:6mm;flex-wrap:wrap;align-items:baseline;border-bottom:2px solid #1a1a1a;padding-bottom:2mm;margin-bottom:3mm}' +
       '.head .big{font-size:14pt;font-weight:700}.head .m{font-size:10pt;color:#555}.head .tt{font-size:14pt;font-weight:700;color:#1558d6}' +
       'table.qty{border-collapse:collapse;font-size:9.5pt;margin-bottom:3mm}' +
       'table.qty th,table.qty td{border:1px solid #aaa;padding:1mm 2.5mm;text-align:center}' +
       'table.qty th{background:#e4ecef}table.qty td.cn{text-align:left;font-weight:700}table.qty td.rt{font-weight:700;background:#f5f4f0}table.qty tr.sum td{background:#e8e6e0;font-weight:700}' +
       '.proc{column-count:2;column-gap:5mm}.pgroup{break-inside:avoid;margin-bottom:1.5mm;display:flex;gap:2mm;align-items:flex-start}.ptext{flex:1;min-width:0}.pfig{flex:none;width:26mm;display:flex;flex-direction:column;gap:1mm}' +
-      '.phead{font-weight:700;color:#0f3d4a;background:#e4ecef;padding:0.5mm 1.5mm;font-size:9pt;margin:0 0 0.5mm;display:flex;gap:2mm;align-items:center}.phead .fno{color:#1558d6;font-weight:700;flex:none}.phead .pname{flex:none}.phead .psum{color:#1f7a4d;font-size:8.5pt;font-weight:700;border:1px solid #1f7a4d;padding:0 1.5mm;background:#fff;flex:none}.phead .pmemo{color:#333;font-size:8pt;font-weight:400;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.stepno{color:#fff;background:#6a3d9a;border-radius:2mm;font-weight:700;font-size:8pt;padding:0 1.2mm}.fnofig{color:#fff;background:#6a3d9a;border-radius:2mm;font-weight:700;font-size:9pt;text-align:center;margin-bottom:0.5mm;padding:0 1.2mm;display:inline-block}' +
+      '.phead{font-weight:700;color:#0f3d4a;background:#e4ecef;padding:0.5mm 1.5mm;font-size:9pt;margin:0 0 0.5mm;display:flex;gap:2mm;align-items:center}.phead .fno{color:#1558d6;font-weight:700;flex:none}.phead .pname{flex:none}.phead .psum{color:#1f7a4d;font-size:8.5pt;font-weight:700;border:1px solid #1f7a4d;padding:0 1.5mm;background:#fff;flex:none}.phead .pmemo{color:#333;font-size:8pt;font-weight:400;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.stepno{color:#6a3d9a;border:0.35mm solid #6a3d9a;border-radius:1.2mm;font-weight:700;font-size:8.5pt;padding:0 1mm;background:#efe8f7}.fnofig{color:#6a3d9a;border:0.45mm solid #6a3d9a;border-radius:1.2mm;font-weight:700;font-size:10pt;text-align:center;margin-bottom:0.5mm;padding:0 1.4mm;display:inline-block;background:#efe8f7}' +
       '.prow{display:flex;gap:2mm;font-size:8.5pt;padding:0.2mm 0;align-items:baseline}.prow .time{color:#1558d6;font-weight:700;width:11mm;flex:none;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.prow .act{flex:1}' +
       '.note{color:#c0271d;font-size:7.5pt;padding:0 0 0.4mm 13mm}' +
       '.figitem .cap{font-size:7pt;color:#666;margin-bottom:0.2mm}.figitem img{display:block;width:100%}' +
@@ -3467,7 +3467,6 @@ function KoteiEditor(props) {
       (unten ? '<span class="m">運針(3c間) ' + esc(unten) + '</span>' : '') +
       (thread ? '<span class="m">糸番手 ' + esc(thread) + '</span>' : '') +
       '</div>' + '<div class="qtywrap">' + tbl + commentHtml + '</div>' + '<div style="clear:both"></div>' + bodyHtml +
-      '<div class="footer"><span>株式会社生田プリーツ　工程分析表</span><span>出力 ' + today() + '</span></div>' +
       '<script>window.onload=function(){setTimeout(function(){window.focus();window.print();},250)}<\/script></body></html>';
     let frame = document.getElementById("kotei-print-frame");
     if (frame && frame.parentNode) frame.parentNode.removeChild(frame);
