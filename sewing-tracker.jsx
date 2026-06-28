@@ -3414,27 +3414,33 @@ function KoteiEditor(props) {
       }
     });
     const circNum = function (n) { var s = ""; n = n - 1; do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0); return s; };
-    let figSeq = 0; const figNoMap = {}; const stepNoMap = {}; let lastStepId = null;
+    let figSeq = 0; const figNoMap = {}; const stepNoMap = {}; const stepFigs = {}; const figAssigned = {}; let lastStepId = null;
     let stepSeq = 0; const stepSeqMap = {};
     blocks.forEach(function (b) {
       if (b.type === "step") { lastStepId = b.id; stepSeq++; stepSeqMap[b.id] = stepSeq; }
-      else if (b.type === "sketch" && (b.imgId || b.img)) { figSeq++; figNoMap[b.id] = figSeq; if (lastStepId) { if (!stepNoMap[lastStepId]) stepNoMap[lastStepId] = []; stepNoMap[lastStepId].push(figSeq); } }
+      else if (b.type === "sketch" && (b.imgId || b.img)) { figSeq++; figNoMap[b.id] = figSeq; if (lastStepId) { if (!stepNoMap[lastStepId]) stepNoMap[lastStepId] = []; stepNoMap[lastStepId].push(figSeq); if (!stepFigs[lastStepId]) stepFigs[lastStepId] = []; stepFigs[lastStepId].push(b); figAssigned[b.id] = true; } }
     });
+    const figItemHtml = function (b, src) {
+      return '<div class="figitem"><img src="' + src + '">' + ((figNoMap[b.id] || b.caption) ? '<div class="fmeta">' + (figNoMap[b.id] ? '<span class="fnofig">' + circNum(figNoMap[b.id]) + '</span>' : '') + (b.caption ? '<div class="cap">' + esc(b.caption) + '</div>' : '') + '</div>' : '') + '</div>';
+    };
     let proc = "";
     groups.forEach(function (grp) {
       let txt = '<div class="phead"><span class="pname">' + esc(grp.part || "—") + '</span><span class="psum">' + fmtKoteiTime(grp.sec) + '</span>' + (grp.memo ? '<span class="pmemo">' + esc(grp.memo) + '</span>' : '') + '</div>';
-      let fig = "";
+      let orphan = "";
       grp.items.forEach(function (b) {
         if (b.type === "step") {
           const sn = stepNoMap[b.id] ? ' <span class="stepno">' + stepNoMap[b.id].map(circNum).join("") + '</span>' : '';
-          txt += '<div class="prow"><span class="time">' + esc(b.time || "") + '</span><span class="act">' + '(' + stepSeqMap[b.id] + ') ' + esc(b.act || "") + sn + '</span></div>';
-          if (b.note) txt += '<div class="note">⚠ ' + esc(b.note) + '</div>';
-        } else {
+          let rowText = '<div class="prow"><span class="time">' + esc(b.time || "") + '</span><span class="act">' + '(' + stepSeqMap[b.id] + ') ' + esc(b.act || "") + sn + '</span></div>' + (b.note ? '<div class="note">⚠ ' + esc(b.note) + '</div>' : '');
+          let figHtml = "";
+          (stepFigs[b.id] || []).forEach(function (fb) { const fsrc = fb.imgId ? imgMap[fb.imgId] : fb.img; if (fsrc) figHtml += figItemHtml(fb, fsrc); });
+          txt += figHtml ? '<div class="stepwithfig"><div class="swtext">' + rowText + '</div><div class="swfig">' + figHtml + '</div></div>' : rowText;
+        } else if (!figAssigned[b.id]) {
           const src = b.imgId ? imgMap[b.imgId] : b.img;
-          if (src) fig += '<div class="figitem"><img src="' + src + '">' + ((figNoMap[b.id] || b.caption) ? '<div class="fmeta">' + (figNoMap[b.id] ? '<span class="fnofig">' + circNum(figNoMap[b.id]) + '</span>' : '') + (b.caption ? '<div class="cap">' + esc(b.caption) + '</div>' : '') + '</div>' : '') + '</div>';
+          if (src) orphan += figItemHtml(b, src);
         }
       });
-      proc += '<div class="pgroup"><div class="ptext">' + txt + '</div>' + (fig ? '<div class="pfig">' + fig + '</div>' : '') + '</div>';
+      if (orphan) txt += '<div class="orphanfig">' + orphan + '</div>';
+      proc += '<div class="pgroup">' + txt + '</div>';
     });
     const bodyHtml = '<div class="proc">' + proc + '</div>';
     const designSrc = imgMap[designImgId];
@@ -3448,11 +3454,11 @@ function KoteiEditor(props) {
       'table.qty{border-collapse:collapse;font-size:9.5pt;margin-bottom:3mm}' +
       'table.qty th,table.qty td{border:1px solid #aaa;padding:1mm 2.5mm;text-align:center}' +
       'table.qty th{background:#e4ecef}table.qty td.cn{text-align:left;font-weight:700}table.qty td.rt{font-weight:700;background:#f5f4f0}table.qty tr.sum td{background:#e8e6e0;font-weight:700}' +
-      '.proc{column-count:2;column-gap:5mm}.pgroup{break-inside:avoid;margin-bottom:1.5mm;display:flex;gap:2mm;align-items:flex-start}.ptext{flex:1;min-width:0}.pfig{flex:none;width:30mm;display:flex;flex-direction:column;gap:1mm}' +
+      '.proc{column-count:2;column-gap:5mm}.pgroup{break-inside:avoid;margin-bottom:1.5mm}.stepwithfig{display:flex;gap:1.5mm;align-items:flex-start;break-inside:avoid;margin:0.2mm 0}.swtext{flex:1;min-width:0}.swfig{flex:none;width:28mm;display:flex;flex-direction:column;gap:1mm}.orphanfig{display:flex;flex-wrap:wrap;gap:2mm;margin-top:1mm}.orphanfig .figitem{width:28mm}' +
       '.phead{font-weight:700;color:#0f3d4a;background:#e4ecef;padding:0.5mm 1.5mm;font-size:9pt;margin:0 0 0.5mm;display:flex;gap:2mm;align-items:center}.phead .fno{color:#1558d6;font-weight:700;flex:none}.phead .pname{flex:none}.phead .psum{color:#1f7a4d;font-size:8.5pt;font-weight:700;border:1px solid #1f7a4d;padding:0 1.5mm;background:#fff;flex:none}.phead .pmemo{color:#333;font-size:8pt;font-weight:400;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.stepno{color:#6a3d9a;border:0.3mm solid #6a3d9a;border-radius:1mm;font-weight:700;font-size:5.5pt;padding:0 0.6mm;background:#efe8f7}.fnofig{color:#6a3d9a;border:0.3mm solid #6a3d9a;border-radius:1mm;font-weight:700;font-size:5.5pt;padding:0 0.6mm;background:#efe8f7;align-self:flex-start}' +
       '.prow{display:flex;gap:2mm;font-size:8.5pt;padding:0.2mm 0;align-items:baseline}.prow .time{color:#1558d6;font-weight:700;width:11mm;flex:none;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.prow .act{flex:1}' +
       '.note{color:#c0271d;font-size:7.5pt;padding:0 0 0.4mm 13mm}' +
-      '.figitem{display:flex;gap:1mm;align-items:flex-start}.figitem img{flex:none;width:16mm;display:block}.fmeta{flex:1;min-width:0;display:flex;flex-direction:column;gap:0.5mm}.figitem .cap{font-size:7pt;color:#666;line-height:1.2;word-break:break-word}' +
+      '.figitem{display:flex;gap:1mm;align-items:flex-start;width:100%}.figitem img{flex:none;width:14mm;display:block}.fmeta{flex:1;min-width:0;display:flex;flex-direction:column;gap:0.5mm}.figitem .cap{font-size:7pt;color:#666;line-height:1.2;word-break:break-word}' +
       '.topbar{display:flex;gap:4mm;align-items:flex-start;margin-bottom:2mm}.topmain{flex:1;min-width:0}' +
       '.design{flex:none;width:30mm;border:1px solid #bbb;border-radius:1mm;overflow:hidden}.design img{display:block;width:100%;max-height:38mm;object-fit:cover}' +
       '.qtywrap{display:flex;gap:4mm;align-items:flex-start;margin-bottom:0}' +
