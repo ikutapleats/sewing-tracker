@@ -209,13 +209,49 @@ function App() {
   const saveQueue = useRef(null);
   const savingRef = useRef(false);
 
+  // ── 端末モード（F1：この端末を「作業記録用」か「リーダー・管理用」かで記憶する）
+  //    record = 作業を記録する（個人スマホ・共用タブレット）／admin = リーダー・管理
+  //    localStorage に保存するので、次回からは選んだ画面に直行する。
+  const [deviceMode, setDeviceModeState] = useState(null); // null = 未選択
+  const [deviceReady, setDeviceReady] = useState(false);   // localStorage 読み込み完了フラグ
+
   const set = (patch) => setUi((p) => Object.assign({}, p, patch));
+
+  // 端末モードを選んで記憶する。記録用ならチーム選択画面へ、管理用なら管理メニューへ。
+  const chooseDeviceMode = (mode) => {
+    try { localStorage.setItem("st_device_mode", mode); } catch (e) {}
+    setDeviceModeState(mode);
+    if (mode === "admin") set({ screen: "home" });
+    else set({ screen: "record_home" });
+  };
+
+  // 端末設定をやり直す（入口画面に戻す）。共用タブレットを別用途に変える時などに使う。
+  const resetDeviceMode = () => {
+    try { localStorage.removeItem("st_device_mode"); } catch (e) {}
+    setDeviceModeState(null);
+  };
+
+  // ── この端末で最近記録した人（最大6名）を覚える。名前選択を大ボタン化するため（F2）。
+  const getRecentMembers = () => { try { return JSON.parse(localStorage.getItem("st_recent_members") || "[]"); } catch (e) { return []; } };
+  const pushRecentMember = (id) => { try { const a = getRecentMembers().filter((x) => x !== id); a.unshift(id); localStorage.setItem("st_recent_members", JSON.stringify(a.slice(0, 6))); } catch (e) {} };
   const setAP = (patch) => setUi((p) => Object.assign({}, p, { addPartForm: Object.assign({}, p.addPartForm, patch) }));
   const setEP = (patch) => setUi((p) => Object.assign({}, p, { editPartForm: Object.assign({}, p.editPartForm, patch) }));
   const setMF = (patch) => setUi((p) => Object.assign({}, p, { memberForm: Object.assign({}, p.memberForm, patch) }));
   const setQF = (patch) => setUi((p) => Object.assign({}, p, { qtyForm: Object.assign({}, p.qtyForm, patch) }));
   const setTF = (patch) => setUi((p) => Object.assign({}, p, { targetForm: Object.assign({}, p.targetForm, patch) }));
   const setKQ = (patch) => setUi((p) => Object.assign({}, p, { kEntryQty: Object.assign({}, p.kEntryQty, patch) }));
+
+  // ── 起動時：この端末に記憶された端末モードを読み込む（なければ未選択＝入口画面を出す）
+  useEffect(() => {
+    try {
+      const m = localStorage.getItem("st_device_mode");
+      if (m === "record" || m === "admin") {
+        setDeviceModeState(m);
+        if (m === "record") set({ screen: "record_home" });
+      }
+    } catch (e) {}
+    setDeviceReady(true);
+  }, []);
 
   useEffect(() => {
     gasLoad().then((d) => {
@@ -465,6 +501,18 @@ function App() {
     gasAddQtyRecord(newRecord).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
   }
 
+  // リーダー画面：品番カードから直接、その日の上がり（完成枚数）を締める（F3）
+  function saveLeaderQty(partId) {
+    const v = parseFloat((ui.leaderQty || {})[partId]);
+    if (!v || v <= 0) return;
+    const newRecord = { id: genId(), partId: partId, qty: v, date: today() };
+    const nd = Object.assign({}, data, { qtyRecords: (data.qtyRecords || []).concat([newRecord]) });
+    setData(nd);
+    set({ leaderQty: Object.assign({}, ui.leaderQty, { [partId]: "" }) });
+    setSaving(true); setSaveError(false);
+    gasAddQtyRecord(newRecord).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
+  }
+
   // 生産価値の日報：選択中の品番の工程表から、枚数を入れた工程だけを一括追記
   function addKoteiRecords() {
     const partId = ui.kEntryPartId;
@@ -540,8 +588,12 @@ function App() {
     if (newRecord) nd = Object.assign({}, nd, { records: nd.records.concat([newRecord]) });
     if (koteiRecs.length) nd = Object.assign({}, nd, { koteiRecords: (nd.koteiRecords || []).concat(koteiRecs) });
     setData(nd);
-    setMF({ hours: "", partId: "" });
-    set({ kEntryQty: {} });
+    // 保存後は名前選択に戻す（共用タブレットでの名義取り違え防止）。
+    // 名前選択画面に「＋いくら積んだか」を出すため lastSaved を残す。
+    const addedValue = koteiRecs.reduce((a, r) => a + koteiValue(r, data.parts), 0);
+    pushRecentMember(f.memberId);
+    setMF({ hours: "", partId: "", memberId: "" });
+    set({ kEntryQty: {}, kEntrySel: {}, kBulkQty: "", lastSaved: { memberId: f.memberId, memberName: member.name, added: addedValue } });
     setSaving(true); setSaveError(false);
     const ps = [];
     if (newRecord) ps.push(gasAddRecord(newRecord));
@@ -864,7 +916,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       .catch(() => alert("出力に失敗しました。"));
   }
 
-  if (loading) return React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", gap: 16, fontFamily: "'Hiragino Sans', sans-serif" } },
+  if (loading || !deviceReady) return React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", gap: 16, fontFamily: "'Hiragino Sans', sans-serif" } },
     React.createElement("div", { style: st.spinner }),
     React.createElement("div", { style: { color: "#aaa", fontSize: 14 } }, "読み込み中...")
   );
@@ -873,6 +925,42 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     saving && React.createElement("div", { style: st.saveBadge }, "💾 保存中..."),
     saveError && React.createElement("div", { style: Object.assign({}, st.saveBadge, { background: "#c00" }) }, "⚠️ 保存失敗 - 再試行してください")
   );
+
+  // ── 端末モード未選択 → 入口画面（この端末を誰が使うか1回だけ選ぶ。F1で新設）
+  if (deviceMode === null) {
+    return React.createElement(Shell, null,
+      React.createElement(Header, { title: "この端末を誰が使いますか？", sub: "IQUTA PLEATS" }),
+      React.createElement(Body, null,
+        React.createElement(BigBtn, { icon: "✍️", label: "作業を記録する", sub: "個人スマホ・共用タブレット。チームを選んで記録します", onClick: () => chooseDeviceMode("record") }),
+        React.createElement(Spacer, { h: 10 }),
+        React.createElement(BigBtn, { icon: "🔑", label: "リーダー・管理", sub: "上がり枚数の入力・集計・品番管理", onClick: () => chooseDeviceMode("admin") }),
+        React.createElement(Spacer, { h: 14 }),
+        React.createElement("div", { style: { fontSize: 12, color: "#aaa", textAlign: "center", lineHeight: 1.6 } }, "一度選べば次回から覚えます。あとで「端末設定」で変更できます。")
+      )
+    );
+  }
+
+  // ── 記録モードのトップ：チームを選ぶ → 既存の作業記録画面へ（F1・案ア）
+  if (ui.screen === "record_home") {
+    return React.createElement(Shell, null,
+      React.createElement(Header, { title: "作業を記録する", sub: "IQUTA PLEATS" }),
+      React.createElement(Body, null,
+        React.createElement("div", { style: { fontSize: 13, color: "#888", marginBottom: 14 } }, "チームを選んでください"),
+        TEAMS.map((team) => {
+          const cnt = partSummary.filter((p) => p.assignee === team && !p.closedAt).length;
+          return React.createElement("div", { key: team, style: { marginBottom: 12 } },
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6 } },
+              React.createElement(TeamBadge, { team }),
+              cnt > 0 && React.createElement("span", { style: { fontSize: 11, color: "#aaa" } }, cnt + "品番進行中")
+            ),
+            React.createElement(RoleBtn, { icon: "😄", label: team + " で記録する", onClick: () => set({ selectedTeam: team, userRole: "member", screen: "member_entry", memberForm: { memberId: "", partId: "", hours: "", date: today() } }) })
+          );
+        }),
+        React.createElement(Spacer, { h: 18 }),
+        React.createElement("button", { style: { background: "none", border: "none", color: "#bbb", fontSize: 12, cursor: "pointer", width: "100%", textAlign: "center", padding: 8 }, onClick: resetDeviceMode }, "⚙ 端末設定をやり直す")
+      )
+    );
+  }
 
   if (ui.screen === "home") {
     const unassigned = partSummary.filter((p) => (!p.assignee || p.assignee === "未割当") && !p.closedAt).length;
@@ -885,7 +973,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         React.createElement(Spacer, { h: 8 }),
         React.createElement(BigBtn, { icon: "💰", label: "売上カレンダー", sub: "日ごとの完成売上を全体・チーム別で確認", onClick: () => set({ screen: "sales_calendar", salesMonth: today().slice(0, 7), salesTeam: "all" }) }),
         React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { icon: "🗂️", label: "ダッシュボード", sub: "納期・進捗を一目で確認", onClick: () => set({ screen: "dashboard" }) }),
         React.createElement(Spacer, { h: 8 }),
         React.createElement(BigBtn, { icon: "🏷️", label: "ブランド別仕事一覧", sub: "客先ごとの納品前・納品済みを確認", onClick: () => set({ screen: "brand_jobs", selectedBrandId: null }) }),
         React.createElement(Spacer, { h: 8 }),
@@ -911,6 +998,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             )
           );
         }),
+        React.createElement(Spacer, { h: 6 }),
+        React.createElement("button", { style: { background: "none", border: "none", color: "#bbb", fontSize: 12, cursor: "pointer", width: "100%", textAlign: "center", padding: 8 }, onClick: resetDeviceMode }, "⚙ 端末設定をやり直す"),
         React.createElement(Spacer, { h: 8 }),
         React.createElement(Divider, { label: "管理設定" }),
         React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 8 } },
@@ -1255,194 +1344,345 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     );
   }
 
-  if (ui.screen === "dashboard") {
-    const isDelivered = ui.dashFilter === "delivered";
-    const baseItems = isDelivered
-      ? partSummary.filter((p) => p.closedAt)
-      : partSummary.filter((p) => !p.closedAt);
-    const sortedItems = baseItems.slice().sort((a, b) => {
-      if (!a.deadline) return 1; if (!b.deadline) return -1;
-      return a.deadline.localeCompare(b.deadline);
-    });
-    const urgent = sortedItems.filter((p) => !isDelivered && p.remainDays !== null && p.remainDays <= 3);
-    const caution = sortedItems.filter((p) => !isDelivered && p.remainDays !== null && p.remainDays > 3 && p.remainDays <= 7);
-    const normal = sortedItems.filter((p) => isDelivered || p.remainDays === null || p.remainDays > 7);
-    return React.createElement(Shell, null,
-      React.createElement(Header, { title: "ダッシュボード", back: () => set({ screen: "home" }) }),
-      React.createElement(Body, null,
-        React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 16 } },
-          React.createElement("button", {
-            style: Object.assign({}, st.filterBtn, { flex: 1, padding: "10px", fontSize: 13, fontWeight: 700 }, !isDelivered ? st.filterBtnActive : {}),
-            onClick: () => set({ dashFilter: "active" })
-          }, "📦 納品前"),
-          React.createElement("button", {
-            style: Object.assign({}, st.filterBtn, { flex: 1, padding: "10px", fontSize: 13, fontWeight: 700 }, isDelivered ? Object.assign({}, st.filterBtnActive, { background: "#2a7a2a", borderColor: "#2a7a2a" }) : {}),
-            onClick: () => set({ dashFilter: "delivered" })
-          }, "✅ 納品済み")
-        ),
-        React.createElement("div", { style: { fontSize: 12, color: "#aaa", marginBottom: 16 } }, "本日: " + today() + "　" + (isDelivered ? "納品済み" : "進行中") + ": " + sortedItems.length + "件"),
-        !isDelivered && urgent.length > 0 && React.createElement("div", null,
-          React.createElement("div", { style: Object.assign({}, st.alertBanner, { background: "#fff0f0", color: "#c00", borderColor: "#ffcccc" }) }, "🔴 緊急 — 納期まで3日以内"),
-          urgent.map((p) => React.createElement(DashCard, { key: p.id, item: p, vendors: data.vendors, level: "red", onClick: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "dashboard" }) }))
-        ),
-        !isDelivered && caution.length > 0 && React.createElement("div", null,
-          React.createElement("div", { style: Object.assign({}, st.alertBanner, { background: "#fffbf0", color: "#b07000", borderColor: "#ffe599" }) }, "🟡 要注意 — 納期まで7日以内"),
-          caution.map((p) => React.createElement(DashCard, { key: p.id, item: p, vendors: data.vendors, level: "yellow", onClick: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "dashboard" }) }))
-        ),
-        normal.length > 0 && React.createElement("div", null,
-          !isDelivered && React.createElement("div", { style: Object.assign({}, st.alertBanner, { background: "#f0f8f0", color: "#2a7a2a", borderColor: "#b8e6b8" }) }, "🟢 余裕あり"),
-          normal.map((p) => React.createElement(DashCard, { key: p.id, item: p, vendors: data.vendors, level: isDelivered ? "done" : "green", onClick: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "dashboard" }) }))
-        ),
-        sortedItems.length === 0 && React.createElement(Empty, null, isDelivered ? "納品済みの品番がありません" : "進行中の品番がありません")
-      ),
-      React.createElement(SI)
-    );
-  }
-
   if (ui.screen === "team_leader") {
+    // ============================================================
+    // リーダー画面（F3全面改修）
+    //  ・納期警告を常設の赤帯でトップに（あと3日以内=赤／7日以内=オレンジ）
+    //  ・品番ごとに 完成進捗バー＋メンバーの入力状況チップ＋上がり枚数の締め
+    //  ・工程表はワンタップ参照（読み取り専用）
+    // ============================================================
     const myOpen = teamParts;
     const myDone = partSummary.filter((p) => p.assignee === ui.selectedTeam && p.assigneeType === "team" && p.closedAt);
-    const qf = ui.qtyForm;
-    const qfReady = qf.partId && qf.qty;
+    const tday = today();
+    const urgent = myOpen.filter((p) => p.remainDays !== null && p.remainDays <= 3);
+    const caution = myOpen.filter((p) => p.remainDays !== null && p.remainDays > 3 && p.remainDays <= 7);
+
+    // その品番の「持ち場」＝直近14日で時間か工程を記録した人。今日記録済みなら✓、まだなら未入力。
+    const workersOf = (partId) => {
+      const map = {};
+      const mark = (r) => {
+        const diff = (new Date(tday + "T00:00:00") - new Date(r.date + "T00:00:00")) / 86400000;
+        if (diff < 0 || diff > 14) return;
+        if (!map[r.memberId]) map[r.memberId] = { name: r.memberName || ((data.members.find((m) => m.id === r.memberId) || {}).name || "?"), today: false };
+        if (r.date === tday) map[r.memberId].today = true;
+      };
+      data.records.forEach((r) => { if (r.partId === partId) mark(r); });
+      (data.koteiRecords || []).forEach((r) => { if (r.partId === partId) mark(r); });
+      return Object.keys(map).map((k) => map[k]);
+    };
+
+    // 納期警告の1行
+    const alertRow = (p, color, border, label) => React.createElement("div", { key: p.id, style: { background: "#fff", border: "1px solid " + border, borderLeft: "5px solid " + color, borderRadius: 12, padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }, onClick: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "team_leader" }) },
+      React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: color, whiteSpace: "nowrap" } }, label),
+      React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+        React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, p.partNo),
+        React.createElement("div", { style: { fontSize: 11, color: "#999", marginTop: 2 } }, (p.partName ? p.partName + " ・ " : "") + "残り " + p.remainQty + "枚 / " + (p.qty || 0) + "枚")
+      ),
+      React.createElement("span", { style: { color: "#ccc" } }, "›")
+    );
+
     return React.createElement(Shell, null,
       React.createElement(Header, { title: ui.selectedTeam + "　リーダー", back: () => set({ screen: "home" }) }),
       React.createElement(Body, null,
-        React.createElement("div", { style: st.card },
-          React.createElement("div", { style: { fontSize: 13, fontWeight: 700, marginBottom: 12 } }, "📦 今日の完成枚数を入力"),
-          React.createElement(FormRow, { label: "品番を選ぶ" },
-            myOpen.length === 0
-              ? React.createElement("div", { style: { color: "#bbb", fontSize: 13 } }, "進行中の品番がありません")
-              : React.createElement("select", { style: st.input, value: qf.partId, onChange: (e) => setQF({ partId: e.target.value }) },
-                  React.createElement("option", { value: "" }, "選択してください"),
-                  myOpen.map((p) => React.createElement("option", { key: p.id, value: p.id }, p.partNo + (p.partName ? " (" + p.partName + ")" : "")))
-                )
-          ),
-          React.createElement(FormRow, { label: "完成枚数" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 10", min: "0", value: qf.qty, onChange: (e) => setQF({ qty: e.target.value }) })),
-          React.createElement(FormRow, { label: "日付" }, React.createElement("input", { style: st.input, type: "date", value: qf.date, onChange: (e) => setQF({ date: e.target.value }) })),
-          React.createElement("button", { style: Object.assign({}, st.primaryBtn, { opacity: qfReady ? 1 : 0.35 }), disabled: !qfReady, onClick: addQtyRecord }, "記録する")
+
+        // ── 納期が近い品番（毎日いちばん先に目に入る場所）
+        (urgent.length > 0 || caution.length > 0) && React.createElement("div", { style: { marginBottom: 8 } },
+          React.createElement("div", { style: { fontSize: 12, color: "#c00", fontWeight: 700, margin: "0 0 8px" } }, "⚠️ 納期が近い品番"),
+          urgent.map((p) => alertRow(p, "#c00", "#f3c4c4", p.remainDays <= 0 ? "本日" : "あと" + p.remainDays + "日")),
+          caution.map((p) => alertRow(p, "#c25000", "#f0d4b8", "あと" + p.remainDays + "日"))
         ),
-        React.createElement(SectionLabel, null, "進行中の品番"),
+
+        React.createElement(SectionLabel, null, "進行中の品番（上がりを締める）"),
         myOpen.length === 0 && React.createElement(Empty, null, "進行中の品番はありません"),
-        myOpen.map((p) => React.createElement(PartCard, { key: p.id, p, onDetail: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "team_leader" }), onClose: () => closePart(p.id) })),
+        myOpen.map((p) => {
+          const ws = workersOf(p.id);
+          const prog = p.qtyProgress !== null ? p.qtyProgress : 0;
+          const sheet = (data.koteiSheets || []).find((s) => s.partId === p.id);
+          const kOpen = !!(ui.leaderKotei || {})[p.id];
+          const kSteps = sheet ? (sheet.blocks || []).filter((b) => b.type === "step") : [];
+          const qv = (ui.leaderQty || {})[p.id] || "";
+          return React.createElement("div", { key: p.id, style: { background: "#fff", border: "1px solid #e0deda", borderRadius: 14, padding: 14, marginBottom: 12 } },
+            React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 } },
+              React.createElement("div", null,
+                React.createElement("div", { style: { fontSize: 16, fontWeight: 700 } }, p.partNo),
+                p.partName && React.createElement("div", { style: { fontSize: 12, color: "#888", marginTop: 2 } }, p.partName)
+              ),
+              React.createElement("button", { style: { fontSize: 11, color: "#0f3d4a", background: "none", border: "1px solid #d9d5c8", borderRadius: 16, padding: "4px 10px", cursor: "pointer" }, onClick: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "team_leader" }) }, "詳細 ›")
+            ),
+            // 完成の進捗（リーダーが締めた上がり枚数の積み上げ）
+            React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 12, color: "#555", marginBottom: 4 } },
+              React.createElement("span", null, "完成 " + p.completedQty + "枚 / " + (p.qty || 0) + "枚"),
+              React.createElement("span", { style: { color: (p.remainQty > 0 && p.remainDays !== null && p.remainDays <= 3) ? "#c00" : "#555" } }, "残り " + p.remainQty + "枚")
+            ),
+            React.createElement("div", { style: { height: 8, background: "#ece9e2", borderRadius: 6, overflow: "hidden", marginBottom: 10 } },
+              React.createElement("div", { style: { height: "100%", width: Math.round(prog * 100) + "%", background: "#3b6fd4", borderRadius: 6 } })
+            ),
+            // メンバーの入力状況：今日入力済み ✓ ／ 持ち場なのにまだ＝未入力
+            ws.length > 0 && React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 } },
+              ws.map((w, wi) => React.createElement("span", { key: wi, style: w.today ? { fontSize: 12, borderRadius: 20, padding: "4px 10px", fontWeight: 600, background: "#e6f2e6", color: "#2a7a2a" } : { fontSize: 12, borderRadius: 20, padding: "4px 10px", fontWeight: 600, background: "#f6ece0", color: "#c25000", border: "1px dashed #e0b48a" } }, w.name + (w.today ? " ✓" : " 未入力")))
+            ),
+            // 上がり枚数をその場で締める＋工程表参照
+            React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
+              sheet && React.createElement("button", { style: { border: "1px solid #d9d5c8", background: "#fff", borderRadius: 10, padding: "10px 12px", fontSize: 12, fontWeight: 700, color: "#0f3d4a", cursor: "pointer", whiteSpace: "nowrap" }, onClick: () => set({ leaderKotei: Object.assign({}, ui.leaderKotei, { [p.id]: !kOpen }) }) }, "📐 工程表"),
+              React.createElement("input", { style: { flex: 1, minWidth: 0, border: "1px solid #d9d5c8", borderRadius: 10, padding: "10px", fontSize: 15, textAlign: "center" }, type: "number", min: "0", placeholder: "今日の上がり枚数", value: qv, onChange: (e) => set({ leaderQty: Object.assign({}, ui.leaderQty, { [p.id]: e.target.value }) }) }),
+              React.createElement("button", { style: { border: "none", background: "#0f3d4a", color: "#fff", borderRadius: 10, padding: "10px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", opacity: parseFloat(qv) > 0 ? 1 : 0.35 }, disabled: !(parseFloat(qv) > 0), onClick: () => saveLeaderQty(p.id) }, "締める")
+            ),
+            // 工程表（読み取り専用・紙と同じ内容）
+            kOpen && React.createElement("div", { style: { background: "#f5f4f0", borderRadius: 10, padding: "4px 12px", marginTop: 10 } },
+              kSteps.map((s, si) => React.createElement("div", { key: s.id, style: { display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderTop: si > 0 ? "1px solid #eceae4" : "none" } },
+                React.createElement("span", { style: { width: 26, textAlign: "center", fontSize: 13, fontWeight: 700, color: "#0f3d4a" } }, koteiParenNum(si + 1)),
+                React.createElement("span", { style: { flex: 1, fontSize: 13 } }, s.act || "（無題）"),
+                React.createElement("span", { style: { fontSize: 11, color: "#aaa" } }, (s.part ? s.part + " " : "") + fmtKoteiTime(parseKoteiTime(s.time)))
+              ))
+            ),
+            // 全数上がったら完了にできる（従来のclosePart）
+            p.remainQty === 0 && React.createElement("button", { style: { width: "100%", marginTop: 10, border: "1px solid #2a7a2a", background: "#f0f8f0", color: "#2a7a2a", borderRadius: 10, padding: 10, fontSize: 13, fontWeight: 700, cursor: "pointer" }, onClick: () => closePart(p.id) }, "✅ この品番を完了にする")
+          );
+        }),
+
         React.createElement(SectionLabel, null, "完了済み"),
         myDone.length === 0 && React.createElement(Empty, null, "完了済みの品番はありません"),
-        myDone.map((p) => React.createElement(PartCard, { key: p.id, p, done: true, onDetail: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "team_leader" }), onReopen: () => reopenPart(p.id) }))
+        myDone.map((p) => React.createElement(PartCard, { key: p.id, p: p, done: true, onDetail: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "team_leader" }), onReopen: () => reopenPart(p.id) }))
       ),
       React.createElement(SI)
     );
   }
 
   if (ui.screen === "member_entry") {
+    // ============================================================
+    // 作業記録画面（F2全面改修）
+    //  ・名前未選択 → 最近この端末で記録した人を大ボタンで表示（＋全員から探す）
+    //  ・名前選択後 → 今日の生産価値ヒーロー＋襞グラフ＋工程チェック式まとめ入力
+    //  ・保存後は名前選択へ戻す（共用タブレットの名義取り違え防止）
+    // ============================================================
     const f = ui.memberForm;
+    const dayKey = f.date || today();
+    const fmtD = (dt) => dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
+    // 直近7日（表示日を含む）の日付リスト
+    const last7 = [];
+    for (let i = 6; i >= 0; i--) { const dt = new Date(dayKey + "T00:00:00"); dt.setDate(dt.getDate() - i); last7.push(fmtD(dt)); }
+    const dayLabel = (ds) => ["日", "月", "火", "水", "木", "金", "土"][new Date(ds + "T00:00:00").getDay()];
+
+    // 個人の日別集計（生産価値・枚数・時間）
+    const valOn = (d) => (data.koteiRecords || []).filter((r) => r.memberId === f.memberId && r.date === d).reduce((a, r) => a + koteiValue(r, data.parts), 0);
+    const qtyOnD = (d) => (data.koteiRecords || []).filter((r) => r.memberId === f.memberId && r.date === d).reduce((a, r) => a + (r.qty || 0), 0);
+
+    // チームの日別集計（名前選択画面に出す「みんなの積み上げ」グラフ用）
+    const teamPartIds = {};
+    partSummary.forEach((p) => { if (p.assigneeType === "team" && p.assignee === ui.selectedTeam) teamPartIds[p.id] = true; });
+    const teamValOn = (d) => (data.koteiRecords || []).filter((r) => teamPartIds[r.partId] && r.date === d).reduce((a, r) => a + koteiValue(r, data.parts), 0);
+    const teamQtyOn = (d) => (data.koteiRecords || []).filter((r) => teamPartIds[r.partId] && r.date === d).reduce((a, r) => a + (r.qty || 0), 0);
+
+    // 金額／枚数の切替（襞グラフ共通）
+    const pgUnit = ui.pgUnit || "yen";
+    const unitToggle = React.createElement("div", { style: { display: "inline-flex", background: "#e9e8e4", borderRadius: 9, padding: 2 } },
+      ["yen", "qty"].map((u) => React.createElement("button", { key: u, style: { border: "none", background: pgUnit === u ? "#fff" : "none", color: pgUnit === u ? "#1d1d1f" : "#86868b", fontSize: 13, fontWeight: 600, padding: "6px 15px", borderRadius: 7, cursor: "pointer", boxShadow: pgUnit === u ? "0 1px 3px rgba(0,0,0,.06)" : "none" }, onClick: () => set({ pgUnit: u }) }, u === "yen" ? "金額" : "枚数"))
+    );
+
+    // ───────── 名前選択（未選択のとき） ─────────
+    if (!f.memberId) {
+      const recentIds = getRecentMembers().filter((id) => data.members.some((m) => m.id === id));
+      const teamDays = last7.map((d, i) => ({ label: dayLabel(d), val: pgUnit === "yen" ? teamValOn(d) : teamQtyOn(d), isToday: i === 6 }));
+      const ls = ui.lastSaved;
+      // 保存直後のひとこと：保存後のデータから今日／昨日を比べて日替わりで出す
+      const lsWord = ls ? (function () {
+        const tv = (data.koteiRecords || []).filter((r) => r.memberId === ls.memberId && r.date === dayKey).reduce((a, r) => a + koteiValue(r, data.parts), 0);
+        const yv = (data.koteiRecords || []).filter((r) => r.memberId === ls.memberId && r.date === last7[5]).reduce((a, r) => a + koteiValue(r, data.parts), 0);
+        return pickDailyWord(tv, yv, dayKey);
+      })() : "";
+      return React.createElement(Shell, null,
+        React.createElement(Header, { title: ui.selectedTeam + "　作業記録", back: () => set({ screen: deviceMode === "record" ? "record_home" : "home", lastSaved: null }) }),
+        React.createElement(Body, null,
+          data.members.length === 0
+            ? React.createElement("div", { style: Object.assign({}, st.card, { textAlign: "center", color: "#aaa", padding: 24 }) }, "メンバーが登録されていません。", React.createElement("br"), "管理メニュー→メンバー管理から登録してください。")
+            : React.createElement("div", null,
+                // 保存直後のフィードバック（誰がいくら積んだか＋日替わりのひとこと）
+                ls && React.createElement("div", { style: { background: "#0f3d4a", color: "#fff", borderRadius: 16, padding: "16px 18px", marginBottom: 16 } },
+                  React.createElement("div", { style: { fontSize: 12, opacity: 0.7, marginBottom: 4 } }, "✓ 記録しました　" + ls.memberName + "さん"),
+                  React.createElement("div", { style: { fontSize: 26, fontWeight: 700 } }, "＋¥" + Math.round(ls.added).toLocaleString()),
+                  lsWord && React.createElement("div", { style: { fontSize: 13, marginTop: 6, opacity: 0.9 } }, lsWord)
+                ),
+                React.createElement("div", { style: { fontSize: 13, color: "#86868b", marginBottom: 10 } }, "自分の名前を選んでください"),
+                recentIds.length > 0 && React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 } },
+                  recentIds.map((id) => { const m = data.members.find((x) => x.id === id); return React.createElement("button", { key: id, style: { background: "#eef3f4", border: "1px solid #cfe0e4", borderRadius: 12, padding: "16px 4px", fontSize: 15, fontWeight: 700, color: "#0f3d4a", cursor: "pointer" }, onClick: () => { setMF({ memberId: id }); set({ lastSaved: null }); } }, m.name); })
+                ),
+                recentIds.length > 0 && React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginBottom: 6 } }, "応援などで初めての人はこちら"),
+                React.createElement("select", { style: st.input, value: "", onChange: (e) => { if (e.target.value) { setMF({ memberId: e.target.value }); set({ lastSaved: null }); } } },
+                  React.createElement("option", { value: "" }, "▼ 全員から探す（" + data.members.length + "名）"),
+                  data.members.map((m) => React.createElement("option", { key: m.id, value: m.id }, m.name))
+                ),
+                // チームの直近1週間：共用タブレットで「みんなで積み上げた」が見える
+                React.createElement("div", { style: { marginTop: 22 } },
+                  React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 } },
+                    React.createElement("div", { style: { fontSize: 13, color: "#86868b" } }, ui.selectedTeam + " 直近1週間"),
+                    unitToggle
+                  ),
+                  React.createElement(PleatsChart, { days: teamDays, fmt: pgUnit })
+                )
+              )
+        ),
+        React.createElement(SI)
+      );
+    }
+
+    // ───────── 記録画面（名前選択済み） ─────────
+    const memberName = (data.members.find((m) => m.id === f.memberId) || {}).name || "";
     const selSheet = f.partId ? (data.koteiSheets || []).find((s) => s.partId === f.partId) : null;
     const selSteps = selSheet ? (selSheet.blocks || []).filter((b) => b.type === "step") : [];
-    // パーツごとにグループ化（印刷と同じ継承ルール）
-    const kGroups = []; let kg = null;
+    // パーツごとにグループ化（印刷と同じ継承ルール：part指定が変わるたび新グループ）
+    const kGroups = []; let kg = null; let curPartName = "";
     selSteps.forEach((b) => {
-      if (b.part) { if (!kg || kg.part !== b.part) { kg = { part: b.part, steps: [] }; kGroups.push(kg); } }
-      else { if (!kg) { kg = { part: "—", steps: [] }; kGroups.push(kg); } }
+      if (b.part) curPartName = b.part;
+      const gname = curPartName || "—";
+      if (!kg || kg.part !== gname) { kg = { part: gname, steps: [] }; kGroups.push(kg); }
       kg.steps.push(b);
     });
-    const setGroupQty = (steps, v) => { const patch = {}; steps.forEach((s) => { patch[s.id] = v; }); setKQ(patch); };
-    // 全工程に上から通し番号
     const stepNo = {}; selSteps.forEach((b, i) => { stepNo[b.id] = i + 1; });
-    // 案1：その人がその品番で過去に入力した工程（＝いつもの持ち場）。今も存在する工程だけ。
-    const usualIds = {};
-    if (f.memberId && f.partId) {
-      (data.koteiRecords || []).forEach((r) => { if (r.memberId === f.memberId && r.partId === f.partId) usualIds[r.stepId] = true; });
+
+    // ⭐最近やった工程：この人がこの品番で直近14日以内に入力した工程
+    const recentStepIds = {};
+    if (f.partId) {
+      (data.koteiRecords || []).forEach((r) => {
+        if (r.memberId !== f.memberId || r.partId !== f.partId) return;
+        const diff = (new Date(dayKey + "T00:00:00") - new Date(r.date + "T00:00:00")) / 86400000;
+        if (diff >= 0 && diff <= 14) recentStepIds[r.stepId] = true;
+      });
     }
-    const usualSteps = selSteps.filter((b) => usualIds[b.id]);
-    const toggleOpen = (key) => set({ kEntryOpen: Object.assign({}, ui.kEntryOpen, { [key]: !ui.kEntryOpen[key] }) });
-    // 工程1行（番号＋作業内容＋時間＋枚数）
-    const stepRow = (s) => React.createElement("div", { key: s.id, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6 } },
-      React.createElement("div", { style: { width: 26, textAlign: "center", fontSize: 15, fontWeight: 700, color: "#0f3d4a", flex: "none" } }, koteiParenNum(stepNo[s.id])),
-      React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+    const recentSteps = selSteps.filter((b) => recentStepIds[b.id]);
+
+    // 工程の選択（チェック）とまとめて入力（パーツをまたいで自由に選べる）
+    const sel = ui.kEntrySel || {};
+    const toggleSel = (id) => set({ kEntrySel: Object.assign({}, sel, { [id]: !sel[id] }) });
+    const selCount = selSteps.filter((s) => sel[s.id]).length;
+    const applyBulk = () => {
+      const v = ui.kBulkQty;
+      if (!v || parseFloat(v) <= 0) return;
+      const patch = {};
+      selSteps.forEach((s) => { if (sel[s.id]) patch[s.id] = v; });
+      setKQ(patch);
+    };
+
+    // 工程1行：チェック＋番号＋作業内容＋枚数（個別入力も残す）
+    const stepRow = (s) => React.createElement("div", { key: s.id, style: { display: "flex", alignItems: "center", gap: 8, padding: "9px 0", borderTop: "1px solid #f4f3f0" } },
+      React.createElement("button", { style: { width: 26, height: 26, borderRadius: 7, border: "2px solid " + (sel[s.id] ? "#0f3d4a" : "#d2d1cc"), background: sel[s.id] ? "#0f3d4a" : "#fff", color: "#fff", fontSize: 13, cursor: "pointer", flex: "none", padding: 0 }, onClick: () => toggleSel(s.id) }, sel[s.id] ? "✓" : ""),
+      React.createElement("div", { style: { width: 26, textAlign: "center", fontSize: 14, fontWeight: 700, color: "#0f3d4a", flex: "none" } }, koteiParenNum(stepNo[s.id])),
+      React.createElement("div", { style: { flex: 1, minWidth: 0, cursor: "pointer" }, onClick: () => toggleSel(s.id) },
         React.createElement("div", { style: { fontSize: 13, color: "#333", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, s.act || "（無題の工程）"),
         React.createElement("div", { style: { fontSize: 10, color: "#aaa" } }, (s.part ? s.part + "　" : "") + fmtKoteiTime(parseKoteiTime(s.time)))
       ),
-      React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid #d9d5c8", borderRadius: 8, padding: "8px 4px", fontSize: 15, background: "#fff" }, type: "number", min: "0", placeholder: "枚", value: (ui.kEntryQty || {})[s.id] || "", onChange: (e) => setKQ({ [s.id]: e.target.value }) })
+      React.createElement("input", { style: { width: 58, textAlign: "center", border: "none", background: "#f5f5f7", borderRadius: 9, padding: "9px 4px", fontSize: 15 }, type: "number", min: "0", placeholder: "枚", value: (ui.kEntryQty || {})[s.id] || "", onChange: (e) => setKQ({ [s.id]: e.target.value }) })
     );
+
     const hasQty = Object.keys(ui.kEntryQty || {}).some((id) => parseFloat((ui.kEntryQty || {})[id]) > 0);
     const ready = f.memberId && f.partId && ((f.hours && parseFloat(f.hours) > 0) || hasQty);
 
-    // 本日・本人の記録
-    const myRecs = f.memberId ? data.records.filter((r) => r.memberId === f.memberId && r.date === f.date) : [];
-    const myKotei = f.memberId ? (data.koteiRecords || []).filter((r) => r.memberId === f.memberId && r.date === f.date) : [];
-    const dayHours = myRecs.reduce((a, r) => a + (r.hours || 0), 0);
-    const dayValue = myKotei.reduce((a, r) => a + koteiValue(r, data.parts), 0);
-    const myMemberName = (data.members.find((m) => m.id === f.memberId) || {}).name || "";
+    // 入力中ぶんの生産価値（保存前のプレビュー：数字を入れるたびヒーローが伸びる）
+    const selPart = f.partId ? (data.parts.find((p) => p.id === f.partId) || {}) : {};
+    const draftVal = selSheet ? selSteps.reduce((a, s) => {
+      const q = parseFloat((ui.kEntryQty || {})[s.id]);
+      if (!q || q <= 0) return a;
+      return a + koteiValue({ partId: f.partId, stepSec: parseKoteiTime(s.time), qty: q, totalSec: selSheet.totalSec || 0, unitPrice: selPart.unitPrice || 0 }, data.parts);
+    }, 0) : 0;
+
+    // 本日・本人の保存済み記録
+    const myRecs = data.records.filter((r) => r.memberId === f.memberId && r.date === dayKey);
+    const myKotei = (data.koteiRecords || []).filter((r) => r.memberId === f.memberId && r.date === dayKey);
+    const heroVal = myKotei.reduce((a, r) => a + koteiValue(r, data.parts), 0);
+    const heroQty = myKotei.reduce((a, r) => a + (r.qty || 0), 0);
+    const heroHours = myRecs.reduce((a, r) => a + (r.hours || 0), 0);
+    const word = pickDailyWord(heroVal, valOn(last7[5]), dayKey);
+    const myDays = last7.map((d, i) => ({ label: dayLabel(d), val: pgUnit === "yen" ? valOn(d) : qtyOnD(d), isToday: i === 6 }));
 
     return React.createElement(Shell, null,
-      React.createElement(Header, { title: ui.selectedTeam + "　作業記録", back: () => set({ screen: "home" }) }),
+      React.createElement(Header, { title: memberName + "さん", back: () => setMF({ memberId: "" }) }),
       React.createElement(Body, null,
-        data.members.length === 0
-          ? React.createElement("div", { style: Object.assign({}, st.card, { textAlign: "center", color: "#aaa", padding: 24 }) }, "メンバーが登録されていません。", React.createElement("br"), "ホーム→メンバー管理から登録してください。")
-          : React.createElement("div", null,
-              React.createElement("div", { style: st.card },
-                React.createElement(FormRow, { label: "日付" }, React.createElement("input", { style: st.input, type: "date", value: f.date, onChange: (e) => setMF({ date: e.target.value }) })),
-                React.createElement(FormRow, { label: "自分の名前" }, React.createElement("select", { style: st.input, value: f.memberId, onChange: (e) => setMF({ memberId: e.target.value }) },
-                  React.createElement("option", { value: "" }, "選択してください"),
-                  data.members.map((m) => React.createElement("option", { key: m.id, value: m.id }, m.name))
-                ))
-              ),
 
-              React.createElement("div", { style: st.card },
-                React.createElement(FormRow, { label: "品番を選ぶ" },
-                  teamParts.length === 0
-                    ? React.createElement("div", { style: { color: "#bbb", fontSize: 13, padding: "8px 0" } }, "進行中の品番がありません")
-                    : React.createElement("select", { style: st.input, value: f.partId, onChange: (e) => { setMF({ partId: e.target.value }); set({ kEntryQty: {} }); } },
-                        React.createElement("option", { value: "" }, "選択してください"),
-                        teamParts.map((p) => React.createElement("option", { key: p.id, value: p.id }, p.partNo + (p.partName ? " (" + p.partName + ")" : "")))
-                      )
-                ),
-                f.partId && React.createElement(FormRow, { label: "作業時間（h）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3.5", min: "0", step: "0.5", value: f.hours, onChange: (e) => setMF({ hours: e.target.value }) })),
-                f.partId && selSheet && React.createElement("div", null,
-                  usualSteps.length > 0 && React.createElement("div", { style: { background: "#eef3f4", borderRadius: 10, padding: "10px 12px", marginBottom: 10, border: "1px solid #cfe0e4" } },
-                    React.createElement("div", { style: { fontSize: 12, color: "#0f3d4a", fontWeight: 700, marginBottom: 8 } }, "⭐ 以前にやった工程"),
-                    usualSteps.map((s) => stepRow(s))
-                  ),
-                  React.createElement("div", { style: { fontSize: 11, color: "#888", margin: "4px 0 8px" } }, "📐 すべての工程（パーツ名をタップで開く）"),
-                  kGroups.length === 0 && React.createElement("div", { style: { color: "#bbb", fontSize: 13 } }, "この品番の工程表に工程がありません"),
-                  kGroups.map((grp, gi) => {
-                    const gkey = "g" + gi;
-                    const gopen = !!ui.kEntryOpen[gkey];
-                    const gfilled = grp.steps.filter((s) => parseFloat((ui.kEntryQty || {})[s.id]) > 0).length;
-                    return React.createElement("div", { key: gi, style: { background: "#f5f4f0", borderRadius: 10, marginBottom: 8, overflow: "hidden" } },
-                      React.createElement("button", { style: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "12px", background: "none", border: "none", cursor: "pointer" }, onClick: () => toggleOpen(gkey) },
-                        React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: "#0f3d4a" } }, grp.part + "（" + grp.steps.length + "工程）"),
-                        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
-                          gfilled > 0 && React.createElement("span", { style: { fontSize: 11, color: "#0f3d4a", fontWeight: 700, background: "#cfe0e4", borderRadius: 10, padding: "2px 8px" } }, gfilled + "件入力済"),
-                          React.createElement("span", { style: { color: "#999", fontSize: 13 } }, gopen ? "▼" : "▶")
-                        )
-                      ),
-                      gopen && React.createElement("div", { style: { padding: "0 12px 10px" } },
-                        React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, marginBottom: 8 } },
-                          React.createElement("span", { style: { fontSize: 11, color: "#999" } }, "まとめて"),
-                          React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid #d9d5c8", borderRadius: 8, padding: "6px 4px", fontSize: 14 }, type: "number", min: "0", placeholder: "枚", onChange: (e) => setGroupQty(grp.steps, e.target.value) }),
-                          React.createElement("span", { style: { fontSize: 11, color: "#999" } }, "枚")
-                        ),
-                        grp.steps.map((s) => stepRow(s))
-                      )
-                    );
-                  })
-                ),
-                f.partId && !selSheet && React.createElement("div", { style: { fontSize: 11, color: "#bbb", margin: "4px 0 8px" } }, "この品番は工程表がないため、時間のみ記録します"),
-                f.partId && React.createElement("button", { style: Object.assign({}, st.primaryBtn, { background: "#0f3d4a", opacity: ready ? 1 : 0.35 }), disabled: !ready, onClick: saveEntry }, "記録する")
-              )
-            ),
+        // ── ヒーロー：今日の生産価値（入力中ぶんも足してカウントアップ）＋頑張りの中身＋ひとこと
+        React.createElement("div", { style: { marginBottom: 4 } },
+          React.createElement("div", { style: { fontSize: 13, color: "#86868b", marginBottom: 6 } }, "今日の生産価値"),
+          React.createElement("div", { style: { fontSize: 44, fontWeight: 600, letterSpacing: "-0.03em", lineHeight: 1, color: "#1d1d1f" } }, React.createElement(CountUpYen, { value: heroVal + draftVal })),
+          React.createElement("div", { style: { fontSize: 13, color: "#86868b", marginTop: 8 } },
+            (heroQty > 0 || heroHours > 0) ? Math.round(heroQty) + "枚 ・ " + heroHours.toFixed(1) + "時間" : "",
+            word && React.createElement("span", { style: { color: "#0f3d4a", fontWeight: 600, marginLeft: heroQty > 0 || heroHours > 0 ? 8 : 0 } }, word)
+          )
+        ),
 
-        f.memberId && (myRecs.length > 0 || myKotei.length > 0) && React.createElement("div", null,
-          React.createElement(SectionLabel, null, "本日の記録 (" + f.date + ")"),
-          React.createElement("div", { style: { display: "flex", gap: 10, marginBottom: 12 } },
-            React.createElement("div", { style: { flex: 1, background: "#1a1a1a", color: "#fff", borderRadius: 12, padding: "14px 16px" } },
-              React.createElement("div", { style: { fontSize: 11, opacity: 0.6, marginBottom: 4 } }, "時間"),
-              React.createElement("div", { style: { fontSize: 22, fontWeight: 700 } }, dayHours.toFixed(1) + "h")
-            ),
-            React.createElement("div", { style: { flex: 1, background: "#0f3d4a", color: "#fff", borderRadius: 12, padding: "14px 16px" } },
-              React.createElement("div", { style: { fontSize: 11, opacity: 0.65, marginBottom: 4 } }, "生産価値"),
-              React.createElement("div", { style: { fontSize: 22, fontWeight: 700 } }, "¥" + Math.round(dayValue).toLocaleString())
-            )
+        // ── 襞グラフ：直近1週間の自分（金額／枚数切替）
+        React.createElement("div", { style: { margin: "16px 0 22px" } },
+          React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 } },
+            React.createElement("div", { style: { fontSize: 13, color: "#86868b" } }, "直近1週間"),
+            unitToggle
           ),
+          React.createElement(PleatsChart, { days: myDays, fmt: pgUnit })
+        ),
+
+        // ── 入力フォーム
+        React.createElement("div", { style: st.card },
+          React.createElement(FormRow, { label: "日付" }, React.createElement("input", { style: st.input, type: "date", value: f.date, onChange: (e) => setMF({ date: e.target.value }) })),
+          React.createElement(FormRow, { label: "品番を選ぶ" },
+            teamParts.length === 0
+              ? React.createElement("div", { style: { color: "#bbb", fontSize: 13, padding: "8px 0" } }, "進行中の品番がありません")
+              : React.createElement("select", { style: st.input, value: f.partId, onChange: (e) => { setMF({ partId: e.target.value }); set({ kEntryQty: {}, kEntrySel: {}, kBulkQty: "", showKoteiRef: false }); } },
+                  React.createElement("option", { value: "" }, "選択してください"),
+                  teamParts.map((p) => React.createElement("option", { key: p.id, value: p.id }, p.partNo + (p.partName ? " (" + p.partName + ")" : "")))
+                )
+          ),
+          f.partId && React.createElement(FormRow, { label: "作業時間（h）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3.5", min: "0", step: "0.5", value: f.hours, onChange: (e) => setMF({ hours: e.target.value }) })),
+
+          // 📐 工程表の参照：紙と同じ内容をワンタップで（読み取り専用）
+          f.partId && selSheet && React.createElement("button", { style: { width: "100%", background: "#fff", border: "1px solid #d9d5c8", borderRadius: 10, padding: 11, fontSize: 13, fontWeight: 700, color: "#0f3d4a", cursor: "pointer", marginBottom: 12 }, onClick: () => set({ showKoteiRef: !ui.showKoteiRef }) }, ui.showKoteiRef ? "📐 工程表を閉じる" : "📐 工程表を見る"),
+          f.partId && selSheet && ui.showKoteiRef && React.createElement("div", { style: { background: "#f5f4f0", borderRadius: 10, padding: "4px 12px", marginBottom: 12 } },
+            selSteps.map((s) => React.createElement("div", { key: "ref" + s.id, style: { display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderTop: "1px solid #eceae4" } },
+              React.createElement("span", { style: { width: 26, textAlign: "center", fontSize: 13, fontWeight: 700, color: "#0f3d4a" } }, koteiParenNum(stepNo[s.id])),
+              React.createElement("span", { style: { flex: 1, fontSize: 13 } }, s.act || "（無題）"),
+              React.createElement("span", { style: { fontSize: 11, color: "#aaa" } }, (s.part ? s.part + " " : "") + fmtKoteiTime(parseKoteiTime(s.time)))
+            ))
+          ),
+
+          // ⭐最近やった工程（直近14日にこの人がこの品番で触った工程）
+          f.partId && selSheet && recentSteps.length > 0 && React.createElement("div", { style: { background: "#eef3f4", borderRadius: 10, padding: "10px 12px", marginBottom: 10, border: "1px solid #cfe0e4" } },
+            React.createElement("div", { style: { fontSize: 12, color: "#0f3d4a", fontWeight: 700, marginBottom: 2 } }, "⭐ 最近やった工程"),
+            recentSteps.map((s) => stepRow(s))
+          ),
+
+          // すべての工程（パーツごとの折りたたみ）
+          f.partId && selSheet && React.createElement("div", null,
+            React.createElement("div", { style: { fontSize: 11, color: "#888", margin: "4px 0 8px" } }, "すべての工程（パーツ名をタップで開く）"),
+            kGroups.length === 0 && React.createElement("div", { style: { color: "#bbb", fontSize: 13 } }, "この品番の工程表に工程がありません"),
+            kGroups.map((grp, gi) => {
+              const gkey = "g" + gi;
+              const gopen = !!(ui.kEntryOpen || {})[gkey];
+              const gfilled = grp.steps.filter((s) => parseFloat((ui.kEntryQty || {})[s.id]) > 0).length;
+              return React.createElement("div", { key: gi, style: { background: "#f5f4f0", borderRadius: 10, marginBottom: 8, overflow: "hidden" } },
+                React.createElement("button", { style: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: 12, background: "none", border: "none", cursor: "pointer" }, onClick: () => set({ kEntryOpen: Object.assign({}, ui.kEntryOpen, { [gkey]: !gopen }) }) },
+                  React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: "#0f3d4a" } }, grp.part + "（" + grp.steps.length + "工程）"),
+                  React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+                    gfilled > 0 && React.createElement("span", { style: { fontSize: 11, color: "#0f3d4a", fontWeight: 700, background: "#cfe0e4", borderRadius: 10, padding: "2px 8px" } }, gfilled + "件入力済"),
+                    React.createElement("span", { style: { color: "#999", fontSize: 13 } }, gopen ? "▼" : "▶")
+                  )
+                ),
+                gopen && React.createElement("div", { style: { padding: "0 12px 10px" } }, grp.steps.map((s) => stepRow(s)))
+              );
+            })
+          ),
+          f.partId && !selSheet && React.createElement("div", { style: { fontSize: 11, color: "#bbb", margin: "4px 0 8px" } }, "この品番は工程表がないため、時間のみ記録します"),
+
+          // ── まとめて入力バー：チェックした工程（パーツまたぎ自由）に同じ枚数を一括
+          f.partId && selCount > 0 && React.createElement("div", { style: { background: "#0f3d4a", borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, marginBottom: 12 } },
+            React.createElement("div", { style: { color: "#cfe0e4", fontSize: 13, flex: 1 } }, "選んだ ", React.createElement("b", { style: { color: "#fff" } }, selCount), " 工程に"),
+            React.createElement("input", { style: { width: 60, border: "none", borderRadius: 8, padding: 9, textAlign: "center", fontSize: 15 }, type: "number", min: "0", placeholder: "枚", value: ui.kBulkQty || "", onChange: (e) => set({ kBulkQty: e.target.value }) }),
+            React.createElement("button", { style: { border: "none", background: "#fff", color: "#0f3d4a", borderRadius: 8, padding: "9px 12px", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }, onClick: applyBulk }, "まとめて入れる")
+          ),
+
+          // 入力中ぶんのプレビュー（保存前でも手応えが見える）
+          f.partId && draftVal > 0 && React.createElement("div", { style: { textAlign: "right", fontSize: 13, color: "#0f3d4a", fontWeight: 700, marginBottom: 10 } }, "この記録ぶん ＋¥" + Math.round(draftVal).toLocaleString()),
+
+          f.partId && React.createElement("button", { style: Object.assign({}, st.primaryBtn, { background: "#0f3d4a", opacity: ready ? 1 : 0.35 }), disabled: !ready, onClick: saveEntry }, "記録する")
+        ),
+
+        // ── 本日の記録（削除つき・従来通り）
+        (myRecs.length > 0 || myKotei.length > 0) && React.createElement("div", null,
+          React.createElement(SectionLabel, null, "本日の記録 (" + dayKey + ")"),
           myRecs.length > 0 && React.createElement("div", null,
             React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginBottom: 6 } }, "⏱ 時間"),
             myRecs.map((r) => { const part = data.parts.find((x) => x.id === r.partId); return React.createElement("div", { key: r.id, style: st.recRow }, React.createElement("span", { style: { fontSize: 13, fontWeight: 700, flex: 1 } }, part ? part.partNo : "?"), React.createElement("span", { style: { fontSize: 13, color: "#555" } }, r.hours + "h"), React.createElement("button", { style: st.deleteBtn, onClick: () => deleteRecord(r.id) }, "✕")); })
@@ -1576,6 +1816,20 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     return React.createElement(Shell, null,
       React.createElement(Header, { title: "集計・仕事量管理", back: () => set({ screen: "home" }) }),
       React.createElement(Body, null,
+
+        // ── 納期が近い品番（旧ダッシュボードの警告機能をここへ統合：F4）
+        (function () {
+          const urg = partSummary.filter((p) => !p.closedAt && p.remainDays !== null && p.remainDays <= 3);
+          if (urg.length === 0) return null;
+          return React.createElement("div", { style: { marginBottom: 14 } },
+            React.createElement("div", { style: { fontSize: 12, color: "#c00", fontWeight: 700, marginBottom: 8 } }, "⚠️ 納期が近い品番（3日以内）"),
+            urg.map((p) => React.createElement("div", { key: p.id, style: { background: "#fff", border: "1px solid #f3c4c4", borderLeft: "5px solid #c00", borderRadius: 12, padding: "10px 14px", marginBottom: 6, display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }, onClick: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "summary" }) },
+              React.createElement("span", { style: { fontSize: 11, fontWeight: 700, color: "#c00", whiteSpace: "nowrap" } }, p.remainDays <= 0 ? "本日" : "あと" + p.remainDays + "日"),
+              React.createElement("span", { style: { flex: 1, fontSize: 14, fontWeight: 700 } }, p.partNo),
+              React.createElement("span", { style: { fontSize: 11, color: "#999" } }, "残り " + p.remainQty + "枚")
+            ))
+          );
+        })(),
 
         React.createElement("div", { style: Object.assign({}, st.card, { padding: "12px 16px", marginBottom: 12 }) },
           React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginBottom: 8 } }, "仕掛り月を選択"),
@@ -3090,6 +3344,59 @@ function PartCard(p) {
     ),
     !p.done && React.createElement("button", { style: st.closeBtn, onClick: p.onClose }, "この品番を完了にする"),
     p.done && React.createElement("button", { style: Object.assign({}, st.closeBtn, { background: "#e8e6e0", color: "#777" }), onClick: p.onReopen }, "再開する")
+  );
+}
+
+// ── 昨日比で出し分ける日替わりのひとこと（上：強め／同：落ち着いた肯定／下：静かな労い）
+const WORDS_UP = ["その調子！", "昨日を超えました", "いいペースです", "ぐんと伸びました"];
+const WORDS_SAME = ["今日もいい仕事です", "安定してますね", "着実に積み上げてます"];
+const WORDS_DOWN = ["お疲れさまでした", "今日もありがとうございました", "ゆっくり休んでください"];
+function pickDailyWord(todayVal, yesterdayVal, dateStr) {
+  if (!todayVal || todayVal <= 0) return "";
+  let list;
+  if (!yesterdayVal || yesterdayVal <= 0) list = WORDS_UP;
+  else if (todayVal > yesterdayVal * 1.05) list = WORDS_UP;
+  else if (todayVal >= yesterdayVal * 0.95) list = WORDS_SAME;
+  else list = WORDS_DOWN;
+  return list[new Date(dateStr + "T00:00:00").getDate() % list.length];
+}
+
+// ── 数字がふわっと伸びるカウントアップ表示（今日の生産価値用）
+function CountUpYen(props) {
+  const value = props.value || 0;
+  const [disp, setDisp] = useState(value);
+  const prevRef = useRef(value);
+  useEffect(() => {
+    const from = prevRef.current, to = value;
+    prevRef.current = value;
+    if (from === to) { setDisp(to); return; }
+    const t0 = performance.now(), dur = 700;
+    let raf;
+    const tick = (t) => {
+      const k = Math.min((t - t0) / dur, 1);
+      const e = 1 - Math.pow(1 - k, 3);
+      setDisp(from + (to - from) * e);
+      if (k < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+  return React.createElement("span", null, "¥" + Math.round(disp).toLocaleString());
+}
+
+// ── 襞グラフ：細い柱をプリーツの襞のように並べる直近1週間グラフ（今日だけ深いティール）
+function PleatsChart(props) {
+  const days = props.days || [];
+  const max = Math.max.apply(null, days.map((d) => d.val).concat([1]));
+  const fmtV = (v) => props.fmt === "yen"
+    ? (v >= 10000 ? "¥" + (v / 1000).toFixed(0) + "k" : v > 0 ? "¥" + (v / 1000).toFixed(1) + "k" : "")
+    : (v > 0 ? Math.round(v) + "" : "");
+  return React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 5, height: 130 } },
+    days.map((d, i) => React.createElement("div", { key: i, style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", height: "100%", justifyContent: "flex-end" } },
+      React.createElement("div", { style: { fontSize: 9, color: d.isToday ? "#0f3d4a" : "#aeaeb2", marginBottom: 3, whiteSpace: "nowrap", fontWeight: d.isToday ? 700 : 400 } }, fmtV(d.val)),
+      React.createElement("div", { style: { width: "100%", maxWidth: 16, borderRadius: "3px 3px 0 0", height: Math.round((d.val / max) * 92) + 8, background: d.isToday ? "linear-gradient(180deg,#15596b,#0f3d4a)" : "linear-gradient(180deg,#d7d5cf,#cfccc5)", transition: "height .4s cubic-bezier(.2,.8,.2,1)" } }),
+      React.createElement("div", { style: { fontSize: 11, color: d.isToday ? "#0f3d4a" : "#aeaeb2", marginTop: 8, fontWeight: d.isToday ? 700 : 400 } }, d.label)
+    ))
   );
 }
 
