@@ -3009,6 +3009,33 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     );
   }
 
+  // ── 標準工程表テンプレの管理画面：雛形そのものの編集・登録・削除だけを行う。
+  //    品番の工程表はここからは作れない（品番詳細 → 📐工程分析表 → テンプレ選択、の一方向のみ）。
+  if (ui.screen === "kotei_templates") {
+    return React.createElement(Shell, null,
+      React.createElement(Header, { title: "標準工程表テンプレ", back: () => set({ screen: "kotei_list" }) }),
+      React.createElement(Body, null,
+        React.createElement("div", { style: { fontSize: 12, color: "#888", marginBottom: 12 } }, "新しい品番の工程表を作るときの雛形です。品番詳細の「📐 工程分析表」から、ここにあるテンプレを選んでコピーして使います。ここを直しても、コピー済みの品番の工程表は変わりません。"),
+
+        // ── 標準工程表テンプレ：品番に紐づかない骨格。新品番はここからコピーして作る（P1/P3）
+        React.createElement("div", { style: { background: "#fff", border: "1px solid #d9d5c8", borderRadius: 10, padding: 12, marginBottom: 12 } },
+          React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: "#0f3d4a", marginBottom: 8 } }, "📋 標準工程表テンプレ"),
+          koteiTemplates().length === 0 && React.createElement("button", { style: { width: "100%", border: "1px dashed #0f3d4a", background: "#eef3f4", color: "#0f3d4a", borderRadius: 8, padding: 12, fontSize: 13, fontWeight: 700, marginBottom: 8 }, onClick: () => { if (window.confirm("標準テンプレ9本（スカート2種・パンツ・シャツ・ブラウス・ワンピース2種・ジャケット2種）を一括登録しますか？")) seedStandardTemplates(); } }, "📥 標準9テンプレを一括登録"),
+          koteiTemplates().map((t) => {
+            const n = (t.blocks || []).filter((b) => b.type === "step").length;
+            return React.createElement("div", { key: t.id, style: { display: "flex", gap: 6, alignItems: "center", marginBottom: 6 } },
+              React.createElement("button", { style: { flex: 1, textAlign: "left", border: "1px solid #e0deda", background: "#faf9f7", borderRadius: 8, padding: "10px 12px", fontSize: 13, fontWeight: 700, color: "#333" }, onClick: () => set({ koteiTplId: t.id, koteiPartId: null, screen: "kotei_edit" }) }, (t.templateName || "無題") + "（" + n + "工程）"),
+              React.createElement("button", { style: { border: "1px solid #e0deda", background: "#fff", borderRadius: 8, padding: "10px 10px", fontSize: 12 }, onClick: () => { const nm = window.prompt("テンプレ名", t.templateName || ""); if (nm) saveKotei(Object.assign({}, t, { templateName: nm, updatedAt: today() })); } }, "✏️")
+            );
+          }),
+          React.createElement("button", { style: { width: "100%", border: "1px solid #d9d5c8", background: "#fff", color: "#555", borderRadius: 8, padding: 10, fontSize: 12, fontWeight: 700, marginTop: 2 }, onClick: () => { const nm = window.prompt("新しいテンプレの名前", ""); if (!nm) return; const rec = { id: genId(), partId: null, templateName: nm, blocks: [], totalSec: 0, updatedAt: today() }; saveKotei(rec); set({ koteiTplId: rec.id, koteiPartId: null, screen: "kotei_edit" }); } }, "＋ 新しいテンプレを作る"),
+          koteiTemplates().length > 0 && React.createElement("button", { style: { width: "100%", border: "1px solid #e0b0b0", background: "#fff", color: "#c00", borderRadius: 8, padding: 9, fontSize: 11, fontWeight: 700, marginTop: 6 }, onClick: () => { if (window.confirm("テンプレ " + koteiTemplates().length + " 件をすべて削除します。\n品番の工程表・作業記録・売上には影響しません。\n削除後は「標準9テンプレを一括登録」で入れ直せます。よろしいですか？")) deleteAllTemplates(); } }, "🗑 テンプレをすべて削除（品番の工程表は消えません）")
+        ),
+      ),
+      React.createElement(SI)
+    );
+  }
+
   // ── 工程表の新規作成方法を選ぶ（白紙 or 標準テンプレからコピー）
   if (ui.screen === "kotei_new_choice" && ui.koteiNewPartId) {
     const part = data.parts.find((p) => p.id === ui.koteiNewPartId);
@@ -3045,22 +3072,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       React.createElement(Header, { title: "📐 工程分析表", back: () => set({ screen: "home" }) }),
       React.createElement(Body, null,
         React.createElement("button", { style: { width: "100%", border: "1px solid #0f3d4a", background: "#eef3f4", color: "#0f3d4a", borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 700, marginBottom: 8 }, onClick: () => set({ screen: "kotei_phrases" }) }, "⚙ 作業候補（アイロン・ミシン・その他）を編集"),
-        React.createElement("button", { style: { width: "100%", border: "1px solid #0f3d4a", background: "#eef3f4", color: "#0f3d4a", borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 700, marginBottom: 12 }, onClick: () => set({ screen: "kotei_parts" }) }, "⚙ パーツ名を編集"),
-
-        // ── 標準工程表テンプレ：品番に紐づかない骨格。新品番はここからコピーして作る（P1/P3）
-        React.createElement("div", { style: { background: "#fff", border: "1px solid #d9d5c8", borderRadius: 10, padding: 12, marginBottom: 12 } },
-          React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: "#0f3d4a", marginBottom: 8 } }, "📋 標準工程表テンプレ"),
-          koteiTemplates().length === 0 && React.createElement("button", { style: { width: "100%", border: "1px dashed #0f3d4a", background: "#eef3f4", color: "#0f3d4a", borderRadius: 8, padding: 12, fontSize: 13, fontWeight: 700, marginBottom: 8 }, onClick: () => { if (window.confirm("標準テンプレ9本（スカート2種・パンツ・シャツ・ブラウス・ワンピース2種・ジャケット2種）を一括登録しますか？")) seedStandardTemplates(); } }, "📥 標準9テンプレを一括登録"),
-          koteiTemplates().map((t) => {
-            const n = (t.blocks || []).filter((b) => b.type === "step").length;
-            return React.createElement("div", { key: t.id, style: { display: "flex", gap: 6, alignItems: "center", marginBottom: 6 } },
-              React.createElement("button", { style: { flex: 1, textAlign: "left", border: "1px solid #e0deda", background: "#faf9f7", borderRadius: 8, padding: "10px 12px", fontSize: 13, fontWeight: 700, color: "#333" }, onClick: () => set({ koteiTplId: t.id, koteiPartId: null, screen: "kotei_edit" }) }, (t.templateName || "無題") + "（" + n + "工程）"),
-              React.createElement("button", { style: { border: "1px solid #e0deda", background: "#fff", borderRadius: 8, padding: "10px 10px", fontSize: 12 }, onClick: () => { const nm = window.prompt("テンプレ名", t.templateName || ""); if (nm) saveKotei(Object.assign({}, t, { templateName: nm, updatedAt: today() })); } }, "✏️")
-            );
-          }),
-          React.createElement("button", { style: { width: "100%", border: "1px solid #d9d5c8", background: "#fff", color: "#555", borderRadius: 8, padding: 10, fontSize: 12, fontWeight: 700, marginTop: 2 }, onClick: () => { const nm = window.prompt("新しいテンプレの名前", ""); if (!nm) return; const rec = { id: genId(), partId: null, templateName: nm, blocks: [], totalSec: 0, updatedAt: today() }; saveKotei(rec); set({ koteiTplId: rec.id, koteiPartId: null, screen: "kotei_edit" }); } }, "＋ 新しいテンプレを作る"),
-          koteiTemplates().length > 0 && React.createElement("button", { style: { width: "100%", border: "1px solid #e0b0b0", background: "#fff", color: "#c00", borderRadius: 8, padding: 9, fontSize: 11, fontWeight: 700, marginTop: 6 }, onClick: () => { if (window.confirm("テンプレ " + koteiTemplates().length + " 件をすべて削除します。\n品番の工程表・作業記録・売上には影響しません。\n削除後は「標準9テンプレを一括登録」で入れ直せます。よろしいですか？")) deleteAllTemplates(); } }, "🗑 テンプレをすべて削除（品番の工程表は消えません）")
-        ),
+        React.createElement("button", { style: { width: "100%", border: "1px solid #0f3d4a", background: "#eef3f4", color: "#0f3d4a", borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 700, marginBottom: 8 }, onClick: () => set({ screen: "kotei_parts" }) }, "⚙ パーツ名を編集"),
+        React.createElement("button", { style: { width: "100%", border: "1px solid #0f3d4a", background: "#eef3f4", color: "#0f3d4a", borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 700, marginBottom: 12 }, onClick: () => set({ screen: "kotei_templates" }) }, "⚙ 標準工程表テンプレを編集"),
         React.createElement("input", { style: Object.assign({}, st.input, { marginBottom: 12 }), placeholder: "品番・品名で検索", value: ui.koteiSearch, onChange: (e) => set({ koteiSearch: e.target.value }) }),
         React.createElement("div", { style: { fontSize: 12, color: "#aaa", marginBottom: 12 } }, filtered.length + "件"),
         filtered.length === 0 && React.createElement(Empty, null, q ? "該当する工程表がありません" : "まだ工程表がありません（品番詳細の「工程分析表」から作成できます）"),
@@ -3097,7 +3110,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       key: tpl.id, part: pseudoPart, sheet: tpl, brandName: "", extraParts: kctx.extraParts, extraPhrases: kctx.extraPhrases, phraseCats: kctx.phraseCats, partList: kctx.partList,
       onSave: (rec) => saveKotei(Object.assign({}, rec, { partId: null, templateName: tpl.templateName })),
       onDelete: deleteKotei,
-      back: () => set({ screen: "kotei_list", koteiTplId: null }),
+      back: () => set({ screen: "kotei_templates", koteiTplId: null }),
       SI: SI,
     });
   }
