@@ -714,7 +714,8 @@ function App() {
   function seedStandardTemplates() {
     const recs = STD_KOTEI_TEMPLATES.map(function (t) {
       return { id: genId(), partId: null, templateName: t.name,
-        blocks: t.steps.map(function (s) { return { id: genId(), type: "step", part: s[0], act: s[1], time: "", note: "" }; }),
+        // 作業内容は実文で入れず、hint（グレーの例文）として持つ。入力すると消える。
+        blocks: t.steps.map(function (s) { return { id: genId(), type: "step", part: s[0], act: "", hint: s[1], time: "", note: "" }; }),
         totalSec: 0, updatedAt: today() };
     });
     const list = (data.koteiSheets || []).concat(recs);
@@ -2934,6 +2935,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       React.createElement(Header, { title: "パーツ名の編集", back: () => set({ screen: "kotei_list" }) }),
       React.createElement(Body, null,
         React.createElement("div", { style: { fontSize: 12, color: "#888", marginBottom: 12 } }, "工程表で選ぶパーツ名を、追加・削除・並べ替えできます。ドラッグで順番を変えられます（PC）。ここで変えた内容は全員・全工程表に反映されます。"),
+        React.createElement("button", { style: { width: "100%", border: "1px solid #d9d5c8", background: "#fff", color: "#555", borderRadius: 8, padding: 10, fontSize: 12, fontWeight: 700, marginBottom: 12 }, onClick: function () { if (window.confirm("パーツ名の候補を標準の並び（" + KOTEI_PARTS.length + "件）に戻しますか？\n自分で追加した名前は消えますが、工程表で使用中の名前は候補に残り続けます。")) { commitP(KOTEI_PARTS.slice()); } } }, "↺ 標準の並びに戻す"),
         React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 16 } },
           React.createElement("input", { style: Object.assign({}, st.input, { flex: 1, marginBottom: 0 }), placeholder: "追加するパーツ名", value: ui.koteiPartsInput, onChange: (e) => set({ koteiPartsInput: e.target.value }), onKeyDown: function (e) { if (e.key === "Enter") addP(); } }),
           React.createElement("button", { style: { border: "none", background: "#0f3d4a", color: "#fff", borderRadius: 8, padding: "0 18px", fontSize: 14, fontWeight: 700 }, onClick: addP }, "追加")
@@ -3245,7 +3247,7 @@ document.head.appendChild(styleEl);
 // ===================== 工程分析表（KoteiEditor） =====================
 // ===================== 標準工程表テンプレ（初期シード9本） =====================
 // 一般的な縫製工程の骨格。言葉と章立ては自社の手書き工程表に準拠（準備→芯→パーツ別→組立→まとめ）。
-// 時間・寸法は入れない：品番へコピーした後にリーダーが記入する。
+// 時間・寸法・作業内容は入れない：作業内容はグレーの例文（hint）で示し、品番へコピーした後にリーダーが記入する。
 const STD_KOTEI_TEMPLATES = [
   { name: "スカート（ファスナー・ベルト）", steps: [
     ["準備", "ネーム類仮止め（原産国・ブランド・サイズ・センタク）"],
@@ -3390,7 +3392,25 @@ const STD_KOTEI_TEMPLATES = [
   ]},
 ];
 
-const KOTEI_PARTS = ["芯","甲止め","伸止め","準備","裏身頃","前身頃","表身頃","身頃","肩ひも","ヨーク","衿","衿吊り","カフス","袖","表袖","裏袖","袖リブ","ポケット","内ポケット","ポケットフラップ","フリル","前端フリル","袖裾フリル","ペプラム","スカート","ベルト","見返し","組立","まとめ","その他"];
+// パーツ名の標準候補：手書き工程表7冊から実際に使われている呼び方を抽出し、
+// 作業の流れ順（下ごしらえ→小物→衿袖→身頃→スカート/パンツ→裏地→組立・仕上げ）に並べた。
+// ここに無い名前も、工程表で一度使えば候補に自動追加される（extraParts機構）。
+const KOTEI_PARTS = [
+  // 下ごしらえ
+  "準備", "芯", "伸止め",
+  // 小さいパーツ
+  "ポケット", "ポケット袋", "フラップ", "ループ", "ヒモ", "ベルト", "肩ベルト",
+  // 衿・袖まわり
+  "衿", "衿吊り", "カフス", "袖", "表袖", "裏袖",
+  // 身頃まわり
+  "ヨーク", "前立て", "見返し", "前身頃", "後身頃", "上身頃", "下身頃", "身頃",
+  // スカート・パンツ
+  "スカート", "表スカート", "裏スカート", "パンツ", "フリル", "プリーツ布",
+  // 裏地
+  "裏地", "裏身頃",
+  // 組立・仕上げ
+  "組立", "裾", "まとめ", "その他",
+];
 const KOTEI_PHRASE_CATS = {
   "アイロン": ["割りアイロン","方倒しアイロン","キセアイロン","キセ","高アイロン","上高アイロン","中心高アイロン","後高アイロン","後高0.5cmキセアイロン","裾アイロン","返しアイロン","ケンボロアイロン"],
   "ミシン": ["脇はぎ","見返し脇はぎ","後中心はぎ","見返しとはぎ","身頃とスカートはぎ","CB見返しはぎ","2枚はぎ","3枚はぎ","外袖と内袖はぎ","つなぎ合わせ","ロック","イッテコイロック","見返しロック","下側ロック始末","中ぬい","本ぬい","周りぬい","袋ぬい","外表でぬい","仮どめ","タックとめ","ゴムとめ","釦とめ","三角どめ","ぬいどめ","三巻き","裾三巻き","スリット三巻り","コバST","裏コバST","ステッチ","シャーリング位置ぬい"],
@@ -3839,7 +3859,7 @@ function KoteiEditor(props) {
         React.createElement("div", null,
           React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "作業内容"),
           React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "flex-start" } },
-            React.createElement("textarea", { style: { flex: 1, minHeight: 42, border: "1px solid " + K_LINE, borderRadius: 8, padding: 9, fontSize: 15, color: K_INK, resize: "vertical", lineHeight: 1.35, fontFamily: "inherit", boxSizing: "border-box" }, placeholder: "手打ち / 下の定型句 / 🎤", value: b.act, onFocus: function () { setActiveSugg(b.id); }, onBlur: function () { learn(b.act); setTimeout(function () { setActiveSugg(function (s) { return s === b.id ? null : s; }); }, 200); }, onChange: function (e) { patchBlock(b.id, { act: e.target.value }); } }),
+            React.createElement("textarea", { style: { flex: 1, minHeight: 42, border: "1px solid " + K_LINE, borderRadius: 8, padding: 9, fontSize: 15, color: K_INK, resize: "vertical", lineHeight: 1.35, fontFamily: "inherit", boxSizing: "border-box" }, placeholder: b.hint || "手打ち / 下の定型句 / 🎤", value: b.act, onFocus: function () { setActiveSugg(b.id); }, onBlur: function () { learn(b.act); setTimeout(function () { setActiveSugg(function (s) { return s === b.id ? null : s; }); }, 200); }, onChange: function (e) { patchBlock(b.id, { act: e.target.value }); } }),
             React.createElement("button", { style: { width: 42, height: 42, border: "1px solid " + K_LINE, borderRadius: 8, background: recId === b.id ? K_NOTE : "#fff", color: recId === b.id ? "#fff" : "#333", fontSize: 18, flex: "none" }, onClick: function () { startVoice(b.id); } }, "🎤")
           ),
           activeSugg === b.id && React.createElement("div", { style: { marginTop: 6 } },
