@@ -254,31 +254,6 @@ function App() {
 
   useEffect(() => { savingRef.current = saving; }, [saving]);
 
-  // ── 旧形式テンプレの自動移行（v1→v2）：
-  //    v1の一括登録で作業内容が実文で入ったテンプレを、グレー例文（hint）形式へ変換する。
-  //    シード原文と完全一致し、まだhintを持たない工程だけが対象。
-  //    リーダーが自分で書いた作業内容や、品番の工程表（partIdあり）には一切触れない。
-  //    変換後はデータが新形式になるため、二度目以降は何もしない（自動で一度だけ動く）。
-  useEffect(() => {
-    const seedTexts = {};
-    STD_KOTEI_TEMPLATES.forEach(function (t) { t.steps.forEach(function (s) { seedTexts[s[1]] = true; }); });
-    const fixedList = [];
-    (data.koteiSheets || []).forEach(function (s) {
-      if (s.partId) return; // テンプレのみ対象
-      let changed = false;
-      const blocks = (s.blocks || []).map(function (b) {
-        if (b.type === "step" && b.act && !b.hint && seedTexts[b.act]) { changed = true; return Object.assign({}, b, { act: "", hint: b.act }); }
-        return b;
-      });
-      if (changed) fixedList.push(Object.assign({}, s, { blocks: blocks }));
-    });
-    if (fixedList.length === 0) return;
-    const list = (data.koteiSheets || []).map(function (s) { const f = fixedList.find(function (x) { return x.id === s.id; }); return f || s; });
-    applyLocal({ koteiSheets: list }, function () {
-      return fixedList.reduce(function (p, r) { return p.then(function () { return gasUpsertItem("koteiSheets", r); }); }, Promise.resolve());
-    });
-  }, [data.koteiSheets]);
-
   useEffect(() => {
     let last = 0;
     const onActive = () => {
@@ -733,6 +708,16 @@ function App() {
     delete rec.templateName;
     saveKotei(rec);
     set({ koteiPartId: partId, koteiReturn: "part_detail", screen: "kotei_edit", koteiNewPartId: null });
+  }
+
+  // テンプレの全削除：partIdがnullの工程表だけを消す。品番の工程表・日報には一切触れない。
+  // 旧形式のテンプレが残ってしまった時に、消して一括登録し直すための導線。
+  function deleteAllTemplates() {
+    const tpls = koteiTemplates();
+    if (tpls.length === 0) return;
+    applyLocal({ koteiSheets: (data.koteiSheets || []).filter(function (r) { return r.partId; }) }, function () {
+      return tpls.reduce(function (p, t) { return p.then(function () { return gasDeleteItem("koteiSheets", t.id); }); }, Promise.resolve());
+    });
   }
 
   // 標準9テンプレの一括登録（テンプレが1つも無い時だけ一覧にボタンが出る）
@@ -3073,7 +3058,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
               React.createElement("button", { style: { border: "1px solid #e0deda", background: "#fff", borderRadius: 8, padding: "10px 10px", fontSize: 12 }, onClick: () => { const nm = window.prompt("テンプレ名", t.templateName || ""); if (nm) saveKotei(Object.assign({}, t, { templateName: nm, updatedAt: today() })); } }, "✏️")
             );
           }),
-          React.createElement("button", { style: { width: "100%", border: "1px solid #d9d5c8", background: "#fff", color: "#555", borderRadius: 8, padding: 10, fontSize: 12, fontWeight: 700, marginTop: 2 }, onClick: () => { const nm = window.prompt("新しいテンプレの名前", ""); if (!nm) return; const rec = { id: genId(), partId: null, templateName: nm, blocks: [], totalSec: 0, updatedAt: today() }; saveKotei(rec); set({ koteiTplId: rec.id, koteiPartId: null, screen: "kotei_edit" }); } }, "＋ 新しいテンプレを作る")
+          React.createElement("button", { style: { width: "100%", border: "1px solid #d9d5c8", background: "#fff", color: "#555", borderRadius: 8, padding: 10, fontSize: 12, fontWeight: 700, marginTop: 2 }, onClick: () => { const nm = window.prompt("新しいテンプレの名前", ""); if (!nm) return; const rec = { id: genId(), partId: null, templateName: nm, blocks: [], totalSec: 0, updatedAt: today() }; saveKotei(rec); set({ koteiTplId: rec.id, koteiPartId: null, screen: "kotei_edit" }); } }, "＋ 新しいテンプレを作る"),
+          koteiTemplates().length > 0 && React.createElement("button", { style: { width: "100%", border: "1px solid #e0b0b0", background: "#fff", color: "#c00", borderRadius: 8, padding: 9, fontSize: 11, fontWeight: 700, marginTop: 6 }, onClick: () => { if (window.confirm("テンプレ " + koteiTemplates().length + " 件をすべて削除します。\n品番の工程表・作業記録・売上には影響しません。\n削除後は「標準9テンプレを一括登録」で入れ直せます。よろしいですか？")) deleteAllTemplates(); } }, "🗑 テンプレをすべて削除（品番の工程表は消えません）")
         ),
         React.createElement("input", { style: Object.assign({}, st.input, { marginBottom: 12 }), placeholder: "品番・品名で検索", value: ui.koteiSearch, onChange: (e) => set({ koteiSearch: e.target.value }) }),
         React.createElement("div", { style: { fontSize: 12, color: "#aaa", marginBottom: 12 } }, filtered.length + "件"),
