@@ -660,6 +660,9 @@ function App() {
   }
 
   function openKotei(part) {
+    // 工程表がまだ無く、テンプレが存在する品番は「白紙／テンプレから」を選ばせる（P2）
+    const sheet = (data.koteiSheets || []).find(function (r) { return r.partId === part.id; });
+    if (!sheet && koteiTemplates().length > 0) { set({ koteiNewPartId: part.id, screen: "kotei_new_choice" }); return; }
     set({ koteiPartId: part.id, koteiReturn: "part_detail", screen: "kotei_edit" });
   }
   function saveKotei(rec) {
@@ -670,6 +673,55 @@ function App() {
   }
   function deleteKotei(id) {
     applyLocal({ koteiSheets: (data.koteiSheets || []).filter((r) => r.id !== id) }, () => gasDeleteItem("koteiSheets", id));
+  }
+
+  // ── 工程表テンプレ：partIdがnullの工程表＝テンプレ（既存画面はpartIdで引くため互いに干渉しない）
+  function koteiTemplates() {
+    return (data.koteiSheets || []).filter(function (r) { return !r.partId; });
+  }
+
+  // KoteiEditorに渡す共通コンテキスト（パーツ名・作業候補の辞書）を組み立てる
+  function buildKoteiCtx() {
+    const partList = (data.koteiParts && data.koteiParts.length) ? data.koteiParts : KOTEI_PARTS;
+    const stdSet = {}; partList.forEach(function (p) { stdSet[p] = true; });
+    const extraParts = [];
+    const phraseCats = (data.koteiPhrases && Object.keys(data.koteiPhrases).length) ? data.koteiPhrases : KOTEI_PHRASE_CATS;
+    const phSet = {}; Object.keys(phraseCats).forEach(function (c) { (phraseCats[c] || []).forEach(function (p) { phSet[p] = true; }); });
+    const extraPhrases = [];
+    (data.koteiSheets || []).forEach(function (s) { (s.blocks || []).forEach(function (b) {
+      if (b.type === "step") {
+        if (b.part && !stdSet[b.part] && extraParts.indexOf(b.part) < 0) extraParts.push(b.part);
+        if (b.act) b.act.split(/[、・\n\s]+/).forEach(function (w) { w = w.trim(); if (w.length >= 2 && !phSet[w]) { phSet[w] = true; extraPhrases.push(w); } });
+      }
+    }); });
+    return { partList: partList, extraParts: extraParts, phraseCats: phraseCats, extraPhrases: extraPhrases };
+  }
+
+  // テンプレから品番の工程表を作る：全工程をコピーして新しいIDを振る（テンプレ本体は変えない）
+  function createSheetFromTemplate(tpl, partId) {
+    const rec = Object.assign({}, tpl, {
+      id: genId(),
+      partId: partId,
+      blocks: (tpl.blocks || []).map(function (b) { return Object.assign({}, b, { id: genId() }); }),
+      updatedAt: today(),
+    });
+    delete rec.templateName;
+    saveKotei(rec);
+    set({ koteiPartId: partId, koteiReturn: "part_detail", screen: "kotei_edit", koteiNewPartId: null });
+  }
+
+  // 標準9テンプレの一括登録（テンプレが1つも無い時だけ一覧にボタンが出る）
+  function seedStandardTemplates() {
+    const recs = STD_KOTEI_TEMPLATES.map(function (t) {
+      return { id: genId(), partId: null, templateName: t.name,
+        blocks: t.steps.map(function (s) { return { id: genId(), type: "step", part: s[0], act: s[1], time: "", note: "" }; }),
+        totalSec: 0, updatedAt: today() };
+    });
+    const list = (data.koteiSheets || []).concat(recs);
+    // GASへは1件ずつ順番に送る（既存のupsertItemに乗せる・同時多発の書き込みを避ける）
+    applyLocal({ koteiSheets: list }, function () {
+      return recs.reduce(function (p, r) { return p.then(function () { return gasUpsertItem("koteiSheets", r); }); }, Promise.resolve());
+    });
   }
 
   function printSaidan(form) {
@@ -2945,6 +2997,30 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     );
   }
 
+  // ── 工程表の新規作成方法を選ぶ（白紙 or 標準テンプレからコピー）
+  if (ui.screen === "kotei_new_choice" && ui.koteiNewPartId) {
+    const part = data.parts.find((p) => p.id === ui.koteiNewPartId);
+    if (!part) { return null; }
+    const tpls = koteiTemplates();
+    return React.createElement(Shell, null,
+      React.createElement(Header, { title: "工程表を作る", back: () => set({ screen: "part_detail", koteiNewPartId: null }) }),
+      React.createElement(Body, null,
+        React.createElement("div", { style: Object.assign({}, st.card, { marginBottom: 12 }) },
+          React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, part.partNo),
+          part.partName && React.createElement("div", { style: { fontSize: 12, color: "#888", marginTop: 2 } }, part.partName)
+        ),
+        React.createElement("button", { style: { width: "100%", border: "1px solid #d9d5c8", background: "#fff", borderRadius: 10, padding: 14, fontSize: 14, fontWeight: 700, color: "#333", marginBottom: 14, textAlign: "left" }, onClick: () => set({ koteiPartId: part.id, koteiReturn: "part_detail", screen: "kotei_edit", koteiNewPartId: null }) }, "📝 白紙から作る"),
+        React.createElement(SectionLabel, null, "標準テンプレからコピーして作る"),
+        React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginBottom: 8 } }, "全工程がコピーされます。コピー後に工程の抜き差し・時間記入をしてください。テンプレ本体は変わりません。"),
+        tpls.map((t) => {
+          const n = (t.blocks || []).filter((b) => b.type === "step").length;
+          return React.createElement("button", { key: t.id, style: { width: "100%", border: "1px solid #cfe0e4", background: "#eef3f4", borderRadius: 10, padding: 14, fontSize: 14, fontWeight: 700, color: "#0f3d4a", marginBottom: 8, textAlign: "left" }, onClick: () => createSheetFromTemplate(t, part.id) }, "📋 " + (t.templateName || "無題") + "（" + n + "工程）");
+        })
+      ),
+      React.createElement(SI)
+    );
+  }
+
   if (ui.screen === "kotei_list") {
     const q = (ui.koteiSearch || "").trim();
     const withKotei = (data.koteiSheets || []).map(function (s) {
@@ -2958,6 +3034,20 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       React.createElement(Body, null,
         React.createElement("button", { style: { width: "100%", border: "1px solid #0f3d4a", background: "#eef3f4", color: "#0f3d4a", borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 700, marginBottom: 8 }, onClick: () => set({ screen: "kotei_phrases" }) }, "⚙ 作業候補（アイロン・ミシン・その他）を編集"),
         React.createElement("button", { style: { width: "100%", border: "1px solid #0f3d4a", background: "#eef3f4", color: "#0f3d4a", borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 700, marginBottom: 12 }, onClick: () => set({ screen: "kotei_parts" }) }, "⚙ パーツ名を編集"),
+
+        // ── 標準工程表テンプレ：品番に紐づかない骨格。新品番はここからコピーして作る（P1/P3）
+        React.createElement("div", { style: { background: "#fff", border: "1px solid #d9d5c8", borderRadius: 10, padding: 12, marginBottom: 12 } },
+          React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: "#0f3d4a", marginBottom: 8 } }, "📋 標準工程表テンプレ"),
+          koteiTemplates().length === 0 && React.createElement("button", { style: { width: "100%", border: "1px dashed #0f3d4a", background: "#eef3f4", color: "#0f3d4a", borderRadius: 8, padding: 12, fontSize: 13, fontWeight: 700, marginBottom: 8 }, onClick: () => { if (window.confirm("標準テンプレ9本（スカート2種・パンツ・シャツ・ブラウス・ワンピース2種・ジャケット2種）を一括登録しますか？")) seedStandardTemplates(); } }, "📥 標準9テンプレを一括登録"),
+          koteiTemplates().map((t) => {
+            const n = (t.blocks || []).filter((b) => b.type === "step").length;
+            return React.createElement("div", { key: t.id, style: { display: "flex", gap: 6, alignItems: "center", marginBottom: 6 } },
+              React.createElement("button", { style: { flex: 1, textAlign: "left", border: "1px solid #e0deda", background: "#faf9f7", borderRadius: 8, padding: "10px 12px", fontSize: 13, fontWeight: 700, color: "#333" }, onClick: () => set({ koteiTplId: t.id, koteiPartId: null, screen: "kotei_edit" }) }, (t.templateName || "無題") + "（" + n + "工程）"),
+              React.createElement("button", { style: { border: "1px solid #e0deda", background: "#fff", borderRadius: 8, padding: "10px 10px", fontSize: 12 }, onClick: () => { const nm = window.prompt("テンプレ名", t.templateName || ""); if (nm) saveKotei(Object.assign({}, t, { templateName: nm, updatedAt: today() })); } }, "✏️")
+            );
+          }),
+          React.createElement("button", { style: { width: "100%", border: "1px solid #d9d5c8", background: "#fff", color: "#555", borderRadius: 8, padding: 10, fontSize: 12, fontWeight: 700, marginTop: 2 }, onClick: () => { const nm = window.prompt("新しいテンプレの名前", ""); if (!nm) return; const rec = { id: genId(), partId: null, templateName: nm, blocks: [], totalSec: 0, updatedAt: today() }; saveKotei(rec); set({ koteiTplId: rec.id, koteiPartId: null, screen: "kotei_edit" }); } }, "＋ 新しいテンプレを作る")
+        ),
         React.createElement("input", { style: Object.assign({}, st.input, { marginBottom: 12 }), placeholder: "品番・品名で検索", value: ui.koteiSearch, onChange: (e) => set({ koteiSearch: e.target.value }) }),
         React.createElement("div", { style: { fontSize: 12, color: "#aaa", marginBottom: 12 } }, filtered.length + "件"),
         filtered.length === 0 && React.createElement(Empty, null, q ? "該当する工程表がありません" : "まだ工程表がありません（品番詳細の「工程分析表」から作成できます）"),
@@ -2983,23 +3073,29 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     );
   }
 
+  // ── 標準工程表テンプレの編集：品番に紐づかない工程表を既存KoteiEditorでそのまま開く。
+  //    エディタは無改修。擬似的なpartを渡し、保存時にpartId:nullへ戻すラッパーで吸収する。
+  if (ui.screen === "kotei_edit" && ui.koteiTplId) {
+    const tpl = (data.koteiSheets || []).find((r) => r.id === ui.koteiTplId && !r.partId);
+    if (!tpl) { return null; }
+    const kctx = buildKoteiCtx();
+    const pseudoPart = { id: "TEMPLATE", partNo: "📋 " + (tpl.templateName || "無題テンプレ"), partName: "標準工程表テンプレ", brandId: null };
+    return React.createElement(KoteiEditor, {
+      key: tpl.id, part: pseudoPart, sheet: tpl, brandName: "", extraParts: kctx.extraParts, extraPhrases: kctx.extraPhrases, phraseCats: kctx.phraseCats, partList: kctx.partList,
+      onSave: (rec) => saveKotei(Object.assign({}, rec, { partId: null, templateName: tpl.templateName })),
+      onDelete: deleteKotei,
+      back: () => set({ screen: "kotei_list", koteiTplId: null }),
+      SI: SI,
+    });
+  }
+
   if (ui.screen === "kotei_edit" && ui.koteiPartId) {
     const part = data.parts.find((p) => p.id === ui.koteiPartId);
     if (!part) { return null; }
     const sheet = (data.koteiSheets || []).find((r) => r.partId === part.id) || null;
     const brandName = ((data.brands || []).find((b) => b.id === part.brandId) || {}).name || "";
-    const partList = (data.koteiParts && data.koteiParts.length) ? data.koteiParts : KOTEI_PARTS;
-    const stdSet = {}; partList.forEach(function (p) { stdSet[p] = true; });
-    const extraParts = [];
-    const phraseCats = (data.koteiPhrases && Object.keys(data.koteiPhrases).length) ? data.koteiPhrases : KOTEI_PHRASE_CATS;
-    const phSet = {}; Object.keys(phraseCats).forEach(function (c) { (phraseCats[c] || []).forEach(function (p) { phSet[p] = true; }); });
-    const extraPhrases = [];
-    (data.koteiSheets || []).forEach(function (s) { (s.blocks || []).forEach(function (b) {
-      if (b.type === "step") {
-        if (b.part && !stdSet[b.part] && extraParts.indexOf(b.part) < 0) extraParts.push(b.part);
-        if (b.act) b.act.split(/[、・\n\s]+/).forEach(function (w) { w = w.trim(); if (w.length >= 2 && !phSet[w]) { phSet[w] = true; extraPhrases.push(w); } });
-      }
-    }); });
+    const kctx = buildKoteiCtx();
+    const partList = kctx.partList, extraParts = kctx.extraParts, phraseCats = kctx.phraseCats, extraPhrases = kctx.extraPhrases;
     return React.createElement(KoteiEditor, {
       key: part.id, part: part, sheet: sheet, brandName: brandName, extraParts: extraParts, extraPhrases: extraPhrases, phraseCats: phraseCats, partList: partList,
       onSave: saveKotei, onDelete: deleteKotei,
@@ -3147,6 +3243,153 @@ document.head.appendChild(styleEl);
 
 
 // ===================== 工程分析表（KoteiEditor） =====================
+// ===================== 標準工程表テンプレ（初期シード9本） =====================
+// 一般的な縫製工程の骨格。言葉と章立ては自社の手書き工程表に準拠（準備→芯→パーツ別→組立→まとめ）。
+// 時間・寸法は入れない：品番へコピーした後にリーダーが記入する。
+const STD_KOTEI_TEMPLATES = [
+  { name: "スカート（ファスナー・ベルト）", steps: [
+    ["準備", "ネーム類仮止め（原産国・ブランド・サイズ・センタク）"],
+    ["芯", "芯貼り（ベルト）・伸止め貼り（ファスナー位置）"],
+    ["後スカート", "ダーツぬい・アイロン"],
+    ["後スカート", "後中心はぎ・ロック・割りアイロン"],
+    ["後スカート", "コンシールファスナー付け"],
+    ["後スカート", "ベンツ作り"],
+    ["前スカート", "ダーツぬい・アイロン"],
+    ["組立", "脇はぎ・ロック・割りアイロン"],
+    ["ベルト", "ベルト作り（折りアイロン・端ぬい・返しアイロン）"],
+    ["ベルト", "ベルト地ぬい・コバSt."],
+    ["裾", "裾ロック・折りアイロン・裾St."],
+    ["まとめ", "カギホック付け・糸ループ・まとめ出し"],
+  ]},
+  { name: "スカート（ゴムウエスト）", steps: [
+    ["準備", "ネーム類仮止め・ゴムカット"],
+    ["ベルト", "ホール位置 部分芯貼り→ホールあけ"],
+    ["ベルト", "折りアイロン"],
+    ["ベルト", "脇はぎ（ゴム通し口あける）・割りアイロン・ゴム口St."],
+    ["ポケット", "袋ぬい・St.・アイロン"],
+    ["スカート", "脇はぎ・ロック（ポケット口あける）"],
+    ["スカート", "ポケット付け・割りアイロン・ポケット口St.・カンヌキ"],
+    ["組立", "ベルト地ぬい"],
+    ["組立", "ベルトコバSt.（ゴム通しながら）"],
+    ["組立", "ゴム止めSt.（重ねる）・脇ゴム押さえSt."],
+    ["裾", "裾三つ巻きSt.・アイロン"],
+    ["まとめ", "ゴム口閉じ・まとめ出し"],
+  ]},
+  { name: "パンツ", steps: [
+    ["準備", "ネーム類仮止め"],
+    ["芯", "芯貼り（ベルト・前立て）・ポケット口伸止め貼り"],
+    ["ポケット", "袋ぬい・周りロック・アイロン"],
+    ["前パンツ", "脇ポケット付け（切込み→裏コバSt.→ぬいしろ仮止め）"],
+    ["前パンツ", "タック・ダーツぬい"],
+    ["後パンツ", "ダーツぬい・アイロン"],
+    ["後パンツ", "後ろポケット作り（玉縁）"],
+    ["前立て", "ファスナー付け（前立てSt.）"],
+    ["組立", "脇・股下はぎ・ロック・後高アイロン"],
+    ["組立", "股ぐり2重ぬい・ロック"],
+    ["ベルト", "ベルト作り・ベルトループ作り"],
+    ["ベルト", "ベルト地ぬい・コバSt.・ループ付け"],
+    ["裾", "裾折りアイロン・裾St."],
+    ["まとめ", "ホック・ボタン付け・カンヌキ・まとめ出し"],
+  ]},
+  { name: "シャツ（台衿・長袖）", steps: [
+    ["準備", "ネーム類仮止め"],
+    ["芯", "芯貼り（表衿・台衿・カフス・前立て）"],
+    ["衿", "表衿 周囲ぬい・角カット・返しアイロン・コバSt."],
+    ["衿", "台衿仮止め・台衿周囲ぬい・返しアイロン"],
+    ["カフス", "折りアイロン・周囲ぬい・返しアイロン"],
+    ["前身頃", "前立て作り"],
+    ["後身頃", "ヨークはさみ込み・コバSt."],
+    ["組立", "肩 折り伏せぬい・コバSt."],
+    ["袖", "ケンボロ付け"],
+    ["組立", "袖付け（折り伏せ）・コバSt."],
+    ["組立", "袖下〜脇 折り伏せぬい・コバSt."],
+    ["組立", "カフスはさみ込みコバSt."],
+    ["組立", "衿付け 地ぬい・1周コバSt."],
+    ["裾", "裾三つ巻きSt."],
+    ["まとめ", "ホール印・ボタン印付け・ボタン付け・まとめ出し"],
+  ]},
+  { name: "ブラウス", steps: [
+    ["準備", "ネーム類仮止め"],
+    ["芯", "芯貼り（衿・カフス）"],
+    ["衿", "周囲ぬい・角カット・返しアイロン"],
+    ["カフス", "折りアイロン・端ぬい・返しアイロン"],
+    ["袖", "袖口あき作り（スリット・イッテコイ）・タック取り"],
+    ["前身頃", "前立て作り（三つ折りアイロン・St.）"],
+    ["後身頃", "CBはぎ・タック中ぬい・アイロン"],
+    ["組立", "肩 折り伏せ地ぬい・コバSt."],
+    ["組立", "袖付け 折り伏せ・コバSt."],
+    ["組立", "袖下〜脇 折り伏せ・コバSt."],
+    ["組立", "カフスはさみ込みコバSt."],
+    ["組立", "衿付け 地ぬい・1周コバSt."],
+    ["裾", "裾三つ巻きSt.・アイロン"],
+    ["まとめ", "ホール印・ボタン印付け・ボタン付け・まとめ出し"],
+  ]},
+  { name: "ワンピース（裏なし）", steps: [
+    ["準備", "ネーム類仮止め"],
+    ["芯", "伸止め貼り（衿ぐり・肩・ポケット口）・見返し芯貼り"],
+    ["ポケット", "袋ぬい・ケバカット・アイロン"],
+    ["身頃", "ダーツ・切替はぎ・アイロン"],
+    ["身頃", "裾折りアイロン・ポケット付け"],
+    ["組立", "肩入れ・ロック・アイロン"],
+    ["見返し", "端始末（ロック）・衿ぐり地ぬい・切込み・裏コバSt."],
+    ["袖", "袖下はぎ・袖口始末"],
+    ["組立", "袖付け・身頃高ロック・コバSt."],
+    ["組立", "脇入れ（ポケット注意）・ロック・アイロン"],
+    ["組立", "コンシールファスナー付け（後中心）"],
+    ["裾", "裾St.・アイロン"],
+    ["まとめ", "ホール・ボタン付け・まとめ出し"],
+  ]},
+  { name: "ワンピース（裏付き）", steps: [
+    ["準備", "ネーム類仮止め"],
+    ["芯", "見返し芯貼り・伸止め貼り（衿ぐり・袖ぐり・ウエスト）"],
+    ["身頃", "ダーツ・切替はぎ・割りアイロン"],
+    ["スカート", "はぎ（ファスナー部分あける）・割りアイロン・裾始末"],
+    ["組立", "ウエストはぎ・ロック・アイロン"],
+    ["見返し", "はぎ・割りアイロン・端始末"],
+    ["裏地", "裏身頃・裏スカートはぎ・ロック・キセアイロン"],
+    ["裏地", "見返しと裏地はぎ・裾三つ巻き"],
+    ["組立", "コンシールファスナー付け"],
+    ["組立", "裏地ファスナー付け（ずらす）"],
+    ["組立", "衿ぐり1周ぬい・切込み・裏コバSt."],
+    ["組立", "袖ぐりぬい・裏コバSt.（袖付きは袖付けに置換）"],
+    ["裾", "表裾St.・アイロン"],
+    ["まとめ", "ホール・ボタン付け・糸ループ・まとめ出し"],
+  ]},
+  { name: "ジャケット（裏なし）", steps: [
+    ["準備", "ネーム類仮止め"],
+    ["芯", "芯貼り（見返し・衿・前立て・玉縁布・裾）・伸止め貼り（肩線・袖ぐり・衿ぐり）"],
+    ["前身頃", "玉縁ポケット作り（口布付け・切込み・袋ぬい・カンヌキ）"],
+    ["前身頃", "裾折り・ポケット位置印"],
+    ["後身頃", "ヨーク・タックとめ・はさみ込み"],
+    ["見返し", "端始末（バインダー・ロック）"],
+    ["衿", "表裏ぬい・返しアイロン・コバSt."],
+    ["袖", "外袖・内袖はぎ・袖口三つ折りSt."],
+    ["組立", "肩・脇入れ・ロック・アイロン"],
+    ["組立", "袖付け・身頃高ロック・アイロン"],
+    ["組立", "前端ぬい・返しアイロン・コバSt."],
+    ["組立", "衿付け 地ぬい・落としコバSt."],
+    ["裾", "裾St.・返しアイロン"],
+    ["まとめ", "ホール・釦付け・まとめ出し"],
+  ]},
+  { name: "ジャケット（裏付き・総裏）", steps: [
+    ["準備", "ネーム類仮止め・見返しロック"],
+    ["芯", "芯貼り（地衿・表衿・見返し・袖口・身頃裾）・伸止め貼り（返り線・前端・衿ぐり・袖ぐり・肩線）"],
+    ["前身頃", "ポケット作り（玉縁・口布・袋ぬい・カンヌキ）"],
+    ["前身頃", "裾芯貼り・返り線・裾折り"],
+    ["後身頃", "CBはぎ・割りアイロン"],
+    ["衿", "地衿・表衿作り・周りぬい・角カット・返しアイロン"],
+    ["袖", "外袖・内袖はぎ（表・裏）・袖口ぬい・中とじ・袖口アイロン"],
+    ["裏身頃", "CBぬい・キセアイロン・見返しとはぎ・ネーム付け"],
+    ["裏身頃", "肩はぎ・脇はぎ・アイロン"],
+    ["組立", "肩・脇入れ・割りアイロン"],
+    ["組立", "前端ぬい・角カット・返しアイロン"],
+    ["組立", "衿付け 地ぬい・ぬいしろ割り・整えアイロン"],
+    ["組立", "袖付け・中とじ"],
+    ["組立", "裾・袖裏はぎ・ひっくり返してアイロン・とじ"],
+    ["まとめ", "ホール・釦付け（力釦）・ラペル千鳥・裾千鳥・まとめ出し"],
+  ]},
+];
+
 const KOTEI_PARTS = ["芯","甲止め","伸止め","準備","裏身頃","前身頃","表身頃","身頃","肩ひも","ヨーク","衿","衿吊り","カフス","袖","表袖","裏袖","袖リブ","ポケット","内ポケット","ポケットフラップ","フリル","前端フリル","袖裾フリル","ペプラム","スカート","ベルト","見返し","組立","まとめ","その他"];
 const KOTEI_PHRASE_CATS = {
   "アイロン": ["割りアイロン","方倒しアイロン","キセアイロン","キセ","高アイロン","上高アイロン","中心高アイロン","後高アイロン","後高0.5cmキセアイロン","裾アイロン","返しアイロン","ケンボロアイロン"],
