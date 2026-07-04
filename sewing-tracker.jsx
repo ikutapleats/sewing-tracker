@@ -3019,17 +3019,21 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
 
         // ── 標準工程表テンプレ：品番に紐づかない骨格。新品番はここからコピーして作る（P1/P3）
         React.createElement("div", { style: { background: "#fff", border: "1px solid #d9d5c8", borderRadius: 10, padding: 12, marginBottom: 12 } },
-          React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: "#0f3d4a", marginBottom: 8 } }, "📋 標準工程表テンプレ"),
-          koteiTemplates().length === 0 && React.createElement("button", { style: { width: "100%", border: "1px dashed #0f3d4a", background: "#eef3f4", color: "#0f3d4a", borderRadius: 8, padding: 12, fontSize: 13, fontWeight: 700, marginBottom: 8 }, onClick: () => { if (window.confirm("標準テンプレ9本（スカート2種・パンツ・シャツ・ブラウス・ワンピース2種・ジャケット2種）を一括登録しますか？")) seedStandardTemplates(); } }, "📥 標準9テンプレを一括登録"),
-          koteiTemplates().map((t) => {
+          // 見出しをトグルに：普段は閉じていて、押すと9本のリストが開く（工程管理画面のノイズを減らす）
+          React.createElement("button", { style: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: "none", border: "none", padding: 0, cursor: "pointer", marginBottom: ui.tplOpen ? 8 : 0 }, onClick: () => set({ tplOpen: !ui.tplOpen }) },
+            React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: "#0f3d4a" } }, "📋 標準工程表テンプレ（" + koteiTemplates().length + "件）"),
+            React.createElement("span", { style: { fontSize: 13, color: "#0f3d4a" } }, ui.tplOpen ? "▼ 閉じる" : "▶ 開く")
+          ),
+          ui.tplOpen && koteiTemplates().length === 0 && React.createElement("button", { style: { width: "100%", border: "1px dashed #0f3d4a", background: "#eef3f4", color: "#0f3d4a", borderRadius: 8, padding: 12, fontSize: 13, fontWeight: 700, marginBottom: 8 }, onClick: () => { if (window.confirm("標準テンプレ9本（スカート2種・パンツ・シャツ・ブラウス・ワンピース2種・ジャケット2種）を一括登録しますか？")) seedStandardTemplates(); } }, "📥 標準9テンプレを一括登録"),
+          ui.tplOpen && koteiTemplates().map((t) => {
             const n = (t.blocks || []).filter((b) => b.type === "step").length;
             return React.createElement("div", { key: t.id, style: { display: "flex", gap: 6, alignItems: "center", marginBottom: 6 } },
               React.createElement("button", { style: { flex: 1, textAlign: "left", border: "1px solid #e0deda", background: "#faf9f7", borderRadius: 8, padding: "10px 12px", fontSize: 13, fontWeight: 700, color: "#333" }, onClick: () => set({ koteiTplId: t.id, koteiPartId: null, screen: "kotei_edit" }) }, (t.templateName || "無題") + "（" + n + "工程）"),
               React.createElement("button", { style: { border: "1px solid #e0deda", background: "#fff", borderRadius: 8, padding: "10px 10px", fontSize: 12 }, onClick: () => { const nm = window.prompt("テンプレ名", t.templateName || ""); if (nm) saveKotei(Object.assign({}, t, { templateName: nm, updatedAt: today() })); } }, "✏️")
             );
           }),
-          React.createElement("button", { style: { width: "100%", border: "1px solid #d9d5c8", background: "#fff", color: "#555", borderRadius: 8, padding: 10, fontSize: 12, fontWeight: 700, marginTop: 2 }, onClick: () => { const nm = window.prompt("新しいテンプレの名前", ""); if (!nm) return; const rec = { id: genId(), partId: null, templateName: nm, blocks: [], totalSec: 0, updatedAt: today() }; saveKotei(rec); set({ koteiTplId: rec.id, koteiPartId: null, screen: "kotei_edit" }); } }, "＋ 新しいテンプレを作る"),
-          koteiTemplates().length > 0 && React.createElement("button", { style: { width: "100%", border: "1px solid #e0b0b0", background: "#fff", color: "#c00", borderRadius: 8, padding: 9, fontSize: 11, fontWeight: 700, marginTop: 6 }, onClick: () => { if (window.confirm("テンプレ " + koteiTemplates().length + " 件をすべて削除します。\n品番の工程表・作業記録・売上には影響しません。\n削除後は「標準9テンプレを一括登録」で入れ直せます。よろしいですか？")) deleteAllTemplates(); } }, "🗑 テンプレをすべて削除（品番の工程表は消えません）")
+          ui.tplOpen && React.createElement("button", { style: { width: "100%", border: "1px solid #d9d5c8", background: "#fff", color: "#555", borderRadius: 8, padding: 10, fontSize: 12, fontWeight: 700, marginTop: 2 }, onClick: () => { const nm = window.prompt("新しいテンプレの名前", ""); if (!nm) return; const rec = { id: genId(), partId: null, templateName: nm, blocks: [], totalSec: 0, updatedAt: today() }; saveKotei(rec); set({ koteiTplId: rec.id, koteiPartId: null, screen: "kotei_edit" }); } }, "＋ 新しいテンプレを作る"),
+          ui.tplOpen && koteiTemplates().length > 0 && React.createElement("button", { style: { width: "100%", border: "1px solid #e0b0b0", background: "#fff", color: "#c00", borderRadius: 8, padding: 9, fontSize: 11, fontWeight: 700, marginTop: 6 }, onClick: () => { if (window.confirm("テンプレ " + koteiTemplates().length + " 件をすべて削除します。\n品番の工程表・作業記録・売上には影響しません。\n削除後は「標準9テンプレを一括登録」で入れ直せます。よろしいですか？")) deleteAllTemplates(); } }, "🗑 テンプレをすべて削除（品番の工程表は消えません）")
         ),
       ),
       React.createElement(SI)
