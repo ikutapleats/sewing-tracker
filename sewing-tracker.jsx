@@ -254,6 +254,31 @@ function App() {
 
   useEffect(() => { savingRef.current = saving; }, [saving]);
 
+  // ── 旧形式テンプレの自動移行（v1→v2）：
+  //    v1の一括登録で作業内容が実文で入ったテンプレを、グレー例文（hint）形式へ変換する。
+  //    シード原文と完全一致し、まだhintを持たない工程だけが対象。
+  //    リーダーが自分で書いた作業内容や、品番の工程表（partIdあり）には一切触れない。
+  //    変換後はデータが新形式になるため、二度目以降は何もしない（自動で一度だけ動く）。
+  useEffect(() => {
+    const seedTexts = {};
+    STD_KOTEI_TEMPLATES.forEach(function (t) { t.steps.forEach(function (s) { seedTexts[s[1]] = true; }); });
+    const fixedList = [];
+    (data.koteiSheets || []).forEach(function (s) {
+      if (s.partId) return; // テンプレのみ対象
+      let changed = false;
+      const blocks = (s.blocks || []).map(function (b) {
+        if (b.type === "step" && b.act && !b.hint && seedTexts[b.act]) { changed = true; return Object.assign({}, b, { act: "", hint: b.act }); }
+        return b;
+      });
+      if (changed) fixedList.push(Object.assign({}, s, { blocks: blocks }));
+    });
+    if (fixedList.length === 0) return;
+    const list = (data.koteiSheets || []).map(function (s) { const f = fixedList.find(function (x) { return x.id === s.id; }); return f || s; });
+    applyLocal({ koteiSheets: list }, function () {
+      return fixedList.reduce(function (p, r) { return p.then(function () { return gasUpsertItem("koteiSheets", r); }); }, Promise.resolve());
+    });
+  }, [data.koteiSheets]);
+
   useEffect(() => {
     let last = 0;
     const onActive = () => {
