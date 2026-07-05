@@ -1446,7 +1446,9 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 4px", fontSize: 15, background: "var(--paper)", color: "var(--iquta)", fontWeight: 700 }, type: "number", min: "0", placeholder: "枚", value: (ui.kEntryQty || {})[s.id] || "", onChange: (e) => setKQ({ [s.id]: e.target.value }) })
     );
     const hasQty = Object.keys(ui.kEntryQty || {}).some((id) => parseFloat((ui.kEntryQty || {})[id]) > 0);
-    const ready = f.memberId && f.partId && ((f.hours && parseFloat(f.hours) > 0) || hasQty);
+    // 作業時間は必須項目。時間を入れるまで枚数入力を出さず（忘れ防止の導線）、記録するも時間必須。
+    const hoursOk = !!(f.hours && parseFloat(f.hours) > 0);
+    const ready = f.memberId && f.partId && hoursOk;
 
     // 本日・本人の記録
     const myRecs = f.memberId ? data.records.filter((r) => r.memberId === f.memberId && r.date === f.date) : [];
@@ -1478,8 +1480,11 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                         teamParts.map((p) => React.createElement("option", { key: p.id, value: p.id }, p.partNo + (p.partName ? " (" + p.partName + ")" : "")))
                       )
                 ),
-                f.partId && React.createElement(FormRow, { label: "作業時間（h）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3.5", min: "0", step: "0.5", value: f.hours, onChange: (e) => setMF({ hours: e.target.value }) })),
-                f.partId && selSheet && React.createElement("div", null,
+                f.partId && React.createElement(FormRow, { label: "作業時間（h）＊必須" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3.5", min: "0", step: "0.5", value: f.hours, onChange: (e) => setMF({ hours: e.target.value }) })),
+                // 作業時間を入れるまで工程枚数の入力は出さない（必須項目の入力忘れ防止）
+                f.partId && selSheet && !hoursOk && React.createElement("div", { style: { background: "var(--iquta-bg)", border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px", marginBottom: 10, fontSize: 13, color: "var(--iquta)", fontWeight: 600 } },
+                  "先に作業時間（h）を入力してください。入力すると工程の枚数入力が表示されます。"),
+                f.partId && selSheet && hoursOk && React.createElement("div", null,
                   usualSteps.length > 0 && React.createElement("div", { style: { background: "var(--iquta-bg)", borderRadius: 10, padding: "10px 12px", marginBottom: 10, border: "1px solid var(--line)" } },
                     React.createElement("div", { style: { fontSize: 12, color: "var(--iquta)", fontWeight: 700, marginBottom: 8 } }, "最近やった工程"),
                     // パーツごとに区切る：作業はパーツ単位で進む＝同パーツは同枚数・パーツが違えば枚数が変わることが
