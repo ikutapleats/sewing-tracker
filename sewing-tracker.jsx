@@ -1481,16 +1481,26 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                 f.partId && React.createElement(FormRow, { label: "作業時間（h）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3.5", min: "0", step: "0.5", value: f.hours, onChange: (e) => setMF({ hours: e.target.value }) })),
                 f.partId && selSheet && React.createElement("div", null,
                   usualSteps.length > 0 && React.createElement("div", { style: { background: "var(--iquta-bg)", borderRadius: 10, padding: "10px 12px", marginBottom: 10, border: "1px solid var(--line)" } },
-                    React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8, flexWrap: "wrap" } },
-                      React.createElement("div", { style: { fontSize: 12, color: "var(--iquta)", fontWeight: 700 } }, "最近やった工程"),
-                      // 「すべての工程」と同一のまとめ入力（既存のsetGroupQtyをそのまま流用・一括後に個別上書き可）
-                      React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
-                        React.createElement("span", { style: { fontSize: 11, color: "var(--soft)" } }, "まとめて"),
-                        React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 4px", fontSize: 14, background: "#fff" }, type: "number", min: "0", placeholder: "枚", onChange: (e) => setGroupQty(usualSteps, e.target.value) }),
-                        React.createElement("span", { style: { fontSize: 11, color: "var(--soft)" } }, "枚")
-                      )
-                    ),
-                    usualSteps.map((s) => stepRow(s))
+                    React.createElement("div", { style: { fontSize: 12, color: "var(--iquta)", fontWeight: 700, marginBottom: 8 } }, "最近やった工程"),
+                    // パーツごとに区切る：作業はパーツ単位で進む＝同パーツは同枚数・パーツが違えば枚数が変わることが
+                    // 多いため、まとめ入力（既存setGroupQty流用）もパーツ単位に付ける。一括後の個別上書きは従来どおり。
+                    (function () {
+                      const partOf = {}; let curP = "—";
+                      selSteps.forEach((b) => { if (b.part) curP = b.part; partOf[b.id] = curP; });
+                      const ugs = []; const ugIdx = {};
+                      usualSteps.forEach((s) => { const pn = partOf[s.id] || "—"; if (!(pn in ugIdx)) { ugIdx[pn] = ugs.length; ugs.push({ part: pn, steps: [] }); } ugs[ugIdx[pn]].steps.push(s); });
+                      return ugs.map((g, gi) => React.createElement("div", { key: gi, style: gi > 0 ? { borderTop: "1px solid var(--line)", paddingTop: 8, marginTop: 4 } : null },
+                        React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6, flexWrap: "wrap" } },
+                          React.createElement("span", { style: { fontSize: 12, fontWeight: 700, color: "var(--iquta)" } }, g.part + "（" + g.steps.length + "工程）"),
+                          React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
+                            React.createElement("span", { style: { fontSize: 11, color: "var(--soft)" } }, "まとめて"),
+                            React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 4px", fontSize: 14, background: "#fff" }, type: "number", min: "0", placeholder: "枚", onChange: (e) => setGroupQty(g.steps, e.target.value) }),
+                            React.createElement("span", { style: { fontSize: 11, color: "var(--soft)" } }, "枚")
+                          )
+                        ),
+                        g.steps.map((s) => stepRow(s))
+                      ));
+                    })()
                   ),
                   React.createElement("div", { style: { fontSize: 11, color: "var(--soft)", margin: "4px 0 8px" } }, "すべての工程（パーツ名をタップで開く）"),
                   kGroups.length === 0 && React.createElement("div", { style: { color: "#bbb", fontSize: 13 } }, "この品番の工程表に工程がありません"),
