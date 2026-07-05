@@ -660,9 +660,9 @@ function App() {
   }
 
   function openKotei(part) {
-    // 工程表がまだ無く、テンプレが存在する品番は「白紙／テンプレから」を選ばせる（P2）
+    // 工程表がまだ無い品番は「白紙／テンプレ／メモ取込」を選ばせる（テンプレ0件でも白紙・メモ取込は選べる）
     const sheet = (data.koteiSheets || []).find(function (r) { return r.partId === part.id; });
-    if (!sheet && koteiTemplates().length > 0) { set({ koteiNewPartId: part.id, screen: "kotei_new_choice" }); return; }
+    if (!sheet) { set({ koteiNewPartId: part.id, screen: "kotei_new_choice" }); return; }
     set({ koteiPartId: part.id, koteiReturn: "part_detail", screen: "kotei_edit" });
   }
   function saveKotei(rec) {
@@ -706,6 +706,19 @@ function App() {
       updatedAt: today(),
     });
     delete rec.templateName;
+    saveKotei(rec);
+    set({ koteiPartId: partId, koteiReturn: "part_detail", screen: "kotei_edit", koteiNewPartId: null });
+  }
+
+  // 手書きメモの解析結果から品番の工程表を作る（P2）：行にIDを振ってそのままblocks化。
+  // 清書・並べ替えはしない。保存は既存のsaveKotei（=既存upsertItem機構）に乗せる。
+  function createSheetFromMemo(rows, partId) {
+    const blocks = rows.map(function (r) { return { id: genId(), type: "step", part: r.part, act: r.act, time: r.time, note: r.note || "" }; });
+    // parseKoteiTimeは読めないコロン表記（例 xx:yy）でNaNを返すため、合計はNaNガードする
+    let tot = 0; blocks.forEach(function (b) { tot += parseKoteiTime(b.time) || 0; });
+    const rec = { id: genId(), partId: partId, needle: "", unten: "", thread: "", headNote: "", targetPerDay: "", workMin: 420,
+      sizes: ["XS", "S", "M", "L"], colors: [{ name: "", counts: ["", "", "", ""] }],
+      blocks: blocks, totalSec: tot, designImgId: "", updatedAt: today() };
     saveKotei(rec);
     set({ koteiPartId: partId, koteiReturn: "part_detail", screen: "kotei_edit", koteiNewPartId: null });
   }
@@ -3052,9 +3065,10 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, part.partNo),
           part.partName && React.createElement("div", { style: { fontSize: 12, color: "#888", marginTop: 2 } }, part.partName)
         ),
-        React.createElement("button", { style: { width: "100%", border: "1px solid #d9d5c8", background: "#fff", borderRadius: 10, padding: 14, fontSize: 14, fontWeight: 700, color: "#333", marginBottom: 14, textAlign: "left" }, onClick: () => set({ koteiPartId: part.id, koteiReturn: "part_detail", screen: "kotei_edit", koteiNewPartId: null }) }, "📝 白紙から作る"),
-        React.createElement(SectionLabel, null, "標準テンプレからコピーして作る"),
-        React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginBottom: 8 } }, "全工程がコピーされます。コピー後に工程の抜き差し・時間記入をしてください。テンプレ本体は変わりません。"),
+        React.createElement("button", { style: { width: "100%", border: "1px solid #d9d5c8", background: "#fff", borderRadius: 10, padding: 14, fontSize: 14, fontWeight: 700, color: "#333", marginBottom: 8, textAlign: "left" }, onClick: () => set({ koteiPartId: part.id, koteiReturn: "part_detail", screen: "kotei_edit", koteiNewPartId: null }) }, "📝 白紙から作る"),
+        React.createElement("button", { style: { width: "100%", border: "1px solid #d9d5c8", background: "#fff", borderRadius: 10, padding: 14, fontSize: 14, fontWeight: 700, color: "#333", marginBottom: 14, textAlign: "left" }, onClick: () => set({ screen: "kotei_import" }) }, "📋 メモから取り込む（書き起こしを貼り付け）"),
+        tpls.length > 0 && React.createElement(SectionLabel, null, "標準テンプレからコピーして作る"),
+        tpls.length > 0 && React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginBottom: 8 } }, "全工程がコピーされます。コピー後に工程の抜き差し・時間記入をしてください。テンプレ本体は変わりません。"),
         tpls.map((t) => {
           const n = (t.blocks || []).filter((b) => b.type === "step").length;
           return React.createElement("button", { key: t.id, style: { width: "100%", border: "1px solid #cfe0e4", background: "#eef3f4", borderRadius: 10, padding: 14, fontSize: 14, fontWeight: 700, color: "#0f3d4a", marginBottom: 8, textAlign: "left" }, onClick: () => createSheetFromTemplate(t, part.id) }, "📋 " + (t.templateName || "無題") + "（" + n + "工程）");
@@ -3062,6 +3076,18 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       ),
       React.createElement(SI)
     );
+  }
+
+  // ── 手書きメモ取り込み（P2）：kotei_new_choiceの3択目から入る。確定でcreateSheetFromMemoへ ──
+  if (ui.screen === "kotei_import" && ui.koteiNewPartId) {
+    const part = data.parts.find((p) => p.id === ui.koteiNewPartId);
+    if (!part) { return null; }
+    return React.createElement(KoteiMemoImport, {
+      part: part,
+      onConfirm: (rows) => createSheetFromMemo(rows, part.id),
+      back: () => set({ screen: "kotei_new_choice" }),
+      SI: SI,
+    });
   }
 
   if (ui.screen === "kotei_list") {
@@ -3503,6 +3529,65 @@ function uploadKoteiImage(dataUrl) {
 }
 function fetchKoteiImage(id) {
   return fetch(GAS_URL + "?imgKotei=" + encodeURIComponent(id)).then(function (r) { return r.text(); });
+}
+
+// ── 手書きメモ取り込み画面（P2）：貼付 → プレビュー → 確定 ──
+// AIの書き起こしテキスト（1行1工程「パーツ｜作業内容｜時間」）を貼り付けて下書きを作る。
+// ここでは清書・補完はしない。確定後は既存の工程表エディタで最終見直しする前提。
+function KoteiMemoImport(props) {
+  const part = props.part, SI = props.SI;
+  const [text, setText] = useState("");
+  const rows = parseKoteiMemo(text);
+  let tot = 0, noTime = 0, badTime = 0;
+  rows.forEach(function (r) {
+    const s = parseKoteiTime(r.time);
+    tot += s || 0; // 読めないコロン表記はNaNになるためガード
+    if (!r.time) noTime++; else if (!s) badTime++;
+  });
+  return React.createElement(Shell, null,
+    React.createElement(Header, { title: "メモから取り込む", back: props.back }),
+    React.createElement(Body, null,
+      React.createElement("div", { style: Object.assign({}, st.card, { marginBottom: 12 }) },
+        React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, part.partNo),
+        part.partName && React.createElement("div", { style: { fontSize: 12, color: "#888", marginTop: 2 } }, part.partName)
+      ),
+      React.createElement(SectionLabel, null, "書き起こしテキストを貼り付け"),
+      React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginBottom: 8, lineHeight: 1.7 } },
+        "1行1工程「パーツ｜作業内容｜時間」。区切りは ｜ / | / タブ。パーツ空欄は直前を継承。",
+        React.createElement("br"),
+        "時間は 1:32 / 1'32 / 92（秒）どれでも可・空欄可。時間はそのまま取り込みます（確定後に見直し）。"
+      ),
+      React.createElement("textarea", {
+        style: Object.assign({}, st.input, { minHeight: 180, fontSize: 13, lineHeight: 1.8, fontFamily: "inherit", marginBottom: 12 }),
+        placeholder: "見頃｜脇はぎ｜1:20\n｜ロック｜0:40\n袖｜袖付け｜92",
+        value: text, onChange: function (e) { setText(e.target.value); },
+      }),
+      rows.length > 0 && React.createElement(React.Fragment, null,
+        React.createElement(SectionLabel, null, "プレビュー"),
+        React.createElement("div", { style: { display: "flex", gap: 12, fontSize: 12, color: "#555", marginBottom: 8, flexWrap: "wrap" } },
+          React.createElement("span", null, rows.length + "工程"),
+          React.createElement("span", { style: { color: K_TIME, fontWeight: 700 } }, "合計 " + fmtKoteiTime(tot)),
+          noTime > 0 && React.createElement("span", { style: { color: "#aaa" } }, "時間未記入 " + noTime + "件"),
+          badTime > 0 && React.createElement("span", { style: { color: K_NOTE, fontWeight: 700 } }, "読めない時間 " + badTime + "件")
+        ),
+        React.createElement("div", { style: Object.assign({}, st.card, { padding: "6px 12px", marginBottom: 12 }) },
+          rows.map(function (r, i) {
+            const sec = parseKoteiTime(r.time);
+            const bad = r.time && !sec;
+            return React.createElement("div", { key: i, style: { display: "flex", alignItems: "baseline", gap: 8, padding: "7px 0", borderBottom: i < rows.length - 1 ? "1px solid #f0eee8" : "none", fontSize: 13 } },
+              React.createElement("span", { style: { flex: "0 0 auto", minWidth: 52, fontSize: 11, fontWeight: 700, color: K_PART, background: K_PARTBG, borderRadius: 4, padding: "2px 6px", textAlign: "center" } }, r.part || "—"),
+              React.createElement("span", { style: { flex: 1, color: r.act ? "#1a1a1a" : "#ccc" } }, r.act || "（作業内容なし）", r.note && React.createElement("span", { style: { fontSize: 11, color: K_NOTE, marginLeft: 6 } }, r.note)),
+              React.createElement("span", { style: { flex: "0 0 auto", fontWeight: 700, color: bad ? K_NOTE : K_TIME } }, r.time || "—", !bad && sec > 0 && r.time.indexOf(":") < 0 && React.createElement("span", { style: { fontSize: 10, color: "#aaa", fontWeight: 400 } }, " =" + fmtKoteiTime(sec)))
+            );
+          })
+        ),
+        React.createElement("button", { style: st.primaryBtn, onClick: function () { props.onConfirm(rows); } }, "この内容で工程表の下書きを作る"),
+        React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginTop: 8, textAlign: "center" } }, "確定後、工程表エディタが開きます。時間・並び順はそこで見直せます。")
+      ),
+      rows.length === 0 && text.trim() !== "" && React.createElement(Empty, null, "読み取れる行がありません")
+    ),
+    React.createElement(SI)
+  );
 }
 
 function KoteiEditor(props) {
