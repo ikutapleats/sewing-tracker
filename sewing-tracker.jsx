@@ -3695,17 +3695,37 @@ function KoteiEditor(props) {
   // 「入力→ボタンを押す」の間にフォーカスは外れるため、消すと常に末尾追加になってしまう。
   const lastFocusRef = useRef(null);
   function patchBlock(id, patch) { setBlocks(function (bs) { return bs.map(function (b) { return b.id === id ? Object.assign({}, b, patch) : b; }); }); }
-  function addStep() { setBlocks(function (bs) { return bs.concat([{ id: genId(), type: "step", part: "", act: "", time: "", note: "" }]); }); }
-  function addSketch() {
+  function addStep(afterId) {
+    setBlocks(function (bs) {
+      const st = { id: genId(), type: "step", part: "", act: "", time: "", note: "" };
+      // afterId指定＝各行の「＋ 工程」から。その行の直後に挿入。未指定なら従来通り末尾。
+      const at = bs.findIndex(function (b) { return b.id === afterId; });
+      if (at < 0) return bs.concat([st]);
+      const arr = bs.slice();
+      arr.splice(at + 1, 0, st);
+      return arr;
+    });
+  }
+  function addSketch(afterId) {
     setBlocks(function (bs) {
       const sk = { id: genId(), type: "sketch", img: "", caption: "", size: "s" };
-      // 最後にカーソルを置いた工程の直後に差し込む。カーソル履歴が無ければ従来通り末尾。
-      const at = bs.findIndex(function (b) { return b.id === lastFocusRef.current; });
+      // afterId指定＝各行の「＋ 図・写真」から。未指定なら最後にカーソルを置いた工程の直後、
+      // カーソル履歴も無ければ従来通り末尾。
+      const at = bs.findIndex(function (b) { return b.id === (afterId || lastFocusRef.current); });
       if (at < 0) return bs.concat([sk]);
       const arr = bs.slice();
       arr.splice(at + 1, 0, sk);
       return arr;
     });
+  }
+  // 各ブロック行の下端に置く控えめな挿入ボタン（件2・件3）。押した行の直後に入る。
+  // 図・写真の行にも置く：末尾が図のとき、後ろに工程を足す導線が消えないように。
+  function insertRow(id) {
+    const insBtn = { border: "1px dashed " + K_LINE, background: "transparent", color: "#999", borderRadius: 7, padding: "5px 12px", fontSize: 11 };
+    return React.createElement("div", { className: "kstepPad", style: { display: "flex", gap: 6, marginTop: 8 } },
+      React.createElement("button", { style: insBtn, onClick: function () { addStep(id); } }, "＋ 工程"),
+      React.createElement("button", { style: insBtn, onClick: function () { addSketch(id); } }, "＋ 図・写真")
+    );
   }
   function move(id, dir) { setBlocks(function (bs) { const i = bs.findIndex(function (b) { return b.id === id; }); const j = i + dir; if (j < 0 || j >= bs.length) return bs; const c = bs.slice(); const t = c[i]; c[i] = c[j]; c[j] = t; return c; }); }
   function del(id) { if (!window.confirm("このブロックを削除しますか？")) return; setBlocks(function (bs) { return bs.filter(function (b) { return b.id !== id; }); }); }
@@ -4039,6 +4059,7 @@ function KoteiEditor(props) {
       b.part && React.createElement("div", { className: "kstepPad", style: { marginTop: 6 } },
         React.createElement("input", { style: { width: "100%", height: 36, border: "1px solid " + K_LINE, borderRadius: 8, padding: "0 9px", fontSize: 12, color: "#555", boxSizing: "border-box" }, placeholder: "📝 パーツのメモ（印刷でパーツ名の横に出ます）", value: b.gmemo || "", onChange: function (e) { patchBlock(b.id, { gmemo: e.target.value }); } })
       ),
+      insertRow(b.id),
       moveButtons(b.id)
     );
   }
@@ -4057,6 +4078,7 @@ function KoteiEditor(props) {
         React.createElement("span", { style: { position: "absolute", right: 6, bottom: 5, background: "rgba(15,61,74,.85)", color: "#fff", fontSize: 10, padding: "2px 7px", borderRadius: 10 } }, "編集")
       ),
       React.createElement("input", { style: { width: "100%", border: "none", borderBottom: "1px solid " + K_LINE, background: "transparent", padding: "6px 2px", fontSize: 13, color: "#555", marginTop: 8, boxSizing: "border-box" }, placeholder: "図の説明（任意）", value: b.caption, onChange: function (e) { patchBlock(b.id, { caption: e.target.value }); } }),
+      insertRow(b.id),
       moveButtons(b.id)
     );
   }
@@ -4174,9 +4196,11 @@ function KoteiEditor(props) {
       React.createElement("div", { style: { background: "#fbfaf6", borderRadius: 10, padding: "4px 12px", boxShadow: "0 1px 4px rgba(0,0,0,.06)" } },
         blocks.map(function (b) { return b.type === "step" ? renderStep(b) : renderSketch(b); })
       ),
-      React.createElement("div", { style: { display: "flex", gap: 10, marginTop: 12 } },
-        React.createElement("button", { style: addBtn, onClick: addStep }, "＋ 工程を追加"),
-        React.createElement("button", { style: addBtn, onClick: addSketch }, "＋ 図・写真")
+      // 追加ボタンは各行に付けたため末尾の行は撤去（重複排除）。
+      // ただしブロック0個の白紙状態だけは行が無く追加できないので、その時のみ残す。
+      blocks.length === 0 && React.createElement("div", { style: { display: "flex", gap: 10, marginTop: 12 } },
+        React.createElement("button", { style: addBtn, onClick: function () { addStep(); } }, "＋ 工程を追加"),
+        React.createElement("button", { style: addBtn, onClick: function () { addSketch(); } }, "＋ 図・写真")
       ),
       renderSummary(),
       React.createElement("button", { style: { width: "100%", background: K_PART, color: "#fff", border: "none", borderRadius: 8, padding: 14, fontSize: 15, fontWeight: 700, marginTop: 16 }, onClick: handleSave }, "保存する"),
