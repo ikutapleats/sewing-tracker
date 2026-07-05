@@ -1480,11 +1480,19 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                 ),
                 f.partId && React.createElement(FormRow, { label: "作業時間（h）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3.5", min: "0", step: "0.5", value: f.hours, onChange: (e) => setMF({ hours: e.target.value }) })),
                 f.partId && selSheet && React.createElement("div", null,
-                  usualSteps.length > 0 && React.createElement("div", { style: { background: "#eef3f4", borderRadius: 10, padding: "10px 12px", marginBottom: 10, border: "1px solid #cfe0e4" } },
-                    React.createElement("div", { style: { fontSize: 12, color: "var(--iquta)", fontWeight: 700, marginBottom: 8 } }, "以前にやった工程"),
+                  usualSteps.length > 0 && React.createElement("div", { style: { background: "var(--iquta-bg)", borderRadius: 10, padding: "10px 12px", marginBottom: 10, border: "1px solid var(--line)" } },
+                    React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8, flexWrap: "wrap" } },
+                      React.createElement("div", { style: { fontSize: 12, color: "var(--iquta)", fontWeight: 700 } }, "最近やった工程"),
+                      // 「すべての工程」と同一のまとめ入力（既存のsetGroupQtyをそのまま流用・一括後に個別上書き可）
+                      React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
+                        React.createElement("span", { style: { fontSize: 11, color: "var(--soft)" } }, "まとめて"),
+                        React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 4px", fontSize: 14, background: "#fff" }, type: "number", min: "0", placeholder: "枚", onChange: (e) => setGroupQty(usualSteps, e.target.value) }),
+                        React.createElement("span", { style: { fontSize: 11, color: "var(--soft)" } }, "枚")
+                      )
+                    ),
                     usualSteps.map((s) => stepRow(s))
                   ),
-                  React.createElement("div", { style: { fontSize: 11, color: "#888", margin: "4px 0 8px" } }, "📐 すべての工程（パーツ名をタップで開く）"),
+                  React.createElement("div", { style: { fontSize: 11, color: "var(--soft)", margin: "4px 0 8px" } }, "すべての工程（パーツ名をタップで開く）"),
                   kGroups.length === 0 && React.createElement("div", { style: { color: "#bbb", fontSize: 13 } }, "この品番の工程表に工程がありません"),
                   kGroups.map((grp, gi) => {
                     const gkey = "g" + gi;
@@ -1500,9 +1508,9 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                       ),
                       gopen && React.createElement("div", { style: { padding: "0 12px 10px" } },
                         React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, marginBottom: 8 } },
-                          React.createElement("span", { style: { fontSize: 11, color: "#999" } }, "まとめて"),
-                          React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid #d9d5c8", borderRadius: 8, padding: "6px 4px", fontSize: 14 }, type: "number", min: "0", placeholder: "枚", onChange: (e) => setGroupQty(grp.steps, e.target.value) }),
-                          React.createElement("span", { style: { fontSize: 11, color: "#999" } }, "枚")
+                          React.createElement("span", { style: { fontSize: 11, color: "var(--soft)" } }, "まとめて"),
+                          React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 4px", fontSize: 14, background: "#fff" }, type: "number", min: "0", placeholder: "枚", onChange: (e) => setGroupQty(grp.steps, e.target.value) }),
+                          React.createElement("span", { style: { fontSize: 11, color: "var(--soft)" } }, "枚")
                         ),
                         grp.steps.map((s) => stepRow(s))
                       )
