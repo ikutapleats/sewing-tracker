@@ -1446,7 +1446,9 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 4px", fontSize: 15, background: "var(--paper)", color: "var(--iquta)", fontWeight: 700 }, type: "number", min: "0", placeholder: "枚", value: (ui.kEntryQty || {})[s.id] || "", onChange: (e) => setKQ({ [s.id]: e.target.value }) })
     );
     const hasQty = Object.keys(ui.kEntryQty || {}).some((id) => parseFloat((ui.kEntryQty || {})[id]) > 0);
-    const ready = f.memberId && f.partId && ((f.hours && parseFloat(f.hours) > 0) || hasQty);
+    // 作業時間は必須項目。時間を入れるまで枚数入力を出さず（忘れ防止の導線）、記録するも時間必須。
+    const hoursOk = !!(f.hours && parseFloat(f.hours) > 0);
+    const ready = f.memberId && f.partId && hoursOk;
 
     // 本日・本人の記録
     const myRecs = f.memberId ? data.records.filter((r) => r.memberId === f.memberId && r.date === f.date) : [];
@@ -1456,7 +1458,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const myMemberName = (data.members.find((m) => m.id === f.memberId) || {}).name || "";
 
     return React.createElement(Shell, null,
-      React.createElement(Header, { title: ui.selectedTeam + "　作業記録", back: () => set({ screen: "home" }) }),
+      // ヘッダーの「記録」は最下部の記録するボタンと同じsaveEntryを呼ぶ（入口2つ・処理1つ）
+      React.createElement(Header, { title: ui.selectedTeam + "　作業記録", back: () => set({ screen: "home" }), actions: [{ label: "記録", onClick: saveEntry, primary: true, disabled: !ready }] }),
       React.createElement(Body, null,
         data.members.length === 0
           ? React.createElement("div", { style: Object.assign({}, st.card, { textAlign: "center", color: "#aaa", padding: 24 }) }, "メンバーが登録されていません。", React.createElement("br"), "ホーム→メンバー管理から登録してください。")
@@ -1478,8 +1481,9 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                         teamParts.map((p) => React.createElement("option", { key: p.id, value: p.id }, p.partNo + (p.partName ? " (" + p.partName + ")" : "")))
                       )
                 ),
-                f.partId && React.createElement(FormRow, { label: "作業時間（h）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3.5", min: "0", step: "0.5", value: f.hours, onChange: (e) => setMF({ hours: e.target.value }) })),
-                f.partId && selSheet && React.createElement("div", null,
+                f.partId && React.createElement(FormRow, { label: "作業時間（h）＊必須" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3.5", min: "0", step: "0.5", value: f.hours, onChange: (e) => setMF({ hours: e.target.value }) })),
+                // 作業時間を入れるまで工程枚数の入力は出さない（必須項目の入力忘れ防止・案内文は出さない）
+                f.partId && selSheet && hoursOk && React.createElement("div", null,
                   usualSteps.length > 0 && React.createElement("div", { style: { background: "var(--iquta-bg)", borderRadius: 10, padding: "10px 12px", marginBottom: 10, border: "1px solid var(--line)" } },
                     React.createElement("div", { style: { fontSize: 12, color: "var(--iquta)", fontWeight: 700, marginBottom: 8 } }, "最近やった工程"),
                     // パーツごとに区切る：作業はパーツ単位で進む＝同パーツは同枚数・パーツが違えば枚数が変わることが
@@ -3245,12 +3249,14 @@ function Header(p) {
       React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, minWidth: 0 } },
         p.sub && React.createElement("span", { style: { fontSize: 12, color: "var(--soft)", letterSpacing: "0.04em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, stripEmoji(p.sub)),
         (p.actions || []).map(function (a, i) {
+          const base = a.primary
+            ? { background: "var(--iquta)", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", flex: "none" }
+            : { background: "#fff", color: "var(--iquta)", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 13px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", flex: "none" };
           return React.createElement("button", {
             key: i,
-            style: a.primary
-              ? { background: "var(--iquta)", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", flex: "none" }
-              : { background: "#fff", color: "var(--iquta)", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 13px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", flex: "none" },
-            onClick: a.onClick,
+            style: a.disabled ? Object.assign({}, base, { opacity: 0.4, cursor: "default" }) : base,
+            disabled: !!a.disabled,
+            onClick: a.disabled ? undefined : a.onClick,
           }, a.label);
         })
       )
