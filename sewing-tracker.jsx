@@ -955,24 +955,17 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     return React.createElement(Shell, null,
       React.createElement(Header, { title: "作業実績管理", sub: "IQUTA PLEATS" }),
       React.createElement(Body, null,
-        React.createElement(BigBtn, { icon: "📊", label: "集計・仕事量管理", sub: "全体・チーム別の実績と予算", onClick: () => set({ screen: "summary" }) }),
-        React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { icon: "📅", label: "納期カレンダー", sub: "品番ごとの納品予定日を一覧", onClick: () => set({ screen: "deadline_calendar", dlMonth: today().slice(0, 7) }) }),
-        React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { icon: "💰", label: "売上カレンダー", sub: "日ごとの完成売上を全体・チーム別で確認", onClick: () => set({ screen: "sales_calendar", salesMonth: today().slice(0, 7), salesTeam: "all" }) }),
-        React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { icon: "🗂️", label: "ダッシュボード", sub: "納期・進捗を一目で確認", onClick: () => set({ screen: "dashboard" }) }),
-        React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { icon: "🏷️", label: "ブランド別仕事一覧", sub: "客先ごとの納品前・納品済みを確認", onClick: () => set({ screen: "brand_jobs", selectedBrandId: null }) }),
-        React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { icon: "✂️", label: "サンプル管理", sub: "サンプル作成の記録・実働時間・サンプル代", onClick: () => set({ screen: "sample_list" }) }),
-        React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { icon: "📐", label: "工程分析表", sub: "品番ごとの工程・時間・図を一覧／作成・印刷", onClick: () => set({ screen: "kotei_list", koteiSearch: "" }) }),
-        React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { icon: "💴", label: "生産価値", sub: "人・日・品番ごとの時間と生産価値を振り返る", onClick: () => set({ screen: "value_view", vvAxis: "member", vvPeriod: "month", vvMonth: today().slice(0, 7), vvExpanded: {} }) }),
-        React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { icon: "📋", label: "品番マスター", sub: "全品番の登録・割当管理" + (unassigned > 0 ? "　⚠️ 未割当 " + unassigned + "件" : ""), onClick: () => set({ screen: "master", masterFilter: "all" }) }),
-        React.createElement(Spacer, { h: 12 }),
+        React.createElement(MenuGroup, null,
+          React.createElement(MenuRow, { color: "#0a84ff", d: ["M2.5 13.5v-5", "M6.5 13.5v-9", "M10.5 13.5v-6", "M14 13.5v-11"], label: "集計・仕事量管理", sub: "全体・チーム別の実績と予算", onClick: () => set({ screen: "summary" }) }),
+          React.createElement(MenuRow, { color: "#ff453a", d: ["M3 4.5h10a1 1 0 0 1 1 1V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1z", "M2 7.5h12", "M5.5 2.5v3", "M10.5 2.5v3"], label: "納期カレンダー", sub: "品番ごとの納品予定日を一覧", onClick: () => set({ screen: "deadline_calendar", dlMonth: today().slice(0, 7) }) }),
+          React.createElement(MenuRow, { color: "#30d158", d: ["M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12z", "M5.8 5l2.2 3 2.2-3", "M8 8v3.2", "M6.2 9.2h3.6"], label: "売上カレンダー", sub: "日ごとの完成売上を全体・チーム別で確認", onClick: () => set({ screen: "sales_calendar", salesMonth: today().slice(0, 7), salesTeam: "all" }) }),
+          React.createElement(MenuRow, { color: "#ff9f0a", d: ["M2.5 2.5h4.5v4.5H2.5z", "M9 2.5h4.5v4.5H9z", "M2.5 9h4.5v4.5H2.5z", "M9 9h4.5v4.5H9z"], label: "ダッシュボード", sub: "納期・進捗を一目で確認", onClick: () => set({ screen: "dashboard" }) }),
+          React.createElement(MenuRow, { color: "#bf5af2", d: ["M2 2.8h4.8L14 10l-4 4-7.2-7.2z", "M5.3 5.3h.01"], label: "ブランド別仕事一覧", sub: "客先ごとの納品前・納品済みを確認", onClick: () => set({ screen: "brand_jobs", selectedBrandId: null }) }),
+          React.createElement(MenuRow, { color: "#ff2d55", d: ["M4.5 13.5a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z", "M11.5 13.5a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z", "M6 10.5L13 2.5", "M10 10.5L3 2.5"], label: "サンプル管理", sub: "サンプル作成の記録・実働時間・サンプル代", onClick: () => set({ screen: "sample_list" }) }),
+          React.createElement(MenuRow, { color: "#0f3d4a", d: ["M2 12L11.5 2.5l2 2L4 14H2v-2z", "M9 5l2 2"], label: "工程分析表", sub: "品番ごとの工程・時間・図を一覧／作成・印刷", onClick: () => set({ screen: "kotei_list", koteiSearch: "" }) }),
+          React.createElement(MenuRow, { color: "#ac8e68", d: ["M8 6.5c3 0 5.5-1 5.5-2.2S11 2 8 2 2.5 3.1 2.5 4.3 5 6.5 8 6.5z", "M2.5 4.3v3.5C2.5 9 5 10 8 10s5.5-1 5.5-2.2V4.3", "M2.5 7.8v3.5c0 1.2 2.5 2.2 5.5 2.2s5.5-1 5.5-2.2V7.8"], label: "生産価値", sub: "人・日・品番ごとの時間と生産価値を振り返る", onClick: () => set({ screen: "value_view", vvAxis: "member", vvPeriod: "month", vvMonth: today().slice(0, 7), vvExpanded: {} }) }),
+          React.createElement(MenuRow, { last: true, color: "#8e8e93", d: ["M3 3.5h10", "M3 8h10", "M3 12.5h6"], label: "品番マスター", sub: "全品番の登録・割当管理" + (unassigned > 0 ? "　⚠️ 未割当 " + unassigned + "件" : ""), onClick: () => set({ screen: "master", masterFilter: "all" }) })
+        ),
         React.createElement(Divider, { label: "チームを選ぶ" }),
         TEAMS.map((team) => {
           const cnt = partSummary.filter((p) => p.assignee === team && !p.closedAt).length;
@@ -1033,7 +1026,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             p.workMonth && React.createElement("span", { style: { color: "#3b6fd4", fontWeight: 600 } }, p.workMonth.replace("-", "年") + "月仕掛り"),
             React.createElement("span", null, p.qty + "枚"),
             p.deadline && React.createElement("span", { style: { color: p.remainDays !== null && p.remainDays <= 3 ? "#c00" : p.remainDays !== null && p.remainDays <= 7 ? "#c25000" : "#aaa" } }, "納期: " + fmt(p.deadline) + (p.remainDays !== null ? "（あと" + p.remainDays + "日）" : "")),
-            p.status && React.createElement("span", null, p.status)
+            p.status && React.createElement(StatusBadge, { status: p.status })
           )
         ))
       ),
@@ -1436,7 +1429,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         React.createElement("div", { style: { fontSize: 13, color: "#333", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, s.act || "（無題の工程）"),
         React.createElement("div", { style: { fontSize: 10, color: "#aaa" } }, (s.part ? s.part + "　" : "") + fmtKoteiTime(parseKoteiTime(s.time)))
       ),
-      React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid #d9d5c8", borderRadius: 8, padding: "8px 4px", fontSize: 15, background: "#fff" }, type: "number", min: "0", placeholder: "枚", value: (ui.kEntryQty || {})[s.id] || "", onChange: (e) => setKQ({ [s.id]: e.target.value }) })
+      React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid rgba(60,60,67,.14)", borderRadius: 8, padding: "8px 4px", fontSize: 15, background: "#fff" }, type: "number", min: "0", placeholder: "枚", value: (ui.kEntryQty || {})[s.id] || "", onChange: (e) => setKQ({ [s.id]: e.target.value }) })
     );
     const hasQty = Object.keys(ui.kEntryQty || {}).some((id) => parseFloat((ui.kEntryQty || {})[id]) > 0);
     const ready = f.memberId && f.partId && ((f.hours && parseFloat(f.hours) > 0) || hasQty);
@@ -1494,7 +1487,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                       gopen && React.createElement("div", { style: { padding: "0 12px 10px" } },
                         React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, marginBottom: 8 } },
                           React.createElement("span", { style: { fontSize: 11, color: "#999" } }, "まとめて"),
-                          React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid #d9d5c8", borderRadius: 8, padding: "6px 4px", fontSize: 14 }, type: "number", min: "0", placeholder: "枚", onChange: (e) => setGroupQty(grp.steps, e.target.value) }),
+                          React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid rgba(60,60,67,.14)", borderRadius: 8, padding: "6px 4px", fontSize: 14 }, type: "number", min: "0", placeholder: "枚", onChange: (e) => setGroupQty(grp.steps, e.target.value) }),
                           React.createElement("span", { style: { fontSize: 11, color: "#999" } }, "枚")
                         ),
                         grp.steps.map((s) => stepRow(s))
@@ -2958,7 +2951,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       React.createElement(Header, { title: "パーツ名の編集", back: () => set({ screen: "kotei_list" }) }),
       React.createElement(Body, null,
         React.createElement("div", { style: { fontSize: 12, color: "#888", marginBottom: 12 } }, "工程表で選ぶパーツ名を、追加・削除・並べ替えできます。ドラッグで順番を変えられます（PC）。ここで変えた内容は全員・全工程表に反映されます。"),
-        React.createElement("button", { style: { width: "100%", border: "1px solid #d9d5c8", background: "#fff", color: "#555", borderRadius: 8, padding: 10, fontSize: 12, fontWeight: 700, marginBottom: 12 }, onClick: function () { if (window.confirm("パーツ名の候補を標準の並び（" + KOTEI_PARTS.length + "件）に戻しますか？\n自分で追加した名前は消えますが、工程表で使用中の名前は候補に残り続けます。")) { commitP(KOTEI_PARTS.slice()); } } }, "↺ 標準の並びに戻す"),
+        React.createElement("button", { style: { width: "100%", border: "1px solid rgba(60,60,67,.14)", background: "#fff", color: "#555", borderRadius: 8, padding: 10, fontSize: 12, fontWeight: 700, marginBottom: 12 }, onClick: function () { if (window.confirm("パーツ名の候補を標準の並び（" + KOTEI_PARTS.length + "件）に戻しますか？\n自分で追加した名前は消えますが、工程表で使用中の名前は候補に残り続けます。")) { commitP(KOTEI_PARTS.slice()); } } }, "↺ 標準の並びに戻す"),
         React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 16 } },
           React.createElement("input", { style: Object.assign({}, st.input, { flex: 1, marginBottom: 0 }), placeholder: "追加するパーツ名", value: ui.koteiPartsInput, onChange: (e) => set({ koteiPartsInput: e.target.value }), onKeyDown: function (e) { if (e.key === "Enter") addP(); } }),
           React.createElement("button", { style: { border: "none", background: "#0f3d4a", color: "#fff", borderRadius: 8, padding: "0 18px", fontSize: 14, fontWeight: 700 }, onClick: addP }, "追加")
@@ -2970,7 +2963,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             onDragOver: function (e) { e.preventDefault(); },
             onDrop: function (e) { e.preventDefault(); reorderP(ui.koteiPartsDrag, i); set({ koteiPartsDrag: null }); },
             onDragEnd: function () { set({ koteiPartsDrag: null }); },
-            style: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid " + (ui.koteiPartsDrag === i ? "#0f3d4a" : "#d9d5c8"), borderRadius: 16, padding: "6px 6px 6px 8px", fontSize: 13, cursor: "grab", background: ui.koteiPartsDrag === i ? "#eef3f4" : "#fff" }
+            style: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid " + (ui.koteiPartsDrag === i ? "#0f3d4a" : "rgba(60,60,67,.14)"), borderRadius: 16, padding: "6px 6px 6px 8px", fontSize: 13, cursor: "grab", background: ui.koteiPartsDrag === i ? "#eef3f4" : "#fff" }
           },
             React.createElement("span", { style: { color: "#bbb", fontSize: 13, cursor: "grab", userSelect: "none" } }, "⠿"),
             w,
@@ -2996,7 +2989,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       React.createElement(Body, null,
         React.createElement("div", { style: { fontSize: 12, color: "#888", marginBottom: 12 } }, "分類を選んで、作業の言葉を追加・削除できます。ここで変えた候補は、全員・全工程表に反映されます。"),
         React.createElement("div", { style: { display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" } },
-          catKeys.map(function (c) { return React.createElement("button", { key: c, style: { border: "1px solid " + (cur === c ? "#0f3d4a" : "#d9d5c8"), background: cur === c ? "#0f3d4a" : "#fff", color: cur === c ? "#fff" : "#555", borderRadius: 14, padding: "6px 16px", fontSize: 13, fontWeight: 700 }, onClick: () => set({ koteiPhCat: c }) }, c); })
+          catKeys.map(function (c) { return React.createElement("button", { key: c, style: { border: "1px solid " + (cur === c ? "#0f3d4a" : "rgba(60,60,67,.14)"), background: cur === c ? "#0f3d4a" : "#fff", color: cur === c ? "#fff" : "#555", borderRadius: 14, padding: "6px 16px", fontSize: 13, fontWeight: 700 }, onClick: () => set({ koteiPhCat: c }) }, c); })
         ),
         React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 16 } },
           React.createElement("input", { style: Object.assign({}, st.input, { flex: 1, marginBottom: 0 }), placeholder: "「" + cur + "」に追加する言葉", value: ui.koteiPhInput, onChange: (e) => set({ koteiPhInput: e.target.value }), onKeyDown: function (e) { if (e.key === "Enter") addPhrase(); } }),
@@ -3009,7 +3002,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             onDragOver: function (e) { e.preventDefault(); },
             onDrop: function (e) { e.preventDefault(); reorder(ui.koteiDrag, i); set({ koteiDrag: null }); },
             onDragEnd: function () { set({ koteiDrag: null }); },
-            style: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid " + (ui.koteiDrag === i ? "#0f3d4a" : "#d9d5c8"), borderRadius: 16, padding: "6px 6px 6px 8px", fontSize: 13, cursor: "grab", background: ui.koteiDrag === i ? "#eef3f4" : "#fff" }
+            style: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid " + (ui.koteiDrag === i ? "#0f3d4a" : "rgba(60,60,67,.14)"), borderRadius: 16, padding: "6px 6px 6px 8px", fontSize: 13, cursor: "grab", background: ui.koteiDrag === i ? "#eef3f4" : "#fff" }
           },
             React.createElement("span", { style: { color: "#bbb", fontSize: 13, cursor: "grab", userSelect: "none" } }, "⠿"),
             w,
@@ -3031,7 +3024,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         React.createElement("div", { style: { fontSize: 12, color: "#888", marginBottom: 12 } }, "新しい品番の工程表を作るときの雛形です。品番詳細の「📐 工程分析表」から、ここにあるテンプレを選んでコピーして使います。ここを直しても、コピー済みの品番の工程表は変わりません。"),
 
         // ── 標準工程表テンプレ：品番に紐づかない骨格。新品番はここからコピーして作る（P1/P3）
-        React.createElement("div", { style: { background: "#fff", border: "1px solid #d9d5c8", borderRadius: 10, padding: 12, marginBottom: 12 } },
+        React.createElement("div", { style: { background: "#fff", border: "1px solid rgba(60,60,67,.14)", borderRadius: 10, padding: 12, marginBottom: 12 } },
           // 見出しをトグルに：普段は閉じていて、押すと9本のリストが開く（工程管理画面のノイズを減らす）
           React.createElement("button", { style: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: "none", border: "none", padding: 0, cursor: "pointer", marginBottom: ui.tplOpen ? 8 : 0 }, onClick: () => set({ tplOpen: !ui.tplOpen }) },
             React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: "#0f3d4a" } }, "📋 標準工程表テンプレ（" + koteiTemplates().length + "件）"),
@@ -3045,7 +3038,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
               React.createElement("button", { style: { border: "1px solid #e0deda", background: "#fff", borderRadius: 8, padding: "10px 10px", fontSize: 12 }, onClick: () => { const nm = window.prompt("テンプレ名", t.templateName || ""); if (nm) saveKotei(Object.assign({}, t, { templateName: nm, updatedAt: today() })); } }, "✏️")
             );
           }),
-          ui.tplOpen && React.createElement("button", { style: { width: "100%", border: "1px solid #d9d5c8", background: "#fff", color: "#555", borderRadius: 8, padding: 10, fontSize: 12, fontWeight: 700, marginTop: 2 }, onClick: () => { const nm = window.prompt("新しいテンプレの名前", ""); if (!nm) return; const rec = { id: genId(), partId: null, templateName: nm, blocks: [], totalSec: 0, updatedAt: today() }; saveKotei(rec); set({ koteiTplId: rec.id, koteiPartId: null, screen: "kotei_edit" }); } }, "＋ 新しいテンプレを作る"),
+          ui.tplOpen && React.createElement("button", { style: { width: "100%", border: "1px solid rgba(60,60,67,.14)", background: "#fff", color: "#555", borderRadius: 8, padding: 10, fontSize: 12, fontWeight: 700, marginTop: 2 }, onClick: () => { const nm = window.prompt("新しいテンプレの名前", ""); if (!nm) return; const rec = { id: genId(), partId: null, templateName: nm, blocks: [], totalSec: 0, updatedAt: today() }; saveKotei(rec); set({ koteiTplId: rec.id, koteiPartId: null, screen: "kotei_edit" }); } }, "＋ 新しいテンプレを作る"),
           ui.tplOpen && koteiTemplates().length > 0 && React.createElement("button", { style: { width: "100%", border: "1px solid #e0b0b0", background: "#fff", color: "#c00", borderRadius: 8, padding: 9, fontSize: 11, fontWeight: 700, marginTop: 6 }, onClick: () => { if (window.confirm("テンプレ " + koteiTemplates().length + " 件をすべて削除します。\n品番の工程表・作業記録・売上には影響しません。\n削除後は「標準9テンプレを一括登録」で入れ直せます。よろしいですか？")) deleteAllTemplates(); } }, "🗑 テンプレをすべて削除（品番の工程表は消えません）")
         ),
       ),
@@ -3065,8 +3058,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, part.partNo),
           part.partName && React.createElement("div", { style: { fontSize: 12, color: "#888", marginTop: 2 } }, part.partName)
         ),
-        React.createElement("button", { style: { width: "100%", border: "1px solid #d9d5c8", background: "#fff", borderRadius: 10, padding: 14, fontSize: 14, fontWeight: 700, color: "#333", marginBottom: 8, textAlign: "left" }, onClick: () => set({ koteiPartId: part.id, koteiReturn: "part_detail", screen: "kotei_edit", koteiNewPartId: null }) }, "📝 白紙から作る"),
-        React.createElement("button", { style: { width: "100%", border: "1px solid #d9d5c8", background: "#fff", borderRadius: 10, padding: 14, fontSize: 14, fontWeight: 700, color: "#333", marginBottom: 14, textAlign: "left" }, onClick: () => set({ screen: "kotei_import" }) }, "📋 メモから取り込む（書き起こしを貼り付け）"),
+        React.createElement("button", { style: { width: "100%", border: "1px solid rgba(60,60,67,.14)", background: "#fff", borderRadius: 10, padding: 14, fontSize: 14, fontWeight: 700, color: "#333", marginBottom: 8, textAlign: "left" }, onClick: () => set({ koteiPartId: part.id, koteiReturn: "part_detail", screen: "kotei_edit", koteiNewPartId: null }) }, "📝 白紙から作る"),
+        React.createElement("button", { style: { width: "100%", border: "1px solid rgba(60,60,67,.14)", background: "#fff", borderRadius: 10, padding: 14, fontSize: 14, fontWeight: 700, color: "#333", marginBottom: 14, textAlign: "left" }, onClick: () => set({ screen: "kotei_import" }) }, "📋 メモから取り込む（書き起こしを貼り付け）"),
         tpls.length > 0 && React.createElement(SectionLabel, null, "標準テンプレからコピーして作る"),
         tpls.length > 0 && React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginBottom: 8 } }, "全工程がコピーされます。コピー後に工程の抜き差し・時間記入をしてください。テンプレ本体は変わりません。"),
         tpls.map((t) => {
@@ -3167,8 +3160,24 @@ function Shell(p) { return React.createElement("div", { style: st.root }, p.chil
 function Header(p) { return React.createElement("div", { style: st.header }, p.back && React.createElement("button", { style: st.backBtn, onClick: p.back }, "‹ 戻る"), p.sub && React.createElement("div", { style: { fontSize: 10, letterSpacing: "0.2em", color: "#555", marginBottom: 2 } }, p.sub), React.createElement("div", { style: st.headerTitle }, p.title)); }
 function Body(p) { return React.createElement("div", { style: st.body }, p.children); }
 function Spacer(p) { return React.createElement("div", { style: { height: p.h || 8 } }); }
-function Divider(p) { return React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, margin: "4px 0 14px" } }, React.createElement("div", { style: { flex: 1, height: 1, background: "#e0deda" } }), React.createElement("span", { style: { fontSize: 11, color: "#bbb" } }, p.label), React.createElement("div", { style: { flex: 1, height: 1, background: "#e0deda" } })); }
-function BigBtn(p) { return React.createElement("button", { style: st.bigBtn, onClick: p.onClick }, React.createElement("span", { style: { fontSize: 22 } }, p.icon), React.createElement("div", { style: { textAlign: "left" } }, React.createElement("div", { style: { fontSize: 16, fontWeight: 700 } }, p.label), React.createElement("div", { style: { fontSize: 11, color: "#999", marginTop: 2 } }, p.sub))); }
+function Divider(p) { return React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, margin: "4px 0 14px" } }, React.createElement("div", { style: { flex: 1, height: 1, background: "rgba(60,60,67,.12)" } }), React.createElement("span", { style: { fontSize: 11, color: "#8e8e93", fontWeight: 600, letterSpacing: "0.06em" } }, p.label), React.createElement("div", { style: { flex: 1, height: 1, background: "rgba(60,60,67,.12)" } })); }
+function BigBtn(p) { return React.createElement("button", { style: st.bigBtn, onClick: p.onClick }, React.createElement("span", { style: { fontSize: 22 } }, p.icon), React.createElement("div", { style: { textAlign: "left", flex: 1, minWidth: 0 } }, React.createElement("div", { style: { fontSize: 15.5, fontWeight: 600, letterSpacing: "-0.01em" } }, p.label), React.createElement("div", { style: { fontSize: 11, color: "#8e8e93", marginTop: 2 } }, p.sub)), React.createElement("span", { style: { color: "#c7c7cc", fontSize: 17, fontWeight: 600, flex: "none" } }, "›")); }
+// ── ホームのグループリスト（iOSの設定画面風）：色付きアイコン角丸四角＋ラベル＋シェブロン ──
+function MenuGroup(p) { return React.createElement("div", { style: { background: "#fff", borderRadius: 16, overflow: "hidden", border: UI.hair, boxShadow: UI.sh, marginBottom: 16 } }, p.children); }
+function MenuRow(p) {
+  return React.createElement("button", { style: { display: "flex", alignItems: "center", gap: 12, width: "100%", background: "#fff", color: UI.ink, border: "none", borderBottom: p.last ? "none" : UI.hair, padding: "12px 16px", cursor: "pointer", textAlign: "left" }, onClick: p.onClick },
+    React.createElement("span", { style: { width: 30, height: 30, borderRadius: 8, flex: "none", background: p.color, display: "inline-flex", alignItems: "center", justifyContent: "center" } },
+      React.createElement("svg", { viewBox: "0 0 16 16", width: 17, height: 17, fill: "none", stroke: "#fff", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round" },
+        (p.d || []).map(function (dd, i) { return React.createElement("path", { key: i, d: dd }); })
+      )
+    ),
+    React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+      React.createElement("div", { style: { fontSize: 15, fontWeight: 600, letterSpacing: "-0.01em" } }, p.label),
+      p.sub && React.createElement("div", { style: { fontSize: 11, color: "#8e8e93", marginTop: 1 } }, p.sub)
+    ),
+    React.createElement("span", { style: { color: "#c7c7cc", fontSize: 17, fontWeight: 600, flex: "none" } }, "›")
+  );
+}
 function RoleBtn(p) { return React.createElement("button", { style: st.roleBtn, onClick: p.onClick }, React.createElement("span", { style: { fontSize: 16 } }, p.icon), React.createElement("span", { style: { fontSize: 13, fontWeight: 700 } }, p.label)); }
 function QuickBtn(p) { return React.createElement("button", { style: st.quickBtn, onClick: p.onClick }, p.label); }
 function TeamBadge(p) { const c = TEAM_COLORS[p.team] || "#888"; return React.createElement("span", { style: { background: c + "18", color: c, fontSize: p.small ? 11 : 13, padding: p.small ? "2px 8px" : "4px 12px", borderRadius: 20, fontWeight: 700, border: "1px solid " + c + "44", display: "inline-block" } }, p.team); }
@@ -3179,7 +3188,14 @@ function AssigneeBadge(p) {
   const c = TEAM_COLORS[part.assignee] || "#888";
   return React.createElement("span", { style: { background: c + "18", color: c, fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700, border: "1px solid " + c + "44" } }, part.assignee);
 }
-function StatusBadge(p) { const colors = { "未着手": "#aaa", "裁断済み": "#c25000", "仕掛り中": "#7a2a7a", "完了": "#2a7a2a" }; const c = colors[p.status] || "#aaa"; return React.createElement("span", { style: { background: c + "18", color: c, fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700, border: "1px solid " + c + "44" } }, p.status); }
+function StatusBadge(p) {
+  const colors = { "未着手": "#8e8e93", "裁断済み": "#c25000", "仕掛り中": "#7a2a7a", "完了": "#248a3d" };
+  const c = colors[p.status] || "#8e8e93";
+  return React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 5, background: c + "1c", color: c, fontSize: 11, padding: "3px 10px", borderRadius: 99, fontWeight: 600, whiteSpace: "nowrap" } },
+    React.createElement("span", { style: { width: 6, height: 6, borderRadius: 99, background: "currentColor", flex: "none" } }),
+    p.status
+  );
+}
 function SectionLabel(p) { return React.createElement("div", { style: st.sectionLabel }, p.children); }
 function Empty(p) { return React.createElement("div", { style: st.empty }, p.children); }
 function FormRow(p) { return React.createElement("div", { style: { marginBottom: 14 } }, React.createElement("div", { style: { fontSize: 11, color: "#888", marginBottom: 4 } }, p.label), p.children); }
@@ -3245,52 +3261,65 @@ function PartCard(p) {
   );
 }
 
+// ── デザイントークン（Apple風リデザイン）──
+// 方針「道具は静かに、情報は鮮明に」。操作＝青1色、地は#F5F5F7、線は髪の毛罫線、入力はグレー塗り。
+// 時間=青・注意=赤・パーツ=藍 の意味色は現場の学習を壊さないため従来どおり（K_TIME等）。
+const UI = {
+  acc: "#0a84ff",                        // アクセント＝操作（保存・リンク・選択中）
+  accTint: "rgba(10,132,255,.13)",       // アクセントの淡い塗り
+  ink: "#1d1d1f", sub: "#6e6e73", faint: "#c7c7cc",
+  ground: "#f5f5f7",
+  hair: "1px solid rgba(60,60,67,.1)",   // 髪の毛罫線
+  fill: "rgba(120,120,128,.12)",         // 入力欄・二番手ボタンのグレー塗り
+  sh: "0 1px 2px rgba(0,0,0,.04)",
+  font: "-apple-system,BlinkMacSystemFont,'Hiragino Sans','Noto Sans JP',sans-serif",
+};
 const st = {
-  root: { fontFamily: "'Hiragino Sans','Noto Sans JP',sans-serif", background: "#f5f4f0", minHeight: "100vh", maxWidth: 680, width: "100%", margin: "0 auto", paddingBottom: 48, overflowX: "hidden", boxSizing: "border-box" },
-  header: { background: "#1a1a1a", color: "#fff", padding: "14px 20px", position: "sticky", top: 0, zIndex: 10 },
-  headerTitle: { fontSize: 18, fontWeight: 700 },
-  backBtn: { background: "none", border: "none", color: "#777", fontSize: 14, padding: "0 0 4px", cursor: "pointer", display: "block" },
+  root: { fontFamily: UI.font, background: UI.ground, minHeight: "100vh", maxWidth: 680, width: "100%", margin: "0 auto", paddingBottom: 48, overflowX: "hidden", boxSizing: "border-box", color: UI.ink },
+  header: { background: "rgba(245,245,247,.82)", backdropFilter: "saturate(180%) blur(20px)", WebkitBackdropFilter: "saturate(180%) blur(20px)", color: UI.ink, padding: "12px 20px 10px", position: "sticky", top: 0, zIndex: 10, borderBottom: UI.hair },
+  headerTitle: { fontSize: 20, fontWeight: 700, letterSpacing: "-0.02em" },
+  backBtn: { background: "none", border: "none", color: UI.acc, fontSize: 15, fontWeight: 600, padding: "0 0 4px", cursor: "pointer", display: "block" },
   body: { padding: "16px", maxWidth: 680, width: "100%", margin: "0 auto", boxSizing: "border-box" },
-  bigBtn: { display: "flex", alignItems: "center", gap: 16, width: "100%", background: "#1a1a1a", color: "#fff", border: "1px solid transparent", borderRadius: 12, padding: "16px 20px", cursor: "pointer", marginBottom: 0 },
-  roleBtn: { display: "flex", alignItems: "center", gap: 8, flex: 1, background: "#fff", border: "1px solid #e0deda", borderRadius: 10, padding: "12px 14px", cursor: "pointer", justifyContent: "center" },
-  quickBtn: { flex: 1, background: "#fff", border: "1px solid #e0deda", borderRadius: 10, padding: "10px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer", color: "#333" },
-  editBtn: { background: "#f5f4f0", border: "1px solid #e0deda", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer", color: "#555", fontWeight: 600, whiteSpace: "nowrap" },
-  dashedBtn: { display: "block", width: "100%", background: "#fff", border: "2px dashed #d0cec8", borderRadius: 12, padding: "14px", fontSize: 15, fontWeight: 700, color: "#555", cursor: "pointer", marginBottom: 16 },
-  card: { background: "#fff", borderRadius: 12, padding: "16px", marginBottom: 16, boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
-  sectionLabel: { fontSize: 11, color: "#aaa", letterSpacing: "0.1em", marginBottom: 8, marginTop: 16 },
-  empty: { textAlign: "center", color: "#ccc", fontSize: 13, padding: "18px 0" },
-  input: { width: "100%", maxWidth: "100%", minWidth: 0, background: "#f5f4f0", border: "1px solid #e8e6e0", borderRadius: 8, padding: "10px 12px", fontSize: 15, boxSizing: "border-box", outline: "none", color: "#1a1a1a", WebkitAppearance: "none", appearance: "none", display: "block" },
-  primaryBtn: { width: "100%", background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 10, padding: "14px", fontSize: 15, fontWeight: 700, cursor: "pointer", marginTop: 4 },
-  inlineBtn: { background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
-  ghostBtn: { background: "none", border: "1px solid #e0deda", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer", color: "#666" },
-  assignBtn: { background: "#fff", border: "1px solid #e0deda", borderRadius: 20, padding: "5px 12px", fontSize: 12, cursor: "pointer", color: "#666" },
-  assignBtnActive: { background: "#1a1a1a", color: "#fff", border: "1px solid #1a1a1a" },
+  bigBtn: { display: "flex", alignItems: "center", gap: 14, width: "100%", background: "#fff", color: UI.ink, border: UI.hair, borderRadius: 16, padding: "15px 18px", cursor: "pointer", marginBottom: 0, boxShadow: UI.sh },
+  roleBtn: { display: "flex", alignItems: "center", gap: 8, flex: 1, background: "#fff", border: UI.hair, borderRadius: 12, padding: "12px 14px", cursor: "pointer", justifyContent: "center", boxShadow: UI.sh },
+  quickBtn: { flex: 1, background: "#fff", border: UI.hair, borderRadius: 12, padding: "10px 8px", fontSize: 12, fontWeight: 600, cursor: "pointer", color: UI.ink, boxShadow: UI.sh },
+  editBtn: { background: UI.fill, border: "none", borderRadius: 8, padding: "7px 12px", fontSize: 12, cursor: "pointer", color: UI.ink, fontWeight: 600, whiteSpace: "nowrap" },
+  dashedBtn: { display: "block", width: "100%", background: "transparent", border: "2px dashed rgba(60,60,67,.22)", borderRadius: 16, padding: "14px", fontSize: 15, fontWeight: 600, color: UI.sub, cursor: "pointer", marginBottom: 16 },
+  card: { background: "#fff", borderRadius: 16, padding: "16px", marginBottom: 16, border: UI.hair, boxShadow: UI.sh },
+  sectionLabel: { fontSize: 11, color: "#8e8e93", fontWeight: 600, letterSpacing: "0.08em", marginBottom: 8, marginTop: 16 },
+  empty: { textAlign: "center", color: UI.faint, fontSize: 13, padding: "18px 0" },
+  input: { width: "100%", maxWidth: "100%", minWidth: 0, background: UI.fill, border: "1px solid transparent", borderRadius: 10, padding: "10px 12px", fontSize: 15, boxSizing: "border-box", outline: "none", color: UI.ink, WebkitAppearance: "none", appearance: "none", display: "block" },
+  primaryBtn: { width: "100%", background: UI.acc, color: "#fff", border: "none", borderRadius: 12, padding: "14px", fontSize: 15, fontWeight: 600, cursor: "pointer", marginTop: 4 },
+  inlineBtn: { background: UI.acc, color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontSize: 14, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" },
+  ghostBtn: { background: "none", border: UI.hair, borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer", color: UI.sub },
+  assignBtn: { background: UI.fill, border: "1px solid transparent", borderRadius: 20, padding: "5px 12px", fontSize: 12, cursor: "pointer", color: UI.sub },
+  assignBtnActive: { background: UI.acc, color: "#fff", border: "1px solid transparent" },
   filterRow: { display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" },
-  filterBtn: { background: "#fff", border: "1px solid #e0deda", borderRadius: 20, padding: "6px 14px", fontSize: 12, cursor: "pointer", color: "#888" },
-  filterBtnActive: { background: "#1a1a1a", color: "#fff", border: "1px solid #1a1a1a" },
-  previewBox: { borderRadius: 8, padding: "12px 14px", marginBottom: 12 },
-  previewRow: { display: "flex", justifyContent: "space-between", fontSize: 13, color: "#555", marginBottom: 4 },
-  leaderCard: { background: "#fff", borderRadius: 12, padding: "14px 16px", marginBottom: 10, boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
-  partNoText: { fontSize: 16, fontWeight: 700 },
-  partMeta: { fontSize: 11, color: "#bbb", marginTop: 2 },
-  cellLabel: { fontSize: 10, color: "#aaa", marginBottom: 2 },
-  detailLink: { background: "none", border: "none", color: "#aaa", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" },
-  statsRow: { display: "flex", gap: 10, fontSize: 13, color: "#555", borderRadius: 8, padding: "8px 12px", marginBottom: 10 },
-  closeBtn: { width: "100%", background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 8, padding: "12px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
-  recRow: { background: "#fff", borderRadius: 10, padding: "11px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, boxShadow: "0 1px 3px rgba(0,0,0,.04)" },
-  memberRow: { background: "#fff", borderRadius: 10, padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 8, boxShadow: "0 1px 3px rgba(0,0,0,.04)" },
-  deleteBtn: { background: "none", border: "none", color: "#ccc", fontSize: 16, cursor: "pointer", padding: "4px 8px" },
+  filterBtn: { background: UI.fill, border: "1px solid transparent", borderRadius: 20, padding: "6px 14px", fontSize: 12, cursor: "pointer", color: UI.sub },
+  filterBtnActive: { background: UI.accTint, color: UI.acc, border: "1px solid transparent", fontWeight: 600 },
+  previewBox: { borderRadius: 10, padding: "12px 14px", marginBottom: 12 },
+  previewRow: { display: "flex", justifyContent: "space-between", fontSize: 13, color: UI.sub, marginBottom: 4 },
+  leaderCard: { background: "#fff", borderRadius: 14, padding: "14px 16px", marginBottom: 10, border: UI.hair, boxShadow: UI.sh },
+  partNoText: { fontSize: 16, fontWeight: 700, letterSpacing: "-0.01em" },
+  partMeta: { fontSize: 11, color: "#8e8e93", marginTop: 2 },
+  cellLabel: { fontSize: 10, color: "#8e8e93", marginBottom: 2 },
+  detailLink: { background: "none", border: "none", color: UI.acc, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" },
+  statsRow: { display: "flex", gap: 10, fontSize: 13, color: UI.sub, borderRadius: 10, padding: "8px 12px", marginBottom: 10 },
+  closeBtn: { width: "100%", background: UI.acc, color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 13, fontWeight: 600, cursor: "pointer" },
+  recRow: { background: "#fff", borderRadius: 12, padding: "11px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, border: UI.hair, boxShadow: UI.sh },
+  memberRow: { background: "#fff", borderRadius: 12, padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 8, border: UI.hair, boxShadow: UI.sh },
+  deleteBtn: { background: "none", border: "none", color: UI.faint, fontSize: 16, cursor: "pointer", padding: "4px 8px" },
   grid2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 },
-  sBox: { borderRadius: 12, padding: "14px", boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
-  summaryCard: { display: "block", width: "100%", background: "#fff", border: "none", borderRadius: 12, padding: "14px 16px", marginBottom: 10, cursor: "pointer", boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
-  monthlyCard: { background: "#fff", borderRadius: 12, padding: "16px", marginBottom: 14, boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
-  rateBox: { borderRadius: 14, padding: "18px 20px", marginBottom: 16 },
-  barBg: { background: "#f0eeea", borderRadius: 4, height: 6, overflow: "hidden" },
+  sBox: { borderRadius: 14, padding: "14px", border: UI.hair, boxShadow: UI.sh },
+  summaryCard: { display: "block", width: "100%", background: "#fff", border: UI.hair, borderRadius: 14, padding: "14px 16px", marginBottom: 10, cursor: "pointer", boxShadow: UI.sh },
+  monthlyCard: { background: "#fff", borderRadius: 16, padding: "16px", marginBottom: 14, border: UI.hair, boxShadow: UI.sh },
+  rateBox: { borderRadius: 16, padding: "18px 20px", marginBottom: 16 },
+  barBg: { background: "#e9e9eb", borderRadius: 4, height: 6, overflow: "hidden" },
   barFill: { height: "100%", borderRadius: 4, transition: "width 0.4s" },
-  saveBadge: { background: "#1a1a1a", color: "#fff", fontSize: 12, padding: "8px 14px", borderRadius: 20, boxShadow: "0 2px 8px rgba(0,0,0,.2)", marginBottom: 8 },
-  spinner: { width: 32, height: 32, border: "3px solid #e0deda", borderTop: "3px solid #1a1a1a", borderRadius: "50%", animation: "spin 0.8s linear infinite" },
-  alertBanner: { fontSize: 12, fontWeight: 700, padding: "8px 12px", borderRadius: 8, border: "1px solid", marginBottom: 8, marginTop: 8 },
-  dashCard: { display: "block", width: "100%", background: "#fff", border: "none", borderRadius: 12, padding: "14px 16px", marginBottom: 10, cursor: "pointer", textAlign: "left", boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
+  saveBadge: { background: "rgba(29,29,31,.85)", color: "#fff", fontSize: 12, padding: "8px 14px", borderRadius: 20, boxShadow: "0 2px 8px rgba(0,0,0,.2)", marginBottom: 8, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" },
+  spinner: { width: 32, height: 32, border: "3px solid #e9e9eb", borderTop: "3px solid " + "#0a84ff", borderRadius: "50%", animation: "spin 0.8s linear infinite" },
+  alertBanner: { fontSize: 12, fontWeight: 700, padding: "8px 12px", borderRadius: 10, border: "1px solid", marginBottom: 8, marginTop: 8 },
+  dashCard: { display: "block", width: "100%", background: "#fff", border: UI.hair, borderRadius: 14, padding: "14px 16px", marginBottom: 10, cursor: "pointer", textAlign: "left", boxShadow: UI.sh },
 };
 
 const styleEl = document.createElement("style");
@@ -3470,7 +3499,7 @@ const KOTEI_PHRASE_CATS = {
   "ミシン": ["脇はぎ","見返し脇はぎ","後中心はぎ","見返しとはぎ","身頃とスカートはぎ","CB見返しはぎ","2枚はぎ","3枚はぎ","外袖と内袖はぎ","つなぎ合わせ","ロック","イッテコイロック","見返しロック","下側ロック始末","中ぬい","本ぬい","周りぬい","袋ぬい","外表でぬい","仮どめ","タックとめ","ゴムとめ","釦とめ","三角どめ","ぬいどめ","三巻き","裾三巻き","スリット三巻り","コバST","裏コバST","ステッチ","シャーリング位置ぬい"],
   "その他": ["糸始末","たたきつけ","ギャザー入れ","ホールあけ","ホール印","ネーム付け","ブランドネームたたきつけ","センタクネーム仮どめ","矢羽に切り込み","ケバカット","パイピング","ケンボロ口折り","ケンボロ付け","伸止め貼り","芯貼り","口布折り"]
 };
-const K_INK = "#1a1a1a", K_TIME = "#1558d6", K_NOTE = "#c0271d", K_PART = "#0f3d4a", K_PARTBG = "#e4ecef", K_LINE = "#d9d5c8";
+const K_INK = "#1a1a1a", K_TIME = "#1558d6", K_NOTE = "#c0271d", K_PART = "#0f3d4a", K_PARTBG = "#e4ecef", K_LINE = "rgba(60,60,67,.14)";
 
 function parseKoteiTime(s) {
   if (!s) return 0; s = ("" + s).trim();
@@ -3725,7 +3754,7 @@ function KoteiEditor(props) {
   // 各ブロック行の下端に置く控えめな挿入ボタン（件2・件3）。押した行の直後に入る。
   // 図・写真の行にも置く：末尾が図のとき、後ろに工程を足す導線が消えないように。
   function insertRow(id) {
-    const insBtn = { border: "1px dashed " + K_LINE, background: "transparent", color: "#999", borderRadius: 7, padding: "5px 12px", fontSize: 11 };
+    const insBtn = { border: "none", background: UI.accTint, color: UI.acc, borderRadius: 99, padding: "6px 13px", fontSize: 11.5, fontWeight: 600 };
     return React.createElement("div", { className: "kstepPad", style: { display: "flex", gap: 6, marginTop: 8 } },
       React.createElement("button", { style: insBtn, onClick: function () { addStep(id); } }, "＋ 工程"),
       React.createElement("button", { style: insBtn, onClick: function () { addSketch(id); } }, "＋ 図・写真")
@@ -4110,18 +4139,18 @@ function KoteiEditor(props) {
     return React.createElement("div", { key: b.id, style: { position: "relative", borderBottom: "1px solid " + K_LINE, padding: "10px 0 12px" } },
       React.createElement("div", { className: "kstepGrid" },
         React.createElement("div", { className: "kstepPart" },
-          React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, React.createElement("span", { style: { color: K_PART, fontWeight: 700, fontSize: 13 } }, koteiParenNum(koteiStepNo[b.id])), " パーツ"),
-          React.createElement("select", { style: { width: "100%", height: 42, border: "1px solid " + K_LINE, borderRadius: 8, background: K_PARTBG, color: K_PART, fontWeight: 700, fontSize: 14, padding: "0 6px" }, value: b.part, onChange: function (e) { const v = e.target.value; if (v === "__new__") { const nv = window.prompt("新しいパーツ名を入力"); if (nv && nv.trim()) patchBlock(b.id, { part: nv.trim() }); } else { patchBlock(b.id, { part: v }); } } },
+          React.createElement("div", { style: { fontSize: 10, color: "#8e8e93", marginBottom: 3, height: 19, display: "flex", alignItems: "center", gap: 5 } }, React.createElement("span", { style: { display: "inline-flex", minWidth: 19, height: 19, padding: "0 5px", borderRadius: 99, background: UI.fill, color: UI.sub, fontWeight: 700, fontSize: 10.5, alignItems: "center", justifyContent: "center" } }, koteiStepNo[b.id]), "パーツ"),
+          React.createElement("select", { style: { width: "100%", height: 42, border: "1px solid transparent", borderRadius: 10, background: K_PARTBG, color: K_PART, fontWeight: 700, fontSize: 14, padding: "0 6px" }, value: b.part, onChange: function (e) { const v = e.target.value; if (v === "__new__") { const nv = window.prompt("新しいパーツ名を入力"); if (nv && nv.trim()) patchBlock(b.id, { part: nv.trim() }); } else { patchBlock(b.id, { part: v }); } } },
             React.createElement("option", { value: "" }, "—"),
             (function () { let list = (props.partList || KOTEI_PARTS).concat(props.extraParts || []); if (b.part && list.indexOf(b.part) < 0) list = list.concat([b.part]); return list; })().map(function (p) { return React.createElement("option", { key: p, value: p }, p); }),
             React.createElement("option", { value: "__new__" }, "＋ 新しいパーツ…")
           )
         ),
         React.createElement("div", { className: "kstepAct" },
-          React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "作業内容"),
+          React.createElement("div", { style: { fontSize: 10, color: "#8e8e93", marginBottom: 3, height: 19, display: "flex", alignItems: "center" } }, "作業内容"),
           React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "flex-start" } },
-            React.createElement("textarea", { style: { flex: 1, minHeight: 42, border: "1px solid " + K_LINE, borderRadius: 8, padding: 9, fontSize: 15, color: K_INK, resize: "vertical", lineHeight: 1.35, fontFamily: "inherit", boxSizing: "border-box" }, placeholder: b.hint || "手打ち / 下の定型句 / 🎤", value: b.act, onFocus: function () { lastFocusRef.current = b.id; setActiveSugg(b.id); }, onBlur: function () { learn(b.act); setTimeout(function () { setActiveSugg(function (s) { return s === b.id ? null : s; }); }, 200); }, onChange: function (e) { patchBlock(b.id, { act: e.target.value }); } }),
-            React.createElement("button", { style: { width: 42, height: 42, border: "1px solid " + K_LINE, borderRadius: 8, background: recId === b.id ? K_NOTE : "#fff", color: recId === b.id ? "#fff" : "#333", fontSize: 18, flex: "none" }, onClick: function () { startVoice(b.id); } }, "🎤")
+            React.createElement("textarea", { style: { flex: 1, minHeight: 42, border: "1px solid transparent", background: UI.fill, borderRadius: 10, padding: 9, fontSize: 15, color: K_INK, resize: "vertical", lineHeight: 1.35, fontFamily: "inherit", boxSizing: "border-box" }, placeholder: b.hint || "手打ち / 下の定型句 / 🎤", value: b.act, onFocus: function () { lastFocusRef.current = b.id; setActiveSugg(b.id); }, onBlur: function () { learn(b.act); setTimeout(function () { setActiveSugg(function (s) { return s === b.id ? null : s; }); }, 200); }, onChange: function (e) { patchBlock(b.id, { act: e.target.value }); } }),
+            React.createElement("button", { style: { width: 42, height: 42, border: "1px solid transparent", borderRadius: 10, background: recId === b.id ? K_NOTE : UI.fill, color: recId === b.id ? "#fff" : UI.ink, fontSize: 18, flex: "none" }, onClick: function () { startVoice(b.id); } }, "🎤")
           ),
           activeSugg === b.id && React.createElement("div", { style: { marginTop: 6 } },
             React.createElement("div", { style: { display: "flex", gap: 5, marginBottom: 6, flexWrap: "wrap" } },
@@ -4137,15 +4166,15 @@ function KoteiEditor(props) {
           )
         ),
         React.createElement("div", { className: "kstepTime" },
-          React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "時間"),
-          React.createElement("input", { style: { width: "100%", height: 42, border: "1px solid " + K_LINE, borderRadius: 8, textAlign: "center", fontSize: 16, color: K_TIME, fontWeight: 700, boxSizing: "border-box" }, inputMode: "numeric", placeholder: "2:10", value: b.time, onFocus: function () { lastFocusRef.current = b.id; }, onChange: function (e) { patchBlock(b.id, { time: e.target.value }); }, onBlur: function () { const s = parseKoteiTime(b.time); if (s) patchBlock(b.id, { time: fmtKoteiTime(s) }); } })
+          React.createElement("div", { style: { fontSize: 10, color: "#8e8e93", marginBottom: 3, height: 19, display: "flex", alignItems: "center" } }, "時間"),
+          React.createElement("input", { style: { width: "100%", height: 42, border: "1px solid transparent", background: UI.fill, borderRadius: 10, textAlign: "center", fontSize: 16, color: K_TIME, fontWeight: 700, boxSizing: "border-box", fontVariantNumeric: "tabular-nums" }, inputMode: "numeric", placeholder: "2:10", value: b.time, onFocus: function () { lastFocusRef.current = b.id; }, onChange: function (e) { patchBlock(b.id, { time: e.target.value }); }, onBlur: function () { const s = parseKoteiTime(b.time); if (s) patchBlock(b.id, { time: fmtKoteiTime(s) }); } })
         )
       ),
       React.createElement("div", { className: "kstepPad", style: { marginTop: 8 } },
-        React.createElement("input", { style: { width: "100%", height: 38, border: "1px dashed " + K_NOTE, borderRadius: 8, padding: "0 9px", fontSize: 13, color: K_NOTE, background: "#fffafa", boxSizing: "border-box" }, placeholder: "注意点（赤）", value: b.note, onFocus: function () { lastFocusRef.current = b.id; }, onChange: function (e) { patchBlock(b.id, { note: e.target.value }); } })
+        React.createElement("input", { style: { width: "100%", height: 38, border: "1px solid transparent", borderRadius: 10, padding: "0 9px", fontSize: 13, color: K_NOTE, background: "rgba(255,59,48,.08)", boxSizing: "border-box" }, placeholder: "注意点（赤）", value: b.note, onFocus: function () { lastFocusRef.current = b.id; }, onChange: function (e) { patchBlock(b.id, { note: e.target.value }); } })
       ),
       b.part && React.createElement("div", { className: "kstepPad", style: { marginTop: 6 } },
-        React.createElement("input", { style: { width: "100%", height: 36, border: "1px solid " + K_LINE, borderRadius: 8, padding: "0 9px", fontSize: 12, color: "#555", boxSizing: "border-box" }, placeholder: "📝 パーツのメモ（印刷でパーツ名の横に出ます）", value: b.gmemo || "", onChange: function (e) { patchBlock(b.id, { gmemo: e.target.value }); } })
+        React.createElement("input", { style: { width: "100%", height: 36, border: "1px solid transparent", background: UI.fill, borderRadius: 10, padding: "0 9px", fontSize: 12, color: UI.sub, boxSizing: "border-box" }, placeholder: "📝 パーツのメモ（印刷でパーツ名の横に出ます）", value: b.gmemo || "", onChange: function (e) { patchBlock(b.id, { gmemo: e.target.value }); } })
       ),
       insertRow(b.id),
       moveButtons(b.id)
@@ -4178,7 +4207,7 @@ function KoteiEditor(props) {
       React.createElement("button", { style: Object.assign({}, mvBtn, { color: K_NOTE }), onClick: function () { del(id); } }, "✕")
     );
   }
-  const mvBtn = { width: 30, height: 30, border: "1px solid " + K_LINE, background: "#fff", borderRadius: 7, fontSize: 14, color: "#555" };
+  const mvBtn = { width: 30, height: 30, border: "none", background: UI.fill, borderRadius: 8, fontSize: 14, color: UI.sub };
 
   function renderSummary() {
     const tot = summary.tot, map = summary.map;
@@ -4224,7 +4253,7 @@ function KoteiEditor(props) {
             React.createElement("button", { style: mTool, onClick: function () { photoZoom(0.87); } }, "－縮小"),
             React.createElement("button", { style: mTool, onClick: photoRotate }, "⟳ 回転"),
             React.createElement("button", { style: { marginLeft: "auto", border: "1px solid " + K_LINE, background: "#fff", color: "#555", borderRadius: 8, padding: "9px 14px" }, onClick: photoCancel }, "やめる"),
-            React.createElement("button", { style: { border: "1px solid " + K_PART, background: K_PART, color: "#fff", borderRadius: 8, padding: "9px 14px", fontWeight: 700 }, onClick: photoDone }, "✓ 写真を決定")
+            React.createElement("button", { style: { border: "none", background: UI.acc, color: "#fff", borderRadius: 10, padding: "9px 14px", fontWeight: 600 }, onClick: photoDone }, "✓ 写真を決定")
           )
           : React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginBottom: 8 } },
             penBtn(K_INK, "黒"), penBtn(K_TIME, "青"), penBtn(K_NOTE, "赤"),
@@ -4233,7 +4262,7 @@ function KoteiEditor(props) {
             React.createElement("button", { style: mTool, onClick: clearCanvas }, "全消去"),
             React.createElement("button", { style: Object.assign({}, mTool, draw.current.penOnly ? mToolOn : {}), onClick: togglePalm }, draw.current.penOnly ? "✏️ペンのみ" : "✋指もOK"),
             React.createElement("button", { style: { marginLeft: "auto", border: "1px solid " + K_LINE, background: "#fff", color: "#555", borderRadius: 8, padding: "9px 14px" }, onClick: function () { if (!uploading) setModalId(null); } }, "閉じる"),
-            React.createElement("button", { style: { border: "1px solid " + K_PART, background: uploading ? "#888" : K_PART, color: "#fff", borderRadius: 8, padding: "9px 14px", fontWeight: 700 }, onClick: function () { if (!uploading) doneModal(); } }, uploading ? "保存中…" : "完了")
+            React.createElement("button", { style: { border: "none", background: uploading ? "#8e8e93" : UI.acc, color: "#fff", borderRadius: 10, padding: "9px 14px", fontWeight: 600 }, onClick: function () { if (!uploading) doneModal(); } }, uploading ? "保存中…" : "完了")
           ),
         React.createElement("div", { style: { border: "1px solid " + K_LINE, borderRadius: 8, overflow: "hidden", background: "#fff" } },
           React.createElement("canvas", { ref: canvasRef, style: { display: "block", width: "100%", height: "62vh", touchAction: "none" }, onPointerDown: pDown, onPointerMove: pMove, onPointerUp: pUp, onPointerLeave: pUp })
@@ -4291,7 +4320,7 @@ function KoteiEditor(props) {
           )
         )
       ),
-      React.createElement("div", { style: { background: "#fbfaf6", borderRadius: 10, padding: "4px 12px", boxShadow: "0 1px 4px rgba(0,0,0,.06)" } },
+      React.createElement("div", { style: { background: "#fff", borderRadius: 16, padding: "4px 14px", border: UI.hair, boxShadow: UI.sh } },
         blocks.map(function (b) { return b.type === "step" ? renderStep(b) : renderSketch(b); })
       ),
       // 追加ボタンは各行に付けたため末尾の行は撤去（重複排除）。
@@ -4301,13 +4330,13 @@ function KoteiEditor(props) {
         React.createElement("button", { style: addBtn, onClick: function () { addSketch(); } }, "＋ 図・写真")
       ),
       renderSummary(),
-      React.createElement("button", { style: { width: "100%", background: K_PART, color: "#fff", border: "none", borderRadius: 8, padding: 14, fontSize: 15, fontWeight: 700, marginTop: 16 }, onClick: handleSave }, "保存する"),
-      React.createElement("button", { style: { width: "100%", background: "#14555a", color: "#fff", border: "none", borderRadius: 8, padding: 13, fontSize: 14, fontWeight: 700, marginTop: 8 }, onClick: function () { if (!uploading) doPrint(); } }, uploading ? "図を準備中…" : "🖨 A4印刷 / PDF保存"),
-      (sheet && sheet.id) && React.createElement("button", { style: { width: "100%", background: "#fff0f0", color: "#c00", border: "none", borderRadius: 8, padding: 12, fontSize: 13, fontWeight: 700, marginTop: 8 }, onClick: function () { if (window.confirm("この工程表を削除しますか？")) { props.onDelete(sheet.id); props.back(); } } }, "削除する")
+      React.createElement("button", { style: { width: "100%", background: UI.acc, color: "#fff", border: "none", borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 600, marginTop: 16 }, onClick: handleSave }, "保存する"),
+      React.createElement("button", { style: { width: "100%", background: UI.fill, color: UI.ink, border: "none", borderRadius: 12, padding: 13, fontSize: 14, fontWeight: 600, marginTop: 8 }, onClick: function () { if (!uploading) doPrint(); } }, uploading ? "図を準備中…" : "A4印刷 / PDF保存"),
+      (sheet && sheet.id) && React.createElement("button", { style: { width: "100%", background: "none", color: "#ff3b30", border: "none", borderRadius: 12, padding: 12, fontSize: 13, fontWeight: 600, marginTop: 8 }, onClick: function () { if (window.confirm("この工程表を削除しますか？")) { props.onDelete(sheet.id); props.back(); } } }, "削除する")
     ),
     modalId != null && renderModal(),
     designOpen && renderDesignModal(),
     React.createElement(props.SI)
   );
 }
-const addBtn = { flex: 1, border: "2px dashed " + K_PART, background: "#fff", color: K_PART, borderRadius: 10, padding: 14, fontSize: 15, fontWeight: 700 };
+const addBtn = { flex: 1, border: "2px dashed rgba(60,60,67,.22)", background: "transparent", color: "#0a84ff", borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 600 };
