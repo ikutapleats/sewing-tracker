@@ -3615,6 +3615,10 @@ function KoteiEditor(props) {
   const [imgData, setImgData] = useState({});
   const [uploading, setUploading] = useState(false);
   const [recId, setRecId] = useState(null); // 音声入力中のblock
+  // 図・写真モーダルの「写真調整モード」：写真を選んだら即焼き付けず、
+  // ドラッグ移動・拡大縮小・回転してから「決定」で確定する（デザイン画と同じ操作感）
+  const [photoAdj, setPhotoAdj] = useState(false);
+  const pAdj = useRef({ img: null, snapImg: null, scale: 1, x: 0, y: 0, rot: 0, drag: false, last: null });
   const canvasRef = useRef(null);
   const draw = useRef({ drawing: false, last: null, color: K_INK, erase: false, penOnly: true, ctx: null });
 
@@ -3939,6 +3943,7 @@ function KoteiEditor(props) {
     cv.width = w * dpr; cv.height = h * dpr;
     const ctx = cv.getContext("2d"); ctx.scale(dpr, dpr); ctx.clearRect(0, 0, w, h);
     draw.current.ctx = ctx; draw.current.drawing = false;
+    pAdj.current.img = null; pAdj.current.snapImg = null; setPhotoAdj(false); // 開き直しで調整モード解除
     const src0 = blk ? (blk.imgId ? imgData[blk.imgId] : blk.img) : "";
     if (src0) { const im = new Image(); im.onload = function () { ctx.drawImage(im, 0, 0, w, h); }; im.src = src0; }
   }, [modalId, imgData]);
@@ -3965,8 +3970,20 @@ function KoteiEditor(props) {
   }, [designOpen]);
 
   function allowDraw(e) { return !draw.current.penOnly || e.pointerType === "pen" || e.pointerType === "mouse"; }
-  function pDown(e) { if (!allowDraw(e)) return; const d = draw.current; d.drawing = true; const r = e.currentTarget.getBoundingClientRect(); d.last = { x: e.clientX - r.left, y: e.clientY - r.top }; }
+  function pDown(e) {
+    // 写真調整モード中はペン・指どちらでも写真のドラッグ移動
+    const v = pAdj.current;
+    if (v.img) { v.drag = true; v.last = { x: e.clientX, y: e.clientY }; return; }
+    if (!allowDraw(e)) return; const d = draw.current; d.drawing = true; const r = e.currentTarget.getBoundingClientRect(); d.last = { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
   function pMove(e) {
+    const v = pAdj.current;
+    if (v.img) {
+      if (!v.drag) return;
+      v.x += e.clientX - v.last.x; v.y += e.clientY - v.last.y;
+      v.last = { x: e.clientX, y: e.clientY };
+      redrawPhotoAdj(); return;
+    }
     const d = draw.current; if (!d.drawing || !allowDraw(e) || !d.ctx) return;
     const r = e.currentTarget.getBoundingClientRect(); const x = e.clientX - r.left, y = e.clientY - r.top; const ctx = d.ctx;
     ctx.lineCap = "round"; ctx.lineJoin = "round";
@@ -3974,7 +3991,7 @@ function KoteiEditor(props) {
     else { ctx.globalCompositeOperation = "source-over"; ctx.strokeStyle = d.color; ctx.lineWidth = 1.6 + ((e.pressure || 0.5) * 4); }
     ctx.beginPath(); ctx.moveTo(d.last.x, d.last.y); ctx.lineTo(x, y); ctx.stroke(); d.last = { x: x, y: y };
   }
-  function pUp() { draw.current.drawing = false; }
+  function pUp() { draw.current.drawing = false; pAdj.current.drag = false; }
   function pickTool(t) { setTool(t); const d = draw.current; if (t === "erase") { d.erase = true; } else { d.erase = false; d.color = t === "time" ? K_TIME : t === "note" ? K_NOTE : K_INK; } }
   function clearCanvas() { const d = draw.current, cv = canvasRef.current; if (d.ctx && cv) d.ctx.clearRect(0, 0, cv.clientWidth, cv.clientHeight); }
   function togglePalm() { draw.current.penOnly = !draw.current.penOnly; setTool(function (t) { return t; }); setActiveSugg(function (s) { return s; }); forceRerender(); }
@@ -3998,16 +4015,72 @@ function KoteiEditor(props) {
   }
   function onPhoto(e) {
     const f = e.target.files[0]; if (!f) return; const rd = new FileReader();
-    rd.onload = function () { const im = new Image(); im.onload = function () { const cv = canvasRef.current, ctx = draw.current.ctx; if (!cv || !ctx) return; const w = cv.clientWidth, h = cv.clientHeight, r = Math.min(w / im.width, h / im.height); const dw = im.width * r, dh = im.height * r; ctx.drawImage(im, (w - dw) / 2, (h - dh) / 2, dw, dh); }; im.src = rd.result; };
+    rd.onload = function () {
+      const im = new Image();
+      im.onload = function () {
+        const cv = canvasRef.current; if (!cv) return;
+        const v = pAdj.current;
+        v.img = im; v.rot = 0; v.x = 0; v.y = 0; v.drag = false;
+        v.scale = Math.min(cv.clientWidth / im.width, cv.clientHeight / im.height);
+        // 既に描いてある線は写真の上に重ねたまま保持する（決定まで消えない）
+        v.snapImg = null;
+        const snap = new Image();
+        snap.onload = function () { v.snapImg = snap; redrawPhotoAdj(); };
+        snap.src = cv.toDataURL("image/png");
+        setPhotoAdj(true);
+        redrawPhotoAdj();
+      };
+      im.src = rd.result;
+    };
     rd.readAsDataURL(f);
+    e.target.value = ""; // 同じ写真をもう一度選び直せるように
+  }
+  function redrawPhotoAdj() {
+    const cv = canvasRef.current, ctx = draw.current.ctx, v = pAdj.current;
+    if (!cv || !ctx || !v.img) return;
+    const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.globalCompositeOperation = "source-over";
+    ctx.clearRect(0, 0, w, h);
+    ctx.save();
+    ctx.translate(w / 2 + v.x, h / 2 + v.y);
+    ctx.rotate(v.rot * Math.PI / 180);
+    ctx.drawImage(v.img, -v.img.width * v.scale / 2, -v.img.height * v.scale / 2, v.img.width * v.scale, v.img.height * v.scale);
+    ctx.restore();
+    if (v.snapImg) ctx.drawImage(v.snapImg, 0, 0, w, h);
+  }
+  function photoZoom(fac) { pAdj.current.scale *= fac; redrawPhotoAdj(); }
+  function photoRotate() { const v = pAdj.current; v.rot = (v.rot + 90) % 360; redrawPhotoAdj(); }
+  // 決定：キャンバスは既に「写真＋その上に線」の合成状態なので、モードを抜けるだけでよい
+  function photoDone() { const v = pAdj.current; v.img = null; v.snapImg = null; setPhotoAdj(false); }
+  function photoCancel() {
+    const cv = canvasRef.current, ctx = draw.current.ctx, v = pAdj.current;
+    if (cv && ctx) {
+      const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.clearRect(0, 0, w, h);
+      if (v.snapImg) ctx.drawImage(v.snapImg, 0, 0, w, h);
+    }
+    v.img = null; v.snapImg = null; setPhotoAdj(false);
   }
   function startVoice(id) {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { window.alert("この端末・ブラウザは音声入力に対応していません（iPadのSafariは非対応です）"); return; }
+    if (!SR) { window.alert("この端末・ブラウザは音声入力に対応していません。\niPhone/iPadは最新のiOSのSafari、PCはChromeでお試しください。"); return; }
     const rec = new SR(); rec.lang = "ja-JP"; rec.interimResults = false; setRecId(id);
     rec.onresult = function (ev) { const t = ev.results[0][0].transcript; const cur = (blocks.find(function (b) { return b.id === id; }) || {}).act || ""; patchBlock(id, { act: cur ? cur + " " + t : t }); learn(t); };
-    rec.onerror = function () {}; rec.onend = function () { setRecId(null); };
-    rec.start();
+    // エラーを握りつぶすと「押しても無反応」に見える。原因ごとに日本語で案内する。
+    rec.onerror = function (ev) {
+      setRecId(null);
+      const code = (ev && ev.error) || "";
+      if (code === "not-allowed" || code === "service-not-allowed") window.alert("マイクの使用が許可されていません。\n・ブラウザの設定でこのサイトのマイクを許可してください\n・iPhone/iPadは「設定 → 一般 → キーボード → 音声入力」もオンにしてください");
+      else if (code === "no-speech") window.alert("音声が聞き取れませんでした。\n🎤を押してボタンが赤くなってから、はっきり話してください。");
+      else if (code === "audio-capture") window.alert("マイクが見つかりません。端末のマイクを確認してください。");
+      else if (code === "network") window.alert("音声認識の通信に失敗しました。電波の良い場所でもう一度お試しください。");
+      else if (code !== "aborted") window.alert("音声入力でエラーが発生しました（" + (code || "不明") + "）。もう一度お試しください。");
+    };
+    rec.onend = function () { setRecId(null); };
+    try { rec.start(); } catch (e) { setRecId(null); window.alert("音声入力を開始できませんでした。もう一度お試しください。"); }
   }
 
   const sz = { s: { w: "140px", h: "96px" }, m: { w: "230px", h: "150px" }, l: { w: "100%", h: "240px" } };
@@ -4128,15 +4201,25 @@ function KoteiEditor(props) {
     const penBtn = function (c, label) { return React.createElement("button", { style: { width: 30, height: 30, borderRadius: "50%", border: "2px solid #fff", boxShadow: "0 0 0 1px " + K_LINE + (((tool === "ink" && c === K_INK) || (tool === "time" && c === K_TIME) || (tool === "note" && c === K_NOTE)) ? ",0 0 0 3px " + K_PART : ""), background: c, padding: 0 }, onClick: function () { pickTool(c === K_TIME ? "time" : c === K_NOTE ? "note" : "ink"); }, title: label }); };
     return React.createElement("div", { style: { position: "fixed", inset: 0, zIndex: 100, background: "rgba(20,20,20,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12 } },
       React.createElement("div", { style: { background: "#fff", borderRadius: 12, width: "100%", maxWidth: 760, padding: 12 } },
-        React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginBottom: 8 } },
-          penBtn(K_INK, "黒"), penBtn(K_TIME, "青"), penBtn(K_NOTE, "赤"),
-          React.createElement("button", { style: Object.assign({}, mTool, tool === "erase" ? mToolOn : {}), onClick: function () { pickTool("erase"); } }, "消しゴム"),
-          React.createElement("label", { style: mTool }, "写真", React.createElement("input", { type: "file", accept: "image/*", capture: "environment", style: { display: "none" }, onChange: onPhoto })),
-          React.createElement("button", { style: mTool, onClick: clearCanvas }, "全消去"),
-          React.createElement("button", { style: Object.assign({}, mTool, draw.current.penOnly ? mToolOn : {}), onClick: togglePalm }, draw.current.penOnly ? "✏️ペンのみ" : "✋指もOK"),
-          React.createElement("button", { style: { marginLeft: "auto", border: "1px solid " + K_LINE, background: "#fff", color: "#555", borderRadius: 8, padding: "9px 14px" }, onClick: function () { if (!uploading) setModalId(null); } }, "閉じる"),
-          React.createElement("button", { style: { border: "1px solid " + K_PART, background: uploading ? "#888" : K_PART, color: "#fff", borderRadius: 8, padding: "9px 14px", fontWeight: 700 }, onClick: function () { if (!uploading) doneModal(); } }, uploading ? "保存中…" : "完了")
-        ),
+        photoAdj
+          // 写真調整モード：位置決め専用のツールバーに切替（決定するまで描画・保存はできない）
+          ? React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginBottom: 8 } },
+            React.createElement("span", { style: { fontSize: 12, color: "#555", fontWeight: 700 } }, "📷 ドラッグで移動"),
+            React.createElement("button", { style: mTool, onClick: function () { photoZoom(1.15); } }, "＋拡大"),
+            React.createElement("button", { style: mTool, onClick: function () { photoZoom(0.87); } }, "－縮小"),
+            React.createElement("button", { style: mTool, onClick: photoRotate }, "⟳ 回転"),
+            React.createElement("button", { style: { marginLeft: "auto", border: "1px solid " + K_LINE, background: "#fff", color: "#555", borderRadius: 8, padding: "9px 14px" }, onClick: photoCancel }, "やめる"),
+            React.createElement("button", { style: { border: "1px solid " + K_PART, background: K_PART, color: "#fff", borderRadius: 8, padding: "9px 14px", fontWeight: 700 }, onClick: photoDone }, "✓ 写真を決定")
+          )
+          : React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginBottom: 8 } },
+            penBtn(K_INK, "黒"), penBtn(K_TIME, "青"), penBtn(K_NOTE, "赤"),
+            React.createElement("button", { style: Object.assign({}, mTool, tool === "erase" ? mToolOn : {}), onClick: function () { pickTool("erase"); } }, "消しゴム"),
+            React.createElement("label", { style: mTool }, "写真", React.createElement("input", { type: "file", accept: "image/*", capture: "environment", style: { display: "none" }, onChange: onPhoto })),
+            React.createElement("button", { style: mTool, onClick: clearCanvas }, "全消去"),
+            React.createElement("button", { style: Object.assign({}, mTool, draw.current.penOnly ? mToolOn : {}), onClick: togglePalm }, draw.current.penOnly ? "✏️ペンのみ" : "✋指もOK"),
+            React.createElement("button", { style: { marginLeft: "auto", border: "1px solid " + K_LINE, background: "#fff", color: "#555", borderRadius: 8, padding: "9px 14px" }, onClick: function () { if (!uploading) setModalId(null); } }, "閉じる"),
+            React.createElement("button", { style: { border: "1px solid " + K_PART, background: uploading ? "#888" : K_PART, color: "#fff", borderRadius: 8, padding: "9px 14px", fontWeight: 700 }, onClick: function () { if (!uploading) doneModal(); } }, uploading ? "保存中…" : "完了")
+          ),
         React.createElement("div", { style: { border: "1px solid " + K_LINE, borderRadius: 8, overflow: "hidden", background: "#fff" } },
           React.createElement("canvas", { ref: canvasRef, style: { display: "block", width: "100%", height: "62vh", touchAction: "none" }, onPointerDown: pDown, onPointerMove: pMove, onPointerUp: pUp, onPointerLeave: pUp })
         )
