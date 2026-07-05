@@ -3452,6 +3452,30 @@ function parseKoteiTime(s) {
   return parseInt(s, 10) || 0;
 }
 function fmtKoteiTime(sec) { sec = Math.round(sec || 0); return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0"); }
+
+// ── 手書きメモ取り込み（P1）：書き起こしテキスト → 工程行の配列 ──
+// 形式は1行1工程「パーツ | 作業内容 | 時間」。区切りは 全角｜/半角|/タブ を許容。
+// ・パーツ空欄は直前行を継承（先頭行が空欄なら空のまま）
+// ・時間は 1:32 / 1'32 / 92(秒) を許容。1'32 や全角数字は parseKoteiTime が読める表記に
+//   直すだけで、値そのものは変えない（清書・並べ替え・補完はしない。最終見直しはリーダー）
+// ・空行は無視。4列目以降は note に入れる（黙って捨てない）
+// ・区切りの無い行は1列目＝パーツ扱い（見出し行として継承元になる）
+// 戻り値は { part, act, time, note } の配列。id採番(genId)は取り込み確定側で行う。
+function parseKoteiMemo(text) {
+  const rows = [];
+  let prevPart = "";
+  ("" + (text || "")).split(/\r?\n/).forEach(function (line) {
+    if (!line.trim()) return;
+    const f = line.split(/[｜|\t]/).map(function (s) { return s.trim(); });
+    const part = f[0] || prevPart;
+    prevPart = part;
+    let time = f[2] || "";
+    time = time.replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+      .replace(/[：’'′]/g, ":");
+    rows.push({ part: part, act: f[1] || "", time: time, note: f.length > 3 ? f.slice(3).join(" ").trim() : "" });
+  });
+  return rows;
+}
 function lastKoteiToken(t) { const m = ("" + (t || "")).split(/[\n、・\s]/); return m[m.length - 1]; }
 function koteiCircNum(n) { return (n >= 1 && n <= 20) ? String.fromCharCode(0x2460 + n - 1) : ("(" + n + ")"); }
 function koteiParenNum(n) { return "(" + n + ")"; }
