@@ -3164,16 +3164,18 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
 }
 
 function Shell(p) { return React.createElement("div", { style: st.root }, p.children); }
-// 共通ヘッダー：全画面共通のロゴ帯（iqutaロゴ）＋画面タイトル行。全画面がこれを使う（DRY）。
+// 共通ヘッダー（モック .app-header）：ロゴ左寄せ＋右にサブ情報、細い青罫で締める。全画面がこれを使う（DRY）。
+// タイトル中の絵文字はここで一括除去（憲法: カラフルな絵文字アイコン廃止）。
+function stripEmoji(s) { try { return ("" + (s || "")).replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}️]/gu, "").trim(); } catch (e) { return s; } }
 function Header(p) {
   return React.createElement("div", { style: st.header },
-    React.createElement("div", { style: { display: "flex", justifyContent: "center", padding: "9px 0 7px", borderBottom: "1px solid var(--line-soft)" } },
-      React.createElement("img", { src: "iquta-logo.png", alt: "iquta", style: { height: 18, display: "block" } })
+    React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 20px", borderBottom: "1px solid var(--line)", maxWidth: 680, margin: "0 auto", boxSizing: "border-box" } },
+      React.createElement("img", { src: "iquta-logo.png", alt: "iquta", style: { height: 20, display: "block" } }),
+      p.sub && React.createElement("span", { style: { fontSize: 12, color: "var(--soft)", letterSpacing: "0.04em" } }, stripEmoji(p.sub))
     ),
-    React.createElement("div", { style: { padding: "10px 20px 11px", maxWidth: 680, margin: "0 auto", boxSizing: "border-box" } },
+    React.createElement("div", { style: { padding: "14px 20px 14px", maxWidth: 680, margin: "0 auto", boxSizing: "border-box" } },
       p.back && React.createElement("button", { style: st.backBtn, onClick: p.back }, "‹ 戻る"),
-      p.sub && React.createElement("div", { style: { fontSize: 10, letterSpacing: "0.22em", color: "var(--iquta)", fontWeight: 600, marginBottom: 2 } }, p.sub),
-      React.createElement("div", { style: st.headerTitle }, p.title)
+      React.createElement("div", { style: st.headerTitle }, stripEmoji(p.title))
     )
   );
 }
@@ -3260,10 +3262,10 @@ function PartCard(p) {
 // iqutaデザイン: 白地＋iquta青の2色。区切りは細い青罫(--line/--line-soft)。影は使わない。
 // 色は必ず :root のCSS変数を var() で参照する（青の微調整は styleEl の1箇所で済む）。
 const st = {
-  root: { fontFamily: "'Hiragino Sans','Noto Sans JP',sans-serif", background: "#fff", minHeight: "100vh", maxWidth: 680, width: "100%", margin: "0 auto", paddingBottom: 48, overflowX: "hidden", boxSizing: "border-box", color: "var(--ink)" },
+  root: { fontFamily: "'Inter','Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif", background: "#fff", minHeight: "100vh", maxWidth: 680, width: "100%", margin: "0 auto", paddingBottom: 48, overflowX: "hidden", boxSizing: "border-box", color: "var(--ink)" },
   header: { background: "rgba(255,255,255,.94)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", color: "var(--ink)", padding: 0, position: "sticky", top: 0, zIndex: 10, borderBottom: "1px solid var(--line)" },
-  headerTitle: { fontSize: 17, fontWeight: 700, letterSpacing: "0.01em" },
-  backBtn: { background: "none", border: "none", color: "var(--iquta)", fontSize: 14, fontWeight: 600, padding: "0 0 4px", cursor: "pointer", display: "block" },
+  headerTitle: { fontSize: 22, fontWeight: 500, color: "var(--iquta)", letterSpacing: "0.01em" },
+  backBtn: { background: "none", border: "none", color: "var(--iquta)", opacity: 0.7, fontSize: 12, fontWeight: 600, letterSpacing: "0.03em", padding: "0 0 8px", cursor: "pointer", display: "block" },
   body: { padding: "20px 16px", maxWidth: 680, width: "100%", margin: "0 auto", boxSizing: "border-box" },
   bigBtn: { display: "flex", alignItems: "center", gap: 16, width: "100%", background: "#fff", color: "var(--ink)", border: "1px solid var(--line)", borderRadius: 12, padding: "16px 18px", cursor: "pointer", marginBottom: 0 },
   roleBtn: { display: "flex", alignItems: "center", gap: 8, flex: 1, background: "#fff", border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px", cursor: "pointer", justifyContent: "center" },
@@ -3308,10 +3310,11 @@ const st = {
 };
 
 const styleEl = document.createElement("style");
-// iqutaデザイン憲法: 色は白とiqutaブルーの2色（警告の赤のみ例外）。
-// 青の微調整はこの :root 変数だけで済むように、画面側は必ず var() 参照で使う。
+// iqutaデザイン憲法: 色は白とiqutaブルーの2色（警告の赤--akaのみ例外）。
+// モックの :root をそのまま移植。--iquta のみコーポレートサイト実測値（本文青 #1e5ad7）に合わせ済み。
+// 青の微調整はこの1箇所で済むように、画面側は必ず var() 参照で使う。
 styleEl.textContent =
-  ":root{--iquta:#2b5ce6;--iquta-soft:rgba(43,92,230,.08);--iquta-bg:#f4f7ff;--line:rgba(43,92,230,.28);--line-soft:rgba(43,92,230,.14);--ink:#1c2540;--soft:#6b7899}" +
+  ":root{--white:#ffffff;--paper:#fbfcfe;--iquta:#1e5ad7;--iquta-d:#1745ae;--iquta-bg:#eef3fe;--iquta-soft:#eef3fe;--ink:#1b2333;--soft:#7f8aa3;--faint:#b3bccf;--line:#e6ecfa;--line-soft:#f0f4fd;--aka:#d0433f}" +
   "@keyframes spin { to { transform: rotate(360deg); } }";
 document.head.appendChild(styleEl);
 
