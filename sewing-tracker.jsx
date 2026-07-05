@@ -4000,8 +4000,8 @@ function KoteiEditor(props) {
     const tokA = lastKoteiToken(b.act);
     const tokenList = (tokA ? baseList.filter(function (p) { return p.indexOf(tokA) >= 0 && p !== tokA; }) : baseList).slice(0, 14);
     return React.createElement("div", { key: b.id, style: { position: "relative", borderBottom: "1px solid " + K_LINE, padding: "10px 0 12px" } },
-      React.createElement("div", { style: { display: "grid", gridTemplateColumns: "108px 1fr 78px", gap: 8, paddingRight: 76 } },
-        React.createElement("div", null,
+      React.createElement("div", { className: "kstepGrid" },
+        React.createElement("div", { className: "kstepPart" },
           React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, React.createElement("span", { style: { color: K_PART, fontWeight: 700, fontSize: 13 } }, koteiParenNum(koteiStepNo[b.id])), " パーツ"),
           React.createElement("select", { style: { width: "100%", height: 42, border: "1px solid " + K_LINE, borderRadius: 8, background: K_PARTBG, color: K_PART, fontWeight: 700, fontSize: 14, padding: "0 6px" }, value: b.part, onChange: function (e) { const v = e.target.value; if (v === "__new__") { const nv = window.prompt("新しいパーツ名を入力"); if (nv && nv.trim()) patchBlock(b.id, { part: nv.trim() }); } else { patchBlock(b.id, { part: v }); } } },
             React.createElement("option", { value: "" }, "—"),
@@ -4009,7 +4009,7 @@ function KoteiEditor(props) {
             React.createElement("option", { value: "__new__" }, "＋ 新しいパーツ…")
           )
         ),
-        React.createElement("div", null,
+        React.createElement("div", { className: "kstepAct" },
           React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "作業内容"),
           React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "flex-start" } },
             React.createElement("textarea", { style: { flex: 1, minHeight: 42, border: "1px solid " + K_LINE, borderRadius: 8, padding: 9, fontSize: 15, color: K_INK, resize: "vertical", lineHeight: 1.35, fontFamily: "inherit", boxSizing: "border-box" }, placeholder: b.hint || "手打ち / 下の定型句 / 🎤", value: b.act, onFocus: function () { lastFocusRef.current = b.id; setActiveSugg(b.id); }, onBlur: function () { learn(b.act); setTimeout(function () { setActiveSugg(function (s) { return s === b.id ? null : s; }); }, 200); }, onChange: function (e) { patchBlock(b.id, { act: e.target.value }); } }),
@@ -4028,15 +4028,15 @@ function KoteiEditor(props) {
             )
           )
         ),
-        React.createElement("div", null,
+        React.createElement("div", { className: "kstepTime" },
           React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "時間"),
           React.createElement("input", { style: { width: "100%", height: 42, border: "1px solid " + K_LINE, borderRadius: 8, textAlign: "center", fontSize: 16, color: K_TIME, fontWeight: 700, boxSizing: "border-box" }, inputMode: "numeric", placeholder: "2:10", value: b.time, onFocus: function () { lastFocusRef.current = b.id; }, onChange: function (e) { patchBlock(b.id, { time: e.target.value }); }, onBlur: function () { const s = parseKoteiTime(b.time); if (s) patchBlock(b.id, { time: fmtKoteiTime(s) }); } })
         )
       ),
-      React.createElement("div", { style: { marginTop: 8, paddingRight: 76 } },
+      React.createElement("div", { className: "kstepPad", style: { marginTop: 8 } },
         React.createElement("input", { style: { width: "100%", height: 38, border: "1px dashed " + K_NOTE, borderRadius: 8, padding: "0 9px", fontSize: 13, color: K_NOTE, background: "#fffafa", boxSizing: "border-box" }, placeholder: "注意点（赤）", value: b.note, onFocus: function () { lastFocusRef.current = b.id; }, onChange: function (e) { patchBlock(b.id, { note: e.target.value }); } })
       ),
-      b.part && React.createElement("div", { style: { marginTop: 6, paddingRight: 76 } },
+      b.part && React.createElement("div", { className: "kstepPad", style: { marginTop: 6 } },
         React.createElement("input", { style: { width: "100%", height: 36, border: "1px solid " + K_LINE, borderRadius: 8, padding: "0 9px", fontSize: 12, color: "#555", boxSizing: "border-box" }, placeholder: "📝 パーツのメモ（印刷でパーツ名の横に出ます）", value: b.gmemo || "", onChange: function (e) { patchBlock(b.id, { gmemo: e.target.value }); } })
       ),
       moveButtons(b.id)
@@ -4125,6 +4125,20 @@ function KoteiEditor(props) {
   const mToolOn = { background: K_PART, color: "#fff", borderColor: K_PART };
 
   return React.createElement(Shell, null,
+    // 工程行のレスポンシブ切替（件1）。インラインstyleではメディアクエリが書けないためhere。
+    // 430px以下: 作業内容を全幅1行目に、パーツ・時間を2行目で横2分割。移動ボタン(絶対配置)とは
+    // margin-topで重なりを回避。431px以上は既定値＝従来の3列（108px|1fr|78px・右余白76px）のまま。
+    React.createElement("style", null,
+      ".kstepGrid{display:grid;grid-template-columns:108px 1fr 78px;gap:8px;padding-right:76px}" +
+      ".kstepPad{padding-right:76px}" +
+      "@media (max-width:430px){" +
+      ".kstepGrid{grid-template-columns:1fr 1fr;padding-right:0;margin-top:34px}" +
+      ".kstepAct{grid-column:1/-1;grid-row:1}" +
+      ".kstepPart{grid-row:2;grid-column:1}" +
+      ".kstepTime{grid-row:2;grid-column:2}" +
+      ".kstepPad{padding-right:0}" +
+      "}"
+    ),
     React.createElement(Header, { title: "📐 工程分析表", back: props.back }),
     React.createElement(Body, null,
       React.createElement("div", { style: { background: "#fff", borderRadius: 12, padding: "12px 16px", marginBottom: 14, boxShadow: "0 1px 4px rgba(0,0,0,.06)" } },
