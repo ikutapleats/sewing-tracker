@@ -3884,6 +3884,14 @@ function KoteiEditor(props) {
       proc += '<div class="pgroup">' + txt + '</div>';
     });
     const bodyHtml = '<div class="proc">' + proc + '</div>';
+    // 集計（画面の renderSummary と同じ内容）を工程表の最後に小さく載せる
+    const srows = Object.keys(summary.map).map(function (p) { const o = summary.map[p]; return { p: p, n: o.n, s: o.s, pct: summary.tot ? Math.round(o.s / summary.tot * 100) : 0 }; });
+    const sumHtml = '<div class="sumwrap"><div class="sumhead">集計　1着 総工数 <b>' + fmtKoteiTime(summary.tot) + '</b>　　1日実働 ' + (workMin || 0) + '分</div>' +
+      '<div class="sumcols">' +
+      '<table class="sum1">' + [3, 4, 5].map(function (ppl) { const per = summary.tot / 60 / ppl; const day = per ? workMin / per : 0; return '<tr><td class="pp">' + ppl + '人</td><td>1着 ' + per.toFixed(1) + '分</td><td>1日 ' + day.toFixed(1) + '着</td></tr>'; }).join('') + '</table>' +
+      '<table class="sum2"><tr><th>パーツ</th><th>工程</th><th>合計</th><th>比</th></tr>' +
+      srows.map(function (r) { return '<tr><td class="pn">' + esc(r.p) + '</td><td>' + r.n + '</td><td>' + fmtKoteiTime(r.s) + '</td><td>' + r.pct + '%</td></tr>'; }).join('') +
+      '</table></div></div>';
     const designSrc = imgMap[designImgId];
     const designHtml = designSrc ? '<div class="design"><img src="' + designSrc + '"></div>' : '';
     const commentHtml = headNote ? '<div class="hnote"><div class="ht">注意事項・コメント</div>' + esc(headNote).replace(/\n/g, '<br>') + '</div>' : '';
@@ -3905,6 +3913,13 @@ function KoteiEditor(props) {
       '.qtywrap{display:flex;gap:4mm;align-items:flex-start;margin-bottom:0}' +
       '.hnote{flex:1;border:1px solid #ccc;border-radius:1mm;padding:2mm 3mm;font-size:8.5pt;line-height:1.4;min-width:0;font-weight:700;color:#c0271d}.hnote .ht{font-size:8pt;color:#888;margin-bottom:1mm;font-weight:700}' +
       '.footer{margin-top:4mm;border-top:1px solid #ddd;padding-top:1.5mm;font-size:8pt;color:#888;display:flex;justify-content:space-between}' +
+      '.sumwrap{margin-top:3mm;border-top:1px solid #ddd;padding-top:1.5mm}' +
+      '.sumhead{font-size:8.5pt;font-weight:700;color:#0f3d4a;margin-bottom:1mm}.sumhead b{color:#1558d6}' +
+      '.sumcols{display:flex;gap:4mm;align-items:flex-start;flex-wrap:wrap}' +
+      'table.sum1,table.sum2{border-collapse:collapse;font-size:7.5pt}' +
+      'table.sum1 td,table.sum2 th,table.sum2 td{border:1px solid #bbb;padding:0.5mm 2mm;text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums}' +
+      'table.sum1 td.pp{font-weight:700;background:#f5f4f0}' +
+      'table.sum2 th{background:#e4ecef;color:#0f3d4a}table.sum2 td.pn{text-align:left}' +
       '@media print{body{padding:6mm 8mm}}' +
       '</style></head><body>' + '<div class="topbar"><div class="topmain">' +
       '<div class="head"><span class="big">' + esc(part.partNo || "") + '</span>' +
@@ -3914,7 +3929,7 @@ function KoteiEditor(props) {
       (targetPerDay ? '<span class="m">1日目標 ' + esc(targetPerDay) + '着</span>' : '') +
       (unten ? '<span class="m">運針(3c間) ' + esc(unten) + '</span>' : '') +
       (thread ? '<span class="m">糸番手 ' + esc(thread) + '</span>' : '') +
-      '</div>' + '<div class="qtywrap">' + tbl + commentHtml + '</div></div>' + designHtml + '</div>' + bodyHtml +
+      '</div>' + '<div class="qtywrap">' + tbl + commentHtml + '</div></div>' + designHtml + '</div>' + bodyHtml + sumHtml +
       '<script>window.onload=function(){setTimeout(function(){window.focus();window.print();},250)}<\/script></body></html>';
     let frame = document.getElementById("kotei-print-frame");
     if (frame && frame.parentNode) frame.parentNode.removeChild(frame);
