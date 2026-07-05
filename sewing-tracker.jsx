@@ -1458,7 +1458,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const myMemberName = (data.members.find((m) => m.id === f.memberId) || {}).name || "";
 
     return React.createElement(Shell, null,
-      React.createElement(Header, { title: ui.selectedTeam + "　作業記録", back: () => set({ screen: "home" }) }),
+      // ヘッダーの「記録」は最下部の記録するボタンと同じsaveEntryを呼ぶ（入口2つ・処理1つ）
+      React.createElement(Header, { title: ui.selectedTeam + "　作業記録", back: () => set({ screen: "home" }), actions: [{ label: "記録", onClick: saveEntry, primary: true, disabled: !ready }] }),
       React.createElement(Body, null,
         data.members.length === 0
           ? React.createElement("div", { style: Object.assign({}, st.card, { textAlign: "center", color: "#aaa", padding: 24 }) }, "メンバーが登録されていません。", React.createElement("br"), "ホーム→メンバー管理から登録してください。")
@@ -1481,9 +1482,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                       )
                 ),
                 f.partId && React.createElement(FormRow, { label: "作業時間（h）＊必須" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3.5", min: "0", step: "0.5", value: f.hours, onChange: (e) => setMF({ hours: e.target.value }) })),
-                // 作業時間を入れるまで工程枚数の入力は出さない（必須項目の入力忘れ防止）
-                f.partId && selSheet && !hoursOk && React.createElement("div", { style: { background: "var(--iquta-bg)", border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px", marginBottom: 10, fontSize: 13, color: "var(--iquta)", fontWeight: 600 } },
-                  "先に作業時間（h）を入力してください。入力すると工程の枚数入力が表示されます。"),
+                // 作業時間を入れるまで工程枚数の入力は出さない（必須項目の入力忘れ防止・案内文は出さない）
                 f.partId && selSheet && hoursOk && React.createElement("div", null,
                   usualSteps.length > 0 && React.createElement("div", { style: { background: "var(--iquta-bg)", borderRadius: 10, padding: "10px 12px", marginBottom: 10, border: "1px solid var(--line)" } },
                     React.createElement("div", { style: { fontSize: 12, color: "var(--iquta)", fontWeight: 700, marginBottom: 8 } }, "最近やった工程"),
@@ -3250,12 +3249,14 @@ function Header(p) {
       React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, minWidth: 0 } },
         p.sub && React.createElement("span", { style: { fontSize: 12, color: "var(--soft)", letterSpacing: "0.04em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, stripEmoji(p.sub)),
         (p.actions || []).map(function (a, i) {
+          const base = a.primary
+            ? { background: "var(--iquta)", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", flex: "none" }
+            : { background: "#fff", color: "var(--iquta)", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 13px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", flex: "none" };
           return React.createElement("button", {
             key: i,
-            style: a.primary
-              ? { background: "var(--iquta)", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", flex: "none" }
-              : { background: "#fff", color: "var(--iquta)", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 13px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", flex: "none" },
-            onClick: a.onClick,
+            style: a.disabled ? Object.assign({}, base, { opacity: 0.4, cursor: "default" }) : base,
+            disabled: !!a.disabled,
+            onClick: a.disabled ? undefined : a.onClick,
           }, a.label);
         })
       )
