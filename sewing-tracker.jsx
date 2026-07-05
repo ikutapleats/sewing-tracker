@@ -233,6 +233,13 @@ function App() {
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
+  // 共通ヘッダーのロゴ（ホームへ戻る）を1箇所で受ける。未保存確認はHeader側で済ませてから飛んでくる。
+  useEffect(() => {
+    const goHome = () => setUi((p) => Object.assign({}, p, { screen: "home" }));
+    window.addEventListener("iquta-home", goHome);
+    return () => window.removeEventListener("iquta-home", goHome);
+  }, []);
+
   // ── タブが再アクティブになったら最新データを取り直す（古い画面対策）
   const reloadData = useCallback(async () => {
     if (savingRef.current) return; // 保存中・保存待ちのときは触らない
@@ -3202,15 +3209,37 @@ function Shell(p) { return React.createElement("div", { style: st.root }, p.chil
 // 共通ヘッダー（モック .app-header）：ロゴ左寄せ＋右にサブ情報、細い青罫で締める。全画面がこれを使う（DRY）。
 // タイトル中の絵文字はここで一括除去（憲法: カラフルな絵文字アイコン廃止）。
 function stripEmoji(s) { try { return ("" + (s || "")).replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}️]/gu, "").trim(); } catch (e) { return s; } }
+// ロゴ＝ホームへ戻るボタン。画面が dirty（未保存判定・関数か真偽値）を渡している場合は
+// 確認ダイアログを1回挟む（入力途中の誤タップでデータが消える事故を防ぐ）。変更がなければ即移動。
+// 遷移自体は全画面共通のイベントで App が1箇所で受ける（各画面の呼び出しは無変更でDRY）。
+function goHomeFromHeader(dirty) {
+  const isDirty = typeof dirty === "function" ? dirty() : !!dirty;
+  if (isDirty && !window.confirm("保存していません。ホームへ移動しますか？")) return;
+  window.dispatchEvent(new CustomEvent("iquta-home"));
+}
 function Header(p) {
+  // actions: その画面に保存/印刷などの機能があるときだけ渡す（[{label, onClick, primary}]）
   return React.createElement("div", { style: st.header },
-    React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 20px", borderBottom: "1px solid var(--line)", maxWidth: 680, margin: "0 auto", boxSizing: "border-box" } },
-      React.createElement("img", { src: "iquta-logo.png", alt: "iquta", style: { height: 20, display: "block" } }),
-      p.sub && React.createElement("span", { style: { fontSize: 12, color: "var(--soft)", letterSpacing: "0.04em" } }, stripEmoji(p.sub))
+    React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 20px", borderBottom: "1px solid var(--line)", maxWidth: 680, margin: "0 auto", boxSizing: "border-box", minHeight: 46 } },
+      React.createElement("button", { style: { background: "none", border: "none", padding: "4px 4px 4px 0", cursor: "pointer", display: "block", flex: "none" }, title: "ホームへ戻る", onClick: function () { goHomeFromHeader(p.dirty); } },
+        React.createElement("img", { src: "iquta-logo.png", alt: "iquta（ホームへ）", style: { height: 20, display: "block" } })
+      ),
+      React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, minWidth: 0 } },
+        p.sub && React.createElement("span", { style: { fontSize: 12, color: "var(--soft)", letterSpacing: "0.04em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, stripEmoji(p.sub)),
+        (p.actions || []).map(function (a, i) {
+          return React.createElement("button", {
+            key: i,
+            style: a.primary
+              ? { background: "var(--iquta)", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", flex: "none" }
+              : { background: "#fff", color: "var(--iquta)", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 13px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", flex: "none" },
+            onClick: a.onClick,
+          }, a.label);
+        })
+      )
     ),
     React.createElement("div", { style: { padding: "14px 20px 14px", maxWidth: 680, margin: "0 auto", boxSizing: "border-box" } },
       p.back && React.createElement("button", { style: st.backBtn, onClick: p.back }, "‹ 戻る"),
-      React.createElement("div", { style: st.headerTitle }, stripEmoji(p.title))
+      p.title && React.createElement("div", { style: st.headerTitle }, stripEmoji(p.title))
     )
   );
 }
@@ -3313,7 +3342,9 @@ function PartCard(p) {
 // iqutaデザイン: 白地＋iquta青の2色。区切りは細い青罫(--line/--line-soft)。影は使わない。
 // 色は必ず :root のCSS変数を var() で参照する（青の微調整は styleEl の1箇所で済む）。
 const st = {
-  root: { fontFamily: "'Inter','Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif", background: "#fff", minHeight: "100vh", maxWidth: 680, width: "100%", margin: "0 auto", paddingBottom: 48, overflowX: "hidden", boxSizing: "border-box", color: "var(--ink)" },
+  // overflowXは"hidden"にしない: 祖先のoverflow-x:hiddenはposition:stickyを無効化するため、
+  // "clip"（スクロールコンテナを作らない）＋html/body側のoverflow-x:hiddenで横はみ出しを防ぐ。
+  root: { fontFamily: "'Inter','Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif", background: "#fff", minHeight: "100vh", maxWidth: 680, width: "100%", margin: "0 auto", paddingBottom: 48, overflowX: "clip", boxSizing: "border-box", color: "var(--ink)" },
   header: { background: "rgba(255,255,255,.94)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", color: "var(--ink)", padding: 0, position: "sticky", top: 0, zIndex: 10, borderBottom: "1px solid var(--line)" },
   headerTitle: { fontSize: 22, fontWeight: 500, color: "var(--iquta)", letterSpacing: "0.01em" },
   backBtn: { background: "none", border: "none", color: "var(--iquta)", opacity: 0.7, fontSize: 12, fontWeight: 600, letterSpacing: "0.03em", padding: "0 0 8px", cursor: "pointer", display: "block" },
@@ -3621,7 +3652,7 @@ function KoteiMemoImport(props) {
     if ((r.part + r.act + r.time + r.note).indexOf("？") >= 0 || (r.part + r.act + r.time + r.note).indexOf("?") >= 0) unsure++;
   });
   return React.createElement(Shell, null,
-    React.createElement(Header, { title: "メモから取り込む", back: props.back }),
+    React.createElement(Header, { title: "メモから取り込む", back: props.back, dirty: function () { return text.trim() !== ""; } }),
     React.createElement(Body, null,
       React.createElement("div", { style: Object.assign({}, st.card, { marginBottom: 12 }) },
         React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, part.partNo),
@@ -3893,6 +3924,13 @@ function KoteiEditor(props) {
     const rec = { id: (sheet && sheet.id) || genId(), partId: part.id, needle: needle, unten: unten, thread: thread, headNote: headNote, targetPerDay: targetPerDay, workMin: workMin, sizes: sizes, colors: colors, blocks: blocks, totalSec: summary.tot, designImgId: designImgId, updatedAt: today() };
     props.onSave(rec); props.back();
   }
+
+  // 未保存判定（既存stateのスナップショット比較）: 開いた時点の編集対象を丸ごと控えておき、
+  // ヘッダーのロゴ（ホームへ）押下時に現在値と比較する。新しい状態管理は増やさない。
+  function editSnap() { return JSON.stringify([blocks, needle, unten, thread, headNote, targetPerDay, workMin, sizes, colors, designImgId]); }
+  const initialSnap = useRef(null);
+  if (initialSnap.current === null) initialSnap.current = editSnap();
+  function isDirty() { return editSnap() !== initialSnap.current; }
 
   function doPrint() {
     const need = blocks.filter(function (b) { return b.type === "sketch" && b.imgId && !imgData[b.imgId]; }).map(function (b) { return b.imgId; });
@@ -4339,7 +4377,11 @@ function KoteiEditor(props) {
       ".kstepPad{padding-right:0}" +
       "}"
     ),
-    React.createElement(Header, { sub: "工程分析表", back: props.back }),
+    // ヘッダー常設の保存/印刷は最下部のボタンと同じ関数（handleSave/doPrint）を呼ぶ（入口2つ・処理1つ）
+    React.createElement(Header, { sub: "工程分析表", back: props.back, dirty: isDirty, actions: [
+      { label: uploading ? "…" : "印刷", onClick: function () { if (!uploading) doPrint(); } },
+      { label: "保存", onClick: handleSave, primary: true },
+    ] }),
     React.createElement(Body, null,
       // ── topbar（iqutaモック準拠）：品番=青24px、サブ情報、TOTAL/1日目標/工程数のメタ行 ──
       React.createElement("div", { style: { borderBottom: "1px solid var(--line)", padding: "4px 4px 18px", marginBottom: 4 } },

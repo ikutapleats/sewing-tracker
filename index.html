@@ -15,7 +15,8 @@
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
 <style>
-  html, body { margin: 0; padding: 0; background: #ffffff; -webkit-text-size-adjust: 100%; }
+  /* overflow-x:hidden は overflow-y:auto を誘発して position:sticky を殺すため clip を使う */
+  html, body { margin: 0; padding: 0; background: #ffffff; -webkit-text-size-adjust: 100%; overflow-x: clip; }
   #root { min-height: 100vh; }
   #boot { font-family: 'Hiragino Sans','Noto Sans JP',sans-serif; color: #aaa; text-align: center; padding-top: 42vh; font-size: 14px; }
 </style>
