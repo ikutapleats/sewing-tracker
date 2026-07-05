@@ -953,7 +953,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
   if (ui.screen === "home") {
     const unassigned = partSummary.filter((p) => (!p.assignee || p.assignee === "未割当") && !p.closedAt).length;
     return React.createElement(Shell, null,
-      React.createElement(Header, { title: "作業実績管理", sub: "IQUTA PLEATS" }),
+      React.createElement(Header, { title: "iquta生産管理" }),
       React.createElement(Body, null,
         React.createElement(BigBtn, { label: "集計・仕事量管理", sub: "全体・チーム別の実績と予算", onClick: () => set({ screen: "summary" }) }),
         React.createElement(Spacer, { h: 8 }),
@@ -971,7 +971,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         React.createElement(Spacer, { h: 8 }),
         React.createElement(BigBtn, { label: "生産価値", sub: "人・日・品番ごとの時間と生産価値を振り返る", onClick: () => set({ screen: "value_view", vvAxis: "member", vvPeriod: "month", vvMonth: today().slice(0, 7), vvExpanded: {} }) }),
         React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { label: "品番マスター", sub: "全品番の登録・割当管理" + (unassigned > 0 ? "　⚠️ 未割当 " + unassigned + "件" : ""), onClick: () => set({ screen: "master", masterFilter: "all" }) }),
+        React.createElement(BigBtn, { label: "品番マスター", sub: "全品番の登録・割当管理" + (unassigned > 0 ? "　未割当 " + unassigned + "件" : ""), onClick: () => set({ screen: "master", masterFilter: "all" }) }),
         React.createElement(Spacer, { h: 12 }),
         React.createElement(Divider, { label: "チームを選ぶ" }),
         TEAMS.map((team) => {
