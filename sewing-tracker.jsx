@@ -3167,8 +3167,8 @@ function Shell(p) { return React.createElement("div", { style: st.root }, p.chil
 function Header(p) { return React.createElement("div", { style: st.header }, p.back && React.createElement("button", { style: st.backBtn, onClick: p.back }, "‹ 戻る"), p.sub && React.createElement("div", { style: { fontSize: 10, letterSpacing: "0.2em", color: "#555", marginBottom: 2 } }, p.sub), React.createElement("div", { style: st.headerTitle }, p.title)); }
 function Body(p) { return React.createElement("div", { style: st.body }, p.children); }
 function Spacer(p) { return React.createElement("div", { style: { height: p.h || 8 } }); }
-function Divider(p) { return React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, margin: "4px 0 14px" } }, React.createElement("div", { style: { flex: 1, height: 1, background: "#e0deda" } }), React.createElement("span", { style: { fontSize: 11, color: "#bbb" } }, p.label), React.createElement("div", { style: { flex: 1, height: 1, background: "#e0deda" } })); }
-function BigBtn(p) { return React.createElement("button", { style: st.bigBtn, onClick: p.onClick }, React.createElement("span", { style: { fontSize: 22 } }, p.icon), React.createElement("div", { style: { textAlign: "left" } }, React.createElement("div", { style: { fontSize: 16, fontWeight: 700 } }, p.label), React.createElement("div", { style: { fontSize: 11, color: "#999", marginTop: 2 } }, p.sub))); }
+function Divider(p) { return React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, margin: "4px 0 14px" } }, React.createElement("div", { style: { flex: 1, height: 1, background: "rgba(60,60,67,.12)" } }), React.createElement("span", { style: { fontSize: 11, color: "#8e8e93", fontWeight: 600, letterSpacing: "0.06em" } }, p.label), React.createElement("div", { style: { flex: 1, height: 1, background: "rgba(60,60,67,.12)" } })); }
+function BigBtn(p) { return React.createElement("button", { style: st.bigBtn, onClick: p.onClick }, React.createElement("span", { style: { fontSize: 22 } }, p.icon), React.createElement("div", { style: { textAlign: "left", flex: 1, minWidth: 0 } }, React.createElement("div", { style: { fontSize: 15.5, fontWeight: 600, letterSpacing: "-0.01em" } }, p.label), React.createElement("div", { style: { fontSize: 11, color: "#8e8e93", marginTop: 2 } }, p.sub)), React.createElement("span", { style: { color: "#c7c7cc", fontSize: 17, fontWeight: 600, flex: "none" } }, "›")); }
 function RoleBtn(p) { return React.createElement("button", { style: st.roleBtn, onClick: p.onClick }, React.createElement("span", { style: { fontSize: 16 } }, p.icon), React.createElement("span", { style: { fontSize: 13, fontWeight: 700 } }, p.label)); }
 function QuickBtn(p) { return React.createElement("button", { style: st.quickBtn, onClick: p.onClick }, p.label); }
 function TeamBadge(p) { const c = TEAM_COLORS[p.team] || "#888"; return React.createElement("span", { style: { background: c + "18", color: c, fontSize: p.small ? 11 : 13, padding: p.small ? "2px 8px" : "4px 12px", borderRadius: 20, fontWeight: 700, border: "1px solid " + c + "44", display: "inline-block" } }, p.team); }
@@ -3245,52 +3245,65 @@ function PartCard(p) {
   );
 }
 
+// ── デザイントークン（Apple風リデザイン）──
+// 方針「道具は静かに、情報は鮮明に」。操作＝青1色、地は#F5F5F7、線は髪の毛罫線、入力はグレー塗り。
+// 時間=青・注意=赤・パーツ=藍 の意味色は現場の学習を壊さないため従来どおり（K_TIME等）。
+const UI = {
+  acc: "#0a84ff",                        // アクセント＝操作（保存・リンク・選択中）
+  accTint: "rgba(10,132,255,.13)",       // アクセントの淡い塗り
+  ink: "#1d1d1f", sub: "#6e6e73", faint: "#c7c7cc",
+  ground: "#f5f5f7",
+  hair: "1px solid rgba(60,60,67,.1)",   // 髪の毛罫線
+  fill: "rgba(120,120,128,.12)",         // 入力欄・二番手ボタンのグレー塗り
+  sh: "0 1px 2px rgba(0,0,0,.04)",
+  font: "-apple-system,BlinkMacSystemFont,'Hiragino Sans','Noto Sans JP',sans-serif",
+};
 const st = {
-  root: { fontFamily: "'Hiragino Sans','Noto Sans JP',sans-serif", background: "#f5f4f0", minHeight: "100vh", maxWidth: 680, width: "100%", margin: "0 auto", paddingBottom: 48, overflowX: "hidden", boxSizing: "border-box" },
-  header: { background: "#1a1a1a", color: "#fff", padding: "14px 20px", position: "sticky", top: 0, zIndex: 10 },
-  headerTitle: { fontSize: 18, fontWeight: 700 },
-  backBtn: { background: "none", border: "none", color: "#777", fontSize: 14, padding: "0 0 4px", cursor: "pointer", display: "block" },
+  root: { fontFamily: UI.font, background: UI.ground, minHeight: "100vh", maxWidth: 680, width: "100%", margin: "0 auto", paddingBottom: 48, overflowX: "hidden", boxSizing: "border-box", color: UI.ink },
+  header: { background: "rgba(245,245,247,.82)", backdropFilter: "saturate(180%) blur(20px)", WebkitBackdropFilter: "saturate(180%) blur(20px)", color: UI.ink, padding: "12px 20px 10px", position: "sticky", top: 0, zIndex: 10, borderBottom: UI.hair },
+  headerTitle: { fontSize: 20, fontWeight: 700, letterSpacing: "-0.02em" },
+  backBtn: { background: "none", border: "none", color: UI.acc, fontSize: 15, fontWeight: 600, padding: "0 0 4px", cursor: "pointer", display: "block" },
   body: { padding: "16px", maxWidth: 680, width: "100%", margin: "0 auto", boxSizing: "border-box" },
-  bigBtn: { display: "flex", alignItems: "center", gap: 16, width: "100%", background: "#1a1a1a", color: "#fff", border: "1px solid transparent", borderRadius: 12, padding: "16px 20px", cursor: "pointer", marginBottom: 0 },
-  roleBtn: { display: "flex", alignItems: "center", gap: 8, flex: 1, background: "#fff", border: "1px solid #e0deda", borderRadius: 10, padding: "12px 14px", cursor: "pointer", justifyContent: "center" },
-  quickBtn: { flex: 1, background: "#fff", border: "1px solid #e0deda", borderRadius: 10, padding: "10px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer", color: "#333" },
-  editBtn: { background: "#f5f4f0", border: "1px solid #e0deda", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer", color: "#555", fontWeight: 600, whiteSpace: "nowrap" },
-  dashedBtn: { display: "block", width: "100%", background: "#fff", border: "2px dashed #d0cec8", borderRadius: 12, padding: "14px", fontSize: 15, fontWeight: 700, color: "#555", cursor: "pointer", marginBottom: 16 },
-  card: { background: "#fff", borderRadius: 12, padding: "16px", marginBottom: 16, boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
-  sectionLabel: { fontSize: 11, color: "#aaa", letterSpacing: "0.1em", marginBottom: 8, marginTop: 16 },
-  empty: { textAlign: "center", color: "#ccc", fontSize: 13, padding: "18px 0" },
-  input: { width: "100%", maxWidth: "100%", minWidth: 0, background: "#f5f4f0", border: "1px solid #e8e6e0", borderRadius: 8, padding: "10px 12px", fontSize: 15, boxSizing: "border-box", outline: "none", color: "#1a1a1a", WebkitAppearance: "none", appearance: "none", display: "block" },
-  primaryBtn: { width: "100%", background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 10, padding: "14px", fontSize: 15, fontWeight: 700, cursor: "pointer", marginTop: 4 },
-  inlineBtn: { background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
-  ghostBtn: { background: "none", border: "1px solid #e0deda", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer", color: "#666" },
-  assignBtn: { background: "#fff", border: "1px solid #e0deda", borderRadius: 20, padding: "5px 12px", fontSize: 12, cursor: "pointer", color: "#666" },
-  assignBtnActive: { background: "#1a1a1a", color: "#fff", border: "1px solid #1a1a1a" },
+  bigBtn: { display: "flex", alignItems: "center", gap: 14, width: "100%", background: "#fff", color: UI.ink, border: UI.hair, borderRadius: 16, padding: "15px 18px", cursor: "pointer", marginBottom: 0, boxShadow: UI.sh },
+  roleBtn: { display: "flex", alignItems: "center", gap: 8, flex: 1, background: "#fff", border: UI.hair, borderRadius: 12, padding: "12px 14px", cursor: "pointer", justifyContent: "center", boxShadow: UI.sh },
+  quickBtn: { flex: 1, background: "#fff", border: UI.hair, borderRadius: 12, padding: "10px 8px", fontSize: 12, fontWeight: 600, cursor: "pointer", color: UI.ink, boxShadow: UI.sh },
+  editBtn: { background: UI.fill, border: "none", borderRadius: 8, padding: "7px 12px", fontSize: 12, cursor: "pointer", color: UI.ink, fontWeight: 600, whiteSpace: "nowrap" },
+  dashedBtn: { display: "block", width: "100%", background: "transparent", border: "2px dashed rgba(60,60,67,.22)", borderRadius: 16, padding: "14px", fontSize: 15, fontWeight: 600, color: UI.sub, cursor: "pointer", marginBottom: 16 },
+  card: { background: "#fff", borderRadius: 16, padding: "16px", marginBottom: 16, border: UI.hair, boxShadow: UI.sh },
+  sectionLabel: { fontSize: 11, color: "#8e8e93", fontWeight: 600, letterSpacing: "0.08em", marginBottom: 8, marginTop: 16 },
+  empty: { textAlign: "center", color: UI.faint, fontSize: 13, padding: "18px 0" },
+  input: { width: "100%", maxWidth: "100%", minWidth: 0, background: UI.fill, border: "1px solid transparent", borderRadius: 10, padding: "10px 12px", fontSize: 15, boxSizing: "border-box", outline: "none", color: UI.ink, WebkitAppearance: "none", appearance: "none", display: "block" },
+  primaryBtn: { width: "100%", background: UI.acc, color: "#fff", border: "none", borderRadius: 12, padding: "14px", fontSize: 15, fontWeight: 600, cursor: "pointer", marginTop: 4 },
+  inlineBtn: { background: UI.acc, color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontSize: 14, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" },
+  ghostBtn: { background: "none", border: UI.hair, borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer", color: UI.sub },
+  assignBtn: { background: UI.fill, border: "1px solid transparent", borderRadius: 20, padding: "5px 12px", fontSize: 12, cursor: "pointer", color: UI.sub },
+  assignBtnActive: { background: UI.acc, color: "#fff", border: "1px solid transparent" },
   filterRow: { display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" },
-  filterBtn: { background: "#fff", border: "1px solid #e0deda", borderRadius: 20, padding: "6px 14px", fontSize: 12, cursor: "pointer", color: "#888" },
-  filterBtnActive: { background: "#1a1a1a", color: "#fff", border: "1px solid #1a1a1a" },
-  previewBox: { borderRadius: 8, padding: "12px 14px", marginBottom: 12 },
-  previewRow: { display: "flex", justifyContent: "space-between", fontSize: 13, color: "#555", marginBottom: 4 },
-  leaderCard: { background: "#fff", borderRadius: 12, padding: "14px 16px", marginBottom: 10, boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
-  partNoText: { fontSize: 16, fontWeight: 700 },
-  partMeta: { fontSize: 11, color: "#bbb", marginTop: 2 },
-  cellLabel: { fontSize: 10, color: "#aaa", marginBottom: 2 },
-  detailLink: { background: "none", border: "none", color: "#aaa", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" },
-  statsRow: { display: "flex", gap: 10, fontSize: 13, color: "#555", borderRadius: 8, padding: "8px 12px", marginBottom: 10 },
-  closeBtn: { width: "100%", background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 8, padding: "12px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
-  recRow: { background: "#fff", borderRadius: 10, padding: "11px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, boxShadow: "0 1px 3px rgba(0,0,0,.04)" },
-  memberRow: { background: "#fff", borderRadius: 10, padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 8, boxShadow: "0 1px 3px rgba(0,0,0,.04)" },
-  deleteBtn: { background: "none", border: "none", color: "#ccc", fontSize: 16, cursor: "pointer", padding: "4px 8px" },
+  filterBtn: { background: UI.fill, border: "1px solid transparent", borderRadius: 20, padding: "6px 14px", fontSize: 12, cursor: "pointer", color: UI.sub },
+  filterBtnActive: { background: UI.accTint, color: UI.acc, border: "1px solid transparent", fontWeight: 600 },
+  previewBox: { borderRadius: 10, padding: "12px 14px", marginBottom: 12 },
+  previewRow: { display: "flex", justifyContent: "space-between", fontSize: 13, color: UI.sub, marginBottom: 4 },
+  leaderCard: { background: "#fff", borderRadius: 14, padding: "14px 16px", marginBottom: 10, border: UI.hair, boxShadow: UI.sh },
+  partNoText: { fontSize: 16, fontWeight: 700, letterSpacing: "-0.01em" },
+  partMeta: { fontSize: 11, color: "#8e8e93", marginTop: 2 },
+  cellLabel: { fontSize: 10, color: "#8e8e93", marginBottom: 2 },
+  detailLink: { background: "none", border: "none", color: UI.acc, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" },
+  statsRow: { display: "flex", gap: 10, fontSize: 13, color: UI.sub, borderRadius: 10, padding: "8px 12px", marginBottom: 10 },
+  closeBtn: { width: "100%", background: UI.acc, color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 13, fontWeight: 600, cursor: "pointer" },
+  recRow: { background: "#fff", borderRadius: 12, padding: "11px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, border: UI.hair, boxShadow: UI.sh },
+  memberRow: { background: "#fff", borderRadius: 12, padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 8, border: UI.hair, boxShadow: UI.sh },
+  deleteBtn: { background: "none", border: "none", color: UI.faint, fontSize: 16, cursor: "pointer", padding: "4px 8px" },
   grid2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 },
-  sBox: { borderRadius: 12, padding: "14px", boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
-  summaryCard: { display: "block", width: "100%", background: "#fff", border: "none", borderRadius: 12, padding: "14px 16px", marginBottom: 10, cursor: "pointer", boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
-  monthlyCard: { background: "#fff", borderRadius: 12, padding: "16px", marginBottom: 14, boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
-  rateBox: { borderRadius: 14, padding: "18px 20px", marginBottom: 16 },
-  barBg: { background: "#f0eeea", borderRadius: 4, height: 6, overflow: "hidden" },
+  sBox: { borderRadius: 14, padding: "14px", border: UI.hair, boxShadow: UI.sh },
+  summaryCard: { display: "block", width: "100%", background: "#fff", border: UI.hair, borderRadius: 14, padding: "14px 16px", marginBottom: 10, cursor: "pointer", boxShadow: UI.sh },
+  monthlyCard: { background: "#fff", borderRadius: 16, padding: "16px", marginBottom: 14, border: UI.hair, boxShadow: UI.sh },
+  rateBox: { borderRadius: 16, padding: "18px 20px", marginBottom: 16 },
+  barBg: { background: "#e9e9eb", borderRadius: 4, height: 6, overflow: "hidden" },
   barFill: { height: "100%", borderRadius: 4, transition: "width 0.4s" },
-  saveBadge: { background: "#1a1a1a", color: "#fff", fontSize: 12, padding: "8px 14px", borderRadius: 20, boxShadow: "0 2px 8px rgba(0,0,0,.2)", marginBottom: 8 },
-  spinner: { width: 32, height: 32, border: "3px solid #e0deda", borderTop: "3px solid #1a1a1a", borderRadius: "50%", animation: "spin 0.8s linear infinite" },
-  alertBanner: { fontSize: 12, fontWeight: 700, padding: "8px 12px", borderRadius: 8, border: "1px solid", marginBottom: 8, marginTop: 8 },
-  dashCard: { display: "block", width: "100%", background: "#fff", border: "none", borderRadius: 12, padding: "14px 16px", marginBottom: 10, cursor: "pointer", textAlign: "left", boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
+  saveBadge: { background: "rgba(29,29,31,.85)", color: "#fff", fontSize: 12, padding: "8px 14px", borderRadius: 20, boxShadow: "0 2px 8px rgba(0,0,0,.2)", marginBottom: 8, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" },
+  spinner: { width: 32, height: 32, border: "3px solid #e9e9eb", borderTop: "3px solid " + "#0a84ff", borderRadius: "50%", animation: "spin 0.8s linear infinite" },
+  alertBanner: { fontSize: 12, fontWeight: 700, padding: "8px 12px", borderRadius: 10, border: "1px solid", marginBottom: 8, marginTop: 8 },
+  dashCard: { display: "block", width: "100%", background: "#fff", border: UI.hair, borderRadius: 14, padding: "14px 16px", marginBottom: 10, cursor: "pointer", textAlign: "left", boxShadow: UI.sh },
 };
 
 const styleEl = document.createElement("style");
