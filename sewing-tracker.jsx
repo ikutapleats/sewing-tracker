@@ -3164,7 +3164,19 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
 }
 
 function Shell(p) { return React.createElement("div", { style: st.root }, p.children); }
-function Header(p) { return React.createElement("div", { style: st.header }, p.back && React.createElement("button", { style: st.backBtn, onClick: p.back }, "‹ 戻る"), p.sub && React.createElement("div", { style: { fontSize: 10, letterSpacing: "0.2em", color: "#555", marginBottom: 2 } }, p.sub), React.createElement("div", { style: st.headerTitle }, p.title)); }
+// 共通ヘッダー：全画面共通のロゴ帯（iqutaロゴ）＋画面タイトル行。全画面がこれを使う（DRY）。
+function Header(p) {
+  return React.createElement("div", { style: st.header },
+    React.createElement("div", { style: { display: "flex", justifyContent: "center", padding: "9px 0 7px", borderBottom: "1px solid var(--line-soft)" } },
+      React.createElement("img", { src: "iquta-logo.png", alt: "iquta", style: { height: 18, display: "block" } })
+    ),
+    React.createElement("div", { style: { padding: "10px 20px 11px", maxWidth: 680, margin: "0 auto", boxSizing: "border-box" } },
+      p.back && React.createElement("button", { style: st.backBtn, onClick: p.back }, "‹ 戻る"),
+      p.sub && React.createElement("div", { style: { fontSize: 10, letterSpacing: "0.22em", color: "var(--iquta)", fontWeight: 600, marginBottom: 2 } }, p.sub),
+      React.createElement("div", { style: st.headerTitle }, p.title)
+    )
+  );
+}
 function Body(p) { return React.createElement("div", { style: st.body }, p.children); }
 function Spacer(p) { return React.createElement("div", { style: { height: p.h || 8 } }); }
 function Divider(p) { return React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, margin: "4px 0 14px" } }, React.createElement("div", { style: { flex: 1, height: 1, background: "#e0deda" } }), React.createElement("span", { style: { fontSize: 11, color: "#bbb" } }, p.label), React.createElement("div", { style: { flex: 1, height: 1, background: "#e0deda" } })); }
@@ -3245,56 +3257,62 @@ function PartCard(p) {
   );
 }
 
+// iqutaデザイン: 白地＋iquta青の2色。区切りは細い青罫(--line/--line-soft)。影は使わない。
+// 色は必ず :root のCSS変数を var() で参照する（青の微調整は styleEl の1箇所で済む）。
 const st = {
-  root: { fontFamily: "'Hiragino Sans','Noto Sans JP',sans-serif", background: "#f5f4f0", minHeight: "100vh", maxWidth: 680, width: "100%", margin: "0 auto", paddingBottom: 48, overflowX: "hidden", boxSizing: "border-box" },
-  header: { background: "#1a1a1a", color: "#fff", padding: "14px 20px", position: "sticky", top: 0, zIndex: 10 },
-  headerTitle: { fontSize: 18, fontWeight: 700 },
-  backBtn: { background: "none", border: "none", color: "#777", fontSize: 14, padding: "0 0 4px", cursor: "pointer", display: "block" },
-  body: { padding: "16px", maxWidth: 680, width: "100%", margin: "0 auto", boxSizing: "border-box" },
-  bigBtn: { display: "flex", alignItems: "center", gap: 16, width: "100%", background: "#1a1a1a", color: "#fff", border: "1px solid transparent", borderRadius: 12, padding: "16px 20px", cursor: "pointer", marginBottom: 0 },
-  roleBtn: { display: "flex", alignItems: "center", gap: 8, flex: 1, background: "#fff", border: "1px solid #e0deda", borderRadius: 10, padding: "12px 14px", cursor: "pointer", justifyContent: "center" },
-  quickBtn: { flex: 1, background: "#fff", border: "1px solid #e0deda", borderRadius: 10, padding: "10px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer", color: "#333" },
-  editBtn: { background: "#f5f4f0", border: "1px solid #e0deda", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer", color: "#555", fontWeight: 600, whiteSpace: "nowrap" },
-  dashedBtn: { display: "block", width: "100%", background: "#fff", border: "2px dashed #d0cec8", borderRadius: 12, padding: "14px", fontSize: 15, fontWeight: 700, color: "#555", cursor: "pointer", marginBottom: 16 },
-  card: { background: "#fff", borderRadius: 12, padding: "16px", marginBottom: 16, boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
-  sectionLabel: { fontSize: 11, color: "#aaa", letterSpacing: "0.1em", marginBottom: 8, marginTop: 16 },
-  empty: { textAlign: "center", color: "#ccc", fontSize: 13, padding: "18px 0" },
-  input: { width: "100%", maxWidth: "100%", minWidth: 0, background: "#f5f4f0", border: "1px solid #e8e6e0", borderRadius: 8, padding: "10px 12px", fontSize: 15, boxSizing: "border-box", outline: "none", color: "#1a1a1a", WebkitAppearance: "none", appearance: "none", display: "block" },
-  primaryBtn: { width: "100%", background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 10, padding: "14px", fontSize: 15, fontWeight: 700, cursor: "pointer", marginTop: 4 },
-  inlineBtn: { background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
-  ghostBtn: { background: "none", border: "1px solid #e0deda", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer", color: "#666" },
-  assignBtn: { background: "#fff", border: "1px solid #e0deda", borderRadius: 20, padding: "5px 12px", fontSize: 12, cursor: "pointer", color: "#666" },
-  assignBtnActive: { background: "#1a1a1a", color: "#fff", border: "1px solid #1a1a1a" },
+  root: { fontFamily: "'Hiragino Sans','Noto Sans JP',sans-serif", background: "#fff", minHeight: "100vh", maxWidth: 680, width: "100%", margin: "0 auto", paddingBottom: 48, overflowX: "hidden", boxSizing: "border-box", color: "var(--ink)" },
+  header: { background: "rgba(255,255,255,.94)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", color: "var(--ink)", padding: 0, position: "sticky", top: 0, zIndex: 10, borderBottom: "1px solid var(--line)" },
+  headerTitle: { fontSize: 17, fontWeight: 700, letterSpacing: "0.01em" },
+  backBtn: { background: "none", border: "none", color: "var(--iquta)", fontSize: 14, fontWeight: 600, padding: "0 0 4px", cursor: "pointer", display: "block" },
+  body: { padding: "20px 16px", maxWidth: 680, width: "100%", margin: "0 auto", boxSizing: "border-box" },
+  bigBtn: { display: "flex", alignItems: "center", gap: 16, width: "100%", background: "#fff", color: "var(--ink)", border: "1px solid var(--line)", borderRadius: 12, padding: "16px 18px", cursor: "pointer", marginBottom: 0 },
+  roleBtn: { display: "flex", alignItems: "center", gap: 8, flex: 1, background: "#fff", border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px", cursor: "pointer", justifyContent: "center" },
+  quickBtn: { flex: 1, background: "#fff", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 8px", fontSize: 12, fontWeight: 600, cursor: "pointer", color: "var(--ink)" },
+  editBtn: { background: "var(--iquta-soft)", border: "none", borderRadius: 8, padding: "7px 12px", fontSize: 12, cursor: "pointer", color: "var(--iquta)", fontWeight: 600, whiteSpace: "nowrap" },
+  dashedBtn: { display: "block", width: "100%", background: "#fff", border: "2px dashed var(--line)", borderRadius: 12, padding: "14px", fontSize: 15, fontWeight: 600, color: "var(--iquta)", cursor: "pointer", marginBottom: 16 },
+  card: { background: "#fff", borderRadius: 12, padding: "18px", marginBottom: 18, border: "1px solid var(--line-soft)" },
+  sectionLabel: { fontSize: 10.5, color: "var(--iquta)", fontWeight: 600, letterSpacing: "0.16em", marginBottom: 8, marginTop: 18 },
+  empty: { textAlign: "center", color: "#b9c3dc", fontSize: 13, padding: "18px 0" },
+  input: { width: "100%", maxWidth: "100%", minWidth: 0, background: "#fff", border: "1px solid var(--line)", borderRadius: 8, padding: "10px 12px", fontSize: 15, boxSizing: "border-box", outline: "none", color: "var(--ink)", WebkitAppearance: "none", appearance: "none", display: "block" },
+  primaryBtn: { width: "100%", background: "var(--iquta)", color: "#fff", border: "none", borderRadius: 10, padding: "14px", fontSize: 15, fontWeight: 700, cursor: "pointer", marginTop: 4 },
+  inlineBtn: { background: "var(--iquta)", color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
+  ghostBtn: { background: "none", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer", color: "var(--soft)" },
+  assignBtn: { background: "#fff", border: "1px solid var(--line)", borderRadius: 20, padding: "5px 12px", fontSize: 12, cursor: "pointer", color: "var(--soft)" },
+  assignBtnActive: { background: "var(--iquta)", color: "#fff", border: "1px solid var(--iquta)" },
   filterRow: { display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" },
-  filterBtn: { background: "#fff", border: "1px solid #e0deda", borderRadius: 20, padding: "6px 14px", fontSize: 12, cursor: "pointer", color: "#888" },
-  filterBtnActive: { background: "#1a1a1a", color: "#fff", border: "1px solid #1a1a1a" },
+  filterBtn: { background: "#fff", border: "1px solid var(--line)", borderRadius: 20, padding: "6px 14px", fontSize: 12, cursor: "pointer", color: "var(--soft)" },
+  filterBtnActive: { background: "var(--iquta)", color: "#fff", border: "1px solid var(--iquta)" },
   previewBox: { borderRadius: 8, padding: "12px 14px", marginBottom: 12 },
-  previewRow: { display: "flex", justifyContent: "space-between", fontSize: 13, color: "#555", marginBottom: 4 },
-  leaderCard: { background: "#fff", borderRadius: 12, padding: "14px 16px", marginBottom: 10, boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
+  previewRow: { display: "flex", justifyContent: "space-between", fontSize: 13, color: "var(--soft)", marginBottom: 4 },
+  leaderCard: { background: "#fff", borderRadius: 12, padding: "16px", marginBottom: 12, border: "1px solid var(--line-soft)" },
   partNoText: { fontSize: 16, fontWeight: 700 },
-  partMeta: { fontSize: 11, color: "#bbb", marginTop: 2 },
-  cellLabel: { fontSize: 10, color: "#aaa", marginBottom: 2 },
-  detailLink: { background: "none", border: "none", color: "#aaa", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" },
-  statsRow: { display: "flex", gap: 10, fontSize: 13, color: "#555", borderRadius: 8, padding: "8px 12px", marginBottom: 10 },
-  closeBtn: { width: "100%", background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 8, padding: "12px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
-  recRow: { background: "#fff", borderRadius: 10, padding: "11px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, boxShadow: "0 1px 3px rgba(0,0,0,.04)" },
-  memberRow: { background: "#fff", borderRadius: 10, padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 8, boxShadow: "0 1px 3px rgba(0,0,0,.04)" },
-  deleteBtn: { background: "none", border: "none", color: "#ccc", fontSize: 16, cursor: "pointer", padding: "4px 8px" },
+  partMeta: { fontSize: 11, color: "var(--soft)", marginTop: 2 },
+  cellLabel: { fontSize: 10, color: "var(--soft)", marginBottom: 2 },
+  detailLink: { background: "none", border: "none", color: "var(--iquta)", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" },
+  statsRow: { display: "flex", gap: 10, fontSize: 13, color: "var(--soft)", borderRadius: 8, padding: "8px 12px", marginBottom: 10 },
+  closeBtn: { width: "100%", background: "var(--iquta)", color: "#fff", border: "none", borderRadius: 8, padding: "12px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
+  recRow: { background: "#fff", borderRadius: 10, padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, border: "1px solid var(--line-soft)" },
+  memberRow: { background: "#fff", borderRadius: 10, padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 8, border: "1px solid var(--line-soft)" },
+  deleteBtn: { background: "none", border: "none", color: "#b9c3dc", fontSize: 16, cursor: "pointer", padding: "4px 8px" },
   grid2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 },
-  sBox: { borderRadius: 12, padding: "14px", boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
-  summaryCard: { display: "block", width: "100%", background: "#fff", border: "none", borderRadius: 12, padding: "14px 16px", marginBottom: 10, cursor: "pointer", boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
-  monthlyCard: { background: "#fff", borderRadius: 12, padding: "16px", marginBottom: 14, boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
+  sBox: { borderRadius: 12, padding: "14px", border: "1px solid var(--line-soft)" },
+  summaryCard: { display: "block", width: "100%", background: "#fff", border: "1px solid var(--line-soft)", borderRadius: 12, padding: "16px", marginBottom: 10, cursor: "pointer" },
+  monthlyCard: { background: "#fff", borderRadius: 12, padding: "18px", marginBottom: 14, border: "1px solid var(--line-soft)" },
   rateBox: { borderRadius: 14, padding: "18px 20px", marginBottom: 16 },
-  barBg: { background: "#f0eeea", borderRadius: 4, height: 6, overflow: "hidden" },
+  barBg: { background: "var(--iquta-soft)", borderRadius: 4, height: 6, overflow: "hidden" },
   barFill: { height: "100%", borderRadius: 4, transition: "width 0.4s" },
-  saveBadge: { background: "#1a1a1a", color: "#fff", fontSize: 12, padding: "8px 14px", borderRadius: 20, boxShadow: "0 2px 8px rgba(0,0,0,.2)", marginBottom: 8 },
-  spinner: { width: 32, height: 32, border: "3px solid #e0deda", borderTop: "3px solid #1a1a1a", borderRadius: "50%", animation: "spin 0.8s linear infinite" },
+  saveBadge: { background: "var(--iquta)", color: "#fff", fontSize: 12, padding: "8px 14px", borderRadius: 20, boxShadow: "0 2px 8px rgba(43,92,230,.25)", marginBottom: 8 },
+  spinner: { width: 32, height: 32, border: "3px solid var(--iquta-soft)", borderTop: "3px solid var(--iquta)", borderRadius: "50%", animation: "spin 0.8s linear infinite" },
   alertBanner: { fontSize: 12, fontWeight: 700, padding: "8px 12px", borderRadius: 8, border: "1px solid", marginBottom: 8, marginTop: 8 },
-  dashCard: { display: "block", width: "100%", background: "#fff", border: "none", borderRadius: 12, padding: "14px 16px", marginBottom: 10, cursor: "pointer", textAlign: "left", boxShadow: "0 1px 4px rgba(0,0,0,.06)" },
+  dashCard: { display: "block", width: "100%", background: "#fff", border: "1px solid var(--line-soft)", borderRadius: 12, padding: "16px", marginBottom: 10, cursor: "pointer", textAlign: "left" },
 };
 
 const styleEl = document.createElement("style");
-styleEl.textContent = "@keyframes spin { to { transform: rotate(360deg); } }";
+// iqutaデザイン憲法: 色は白とiqutaブルーの2色（警告の赤のみ例外）。
+// 青の微調整はこの :root 変数だけで済むように、画面側は必ず var() 参照で使う。
+styleEl.textContent =
+  ":root{--iquta:#2b5ce6;--iquta-soft:rgba(43,92,230,.08);--iquta-bg:#f4f7ff;--line:rgba(43,92,230,.28);--line-soft:rgba(43,92,230,.14);--ink:#1c2540;--soft:#6b7899}" +
+  "@keyframes spin { to { transform: rotate(360deg); } }";
 document.head.appendChild(styleEl);
 
 
