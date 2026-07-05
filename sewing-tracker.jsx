@@ -955,24 +955,17 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     return React.createElement(Shell, null,
       React.createElement(Header, { title: "作業実績管理", sub: "IQUTA PLEATS" }),
       React.createElement(Body, null,
-        React.createElement(BigBtn, { icon: "📊", label: "集計・仕事量管理", sub: "全体・チーム別の実績と予算", onClick: () => set({ screen: "summary" }) }),
-        React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { icon: "📅", label: "納期カレンダー", sub: "品番ごとの納品予定日を一覧", onClick: () => set({ screen: "deadline_calendar", dlMonth: today().slice(0, 7) }) }),
-        React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { icon: "💰", label: "売上カレンダー", sub: "日ごとの完成売上を全体・チーム別で確認", onClick: () => set({ screen: "sales_calendar", salesMonth: today().slice(0, 7), salesTeam: "all" }) }),
-        React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { icon: "🗂️", label: "ダッシュボード", sub: "納期・進捗を一目で確認", onClick: () => set({ screen: "dashboard" }) }),
-        React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { icon: "🏷️", label: "ブランド別仕事一覧", sub: "客先ごとの納品前・納品済みを確認", onClick: () => set({ screen: "brand_jobs", selectedBrandId: null }) }),
-        React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { icon: "✂️", label: "サンプル管理", sub: "サンプル作成の記録・実働時間・サンプル代", onClick: () => set({ screen: "sample_list" }) }),
-        React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { icon: "📐", label: "工程分析表", sub: "品番ごとの工程・時間・図を一覧／作成・印刷", onClick: () => set({ screen: "kotei_list", koteiSearch: "" }) }),
-        React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { icon: "💴", label: "生産価値", sub: "人・日・品番ごとの時間と生産価値を振り返る", onClick: () => set({ screen: "value_view", vvAxis: "member", vvPeriod: "month", vvMonth: today().slice(0, 7), vvExpanded: {} }) }),
-        React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { icon: "📋", label: "品番マスター", sub: "全品番の登録・割当管理" + (unassigned > 0 ? "　⚠️ 未割当 " + unassigned + "件" : ""), onClick: () => set({ screen: "master", masterFilter: "all" }) }),
-        React.createElement(Spacer, { h: 12 }),
+        React.createElement(MenuGroup, null,
+          React.createElement(MenuRow, { color: "#0a84ff", d: ["M2.5 13.5v-5", "M6.5 13.5v-9", "M10.5 13.5v-6", "M14 13.5v-11"], label: "集計・仕事量管理", sub: "全体・チーム別の実績と予算", onClick: () => set({ screen: "summary" }) }),
+          React.createElement(MenuRow, { color: "#ff453a", d: ["M3 4.5h10a1 1 0 0 1 1 1V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1z", "M2 7.5h12", "M5.5 2.5v3", "M10.5 2.5v3"], label: "納期カレンダー", sub: "品番ごとの納品予定日を一覧", onClick: () => set({ screen: "deadline_calendar", dlMonth: today().slice(0, 7) }) }),
+          React.createElement(MenuRow, { color: "#30d158", d: ["M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12z", "M5.8 5l2.2 3 2.2-3", "M8 8v3.2", "M6.2 9.2h3.6"], label: "売上カレンダー", sub: "日ごとの完成売上を全体・チーム別で確認", onClick: () => set({ screen: "sales_calendar", salesMonth: today().slice(0, 7), salesTeam: "all" }) }),
+          React.createElement(MenuRow, { color: "#ff9f0a", d: ["M2.5 2.5h4.5v4.5H2.5z", "M9 2.5h4.5v4.5H9z", "M2.5 9h4.5v4.5H2.5z", "M9 9h4.5v4.5H9z"], label: "ダッシュボード", sub: "納期・進捗を一目で確認", onClick: () => set({ screen: "dashboard" }) }),
+          React.createElement(MenuRow, { color: "#bf5af2", d: ["M2 2.8h4.8L14 10l-4 4-7.2-7.2z", "M5.3 5.3h.01"], label: "ブランド別仕事一覧", sub: "客先ごとの納品前・納品済みを確認", onClick: () => set({ screen: "brand_jobs", selectedBrandId: null }) }),
+          React.createElement(MenuRow, { color: "#ff2d55", d: ["M4.5 13.5a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z", "M11.5 13.5a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z", "M6 10.5L13 2.5", "M10 10.5L3 2.5"], label: "サンプル管理", sub: "サンプル作成の記録・実働時間・サンプル代", onClick: () => set({ screen: "sample_list" }) }),
+          React.createElement(MenuRow, { color: "#0f3d4a", d: ["M2 12L11.5 2.5l2 2L4 14H2v-2z", "M9 5l2 2"], label: "工程分析表", sub: "品番ごとの工程・時間・図を一覧／作成・印刷", onClick: () => set({ screen: "kotei_list", koteiSearch: "" }) }),
+          React.createElement(MenuRow, { color: "#ac8e68", d: ["M8 6.5c3 0 5.5-1 5.5-2.2S11 2 8 2 2.5 3.1 2.5 4.3 5 6.5 8 6.5z", "M2.5 4.3v3.5C2.5 9 5 10 8 10s5.5-1 5.5-2.2V4.3", "M2.5 7.8v3.5c0 1.2 2.5 2.2 5.5 2.2s5.5-1 5.5-2.2V7.8"], label: "生産価値", sub: "人・日・品番ごとの時間と生産価値を振り返る", onClick: () => set({ screen: "value_view", vvAxis: "member", vvPeriod: "month", vvMonth: today().slice(0, 7), vvExpanded: {} }) }),
+          React.createElement(MenuRow, { last: true, color: "#8e8e93", d: ["M3 3.5h10", "M3 8h10", "M3 12.5h6"], label: "品番マスター", sub: "全品番の登録・割当管理" + (unassigned > 0 ? "　⚠️ 未割当 " + unassigned + "件" : ""), onClick: () => set({ screen: "master", masterFilter: "all" }) })
+        ),
         React.createElement(Divider, { label: "チームを選ぶ" }),
         TEAMS.map((team) => {
           const cnt = partSummary.filter((p) => p.assignee === team && !p.closedAt).length;
@@ -1033,7 +1026,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             p.workMonth && React.createElement("span", { style: { color: "#3b6fd4", fontWeight: 600 } }, p.workMonth.replace("-", "年") + "月仕掛り"),
             React.createElement("span", null, p.qty + "枚"),
             p.deadline && React.createElement("span", { style: { color: p.remainDays !== null && p.remainDays <= 3 ? "#c00" : p.remainDays !== null && p.remainDays <= 7 ? "#c25000" : "#aaa" } }, "納期: " + fmt(p.deadline) + (p.remainDays !== null ? "（あと" + p.remainDays + "日）" : "")),
-            p.status && React.createElement("span", null, p.status)
+            p.status && React.createElement(StatusBadge, { status: p.status })
           )
         ))
       ),
@@ -3169,6 +3162,22 @@ function Body(p) { return React.createElement("div", { style: st.body }, p.child
 function Spacer(p) { return React.createElement("div", { style: { height: p.h || 8 } }); }
 function Divider(p) { return React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, margin: "4px 0 14px" } }, React.createElement("div", { style: { flex: 1, height: 1, background: "rgba(60,60,67,.12)" } }), React.createElement("span", { style: { fontSize: 11, color: "#8e8e93", fontWeight: 600, letterSpacing: "0.06em" } }, p.label), React.createElement("div", { style: { flex: 1, height: 1, background: "rgba(60,60,67,.12)" } })); }
 function BigBtn(p) { return React.createElement("button", { style: st.bigBtn, onClick: p.onClick }, React.createElement("span", { style: { fontSize: 22 } }, p.icon), React.createElement("div", { style: { textAlign: "left", flex: 1, minWidth: 0 } }, React.createElement("div", { style: { fontSize: 15.5, fontWeight: 600, letterSpacing: "-0.01em" } }, p.label), React.createElement("div", { style: { fontSize: 11, color: "#8e8e93", marginTop: 2 } }, p.sub)), React.createElement("span", { style: { color: "#c7c7cc", fontSize: 17, fontWeight: 600, flex: "none" } }, "›")); }
+// ── ホームのグループリスト（iOSの設定画面風）：色付きアイコン角丸四角＋ラベル＋シェブロン ──
+function MenuGroup(p) { return React.createElement("div", { style: { background: "#fff", borderRadius: 16, overflow: "hidden", border: UI.hair, boxShadow: UI.sh, marginBottom: 16 } }, p.children); }
+function MenuRow(p) {
+  return React.createElement("button", { style: { display: "flex", alignItems: "center", gap: 12, width: "100%", background: "#fff", color: UI.ink, border: "none", borderBottom: p.last ? "none" : UI.hair, padding: "12px 16px", cursor: "pointer", textAlign: "left" }, onClick: p.onClick },
+    React.createElement("span", { style: { width: 30, height: 30, borderRadius: 8, flex: "none", background: p.color, display: "inline-flex", alignItems: "center", justifyContent: "center" } },
+      React.createElement("svg", { viewBox: "0 0 16 16", width: 17, height: 17, fill: "none", stroke: "#fff", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round" },
+        (p.d || []).map(function (dd, i) { return React.createElement("path", { key: i, d: dd }); })
+      )
+    ),
+    React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+      React.createElement("div", { style: { fontSize: 15, fontWeight: 600, letterSpacing: "-0.01em" } }, p.label),
+      p.sub && React.createElement("div", { style: { fontSize: 11, color: "#8e8e93", marginTop: 1 } }, p.sub)
+    ),
+    React.createElement("span", { style: { color: "#c7c7cc", fontSize: 17, fontWeight: 600, flex: "none" } }, "›")
+  );
+}
 function RoleBtn(p) { return React.createElement("button", { style: st.roleBtn, onClick: p.onClick }, React.createElement("span", { style: { fontSize: 16 } }, p.icon), React.createElement("span", { style: { fontSize: 13, fontWeight: 700 } }, p.label)); }
 function QuickBtn(p) { return React.createElement("button", { style: st.quickBtn, onClick: p.onClick }, p.label); }
 function TeamBadge(p) { const c = TEAM_COLORS[p.team] || "#888"; return React.createElement("span", { style: { background: c + "18", color: c, fontSize: p.small ? 11 : 13, padding: p.small ? "2px 8px" : "4px 12px", borderRadius: 20, fontWeight: 700, border: "1px solid " + c + "44", display: "inline-block" } }, p.team); }
@@ -3179,7 +3188,14 @@ function AssigneeBadge(p) {
   const c = TEAM_COLORS[part.assignee] || "#888";
   return React.createElement("span", { style: { background: c + "18", color: c, fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700, border: "1px solid " + c + "44" } }, part.assignee);
 }
-function StatusBadge(p) { const colors = { "未着手": "#aaa", "裁断済み": "#c25000", "仕掛り中": "#7a2a7a", "完了": "#2a7a2a" }; const c = colors[p.status] || "#aaa"; return React.createElement("span", { style: { background: c + "18", color: c, fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700, border: "1px solid " + c + "44" } }, p.status); }
+function StatusBadge(p) {
+  const colors = { "未着手": "#8e8e93", "裁断済み": "#c25000", "仕掛り中": "#7a2a7a", "完了": "#248a3d" };
+  const c = colors[p.status] || "#8e8e93";
+  return React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 5, background: c + "1c", color: c, fontSize: 11, padding: "3px 10px", borderRadius: 99, fontWeight: 600, whiteSpace: "nowrap" } },
+    React.createElement("span", { style: { width: 6, height: 6, borderRadius: 99, background: "currentColor", flex: "none" } }),
+    p.status
+  );
+}
 function SectionLabel(p) { return React.createElement("div", { style: st.sectionLabel }, p.children); }
 function Empty(p) { return React.createElement("div", { style: st.empty }, p.children); }
 function FormRow(p) { return React.createElement("div", { style: { marginBottom: 14 } }, React.createElement("div", { style: { fontSize: 11, color: "#888", marginBottom: 4 } }, p.label), p.children); }
