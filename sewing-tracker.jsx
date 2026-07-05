@@ -3491,7 +3491,9 @@ const KOTEI_PHRASE_CATS = {
   "ミシン": ["脇はぎ","見返し脇はぎ","後中心はぎ","見返しとはぎ","身頃とスカートはぎ","CB見返しはぎ","2枚はぎ","3枚はぎ","外袖と内袖はぎ","つなぎ合わせ","ロック","イッテコイロック","見返しロック","下側ロック始末","中ぬい","本ぬい","周りぬい","袋ぬい","外表でぬい","仮どめ","タックとめ","ゴムとめ","釦とめ","三角どめ","ぬいどめ","三巻き","裾三巻き","スリット三巻り","コバST","裏コバST","ステッチ","シャーリング位置ぬい"],
   "その他": ["糸始末","たたきつけ","ギャザー入れ","ホールあけ","ホール印","ネーム付け","ブランドネームたたきつけ","センタクネーム仮どめ","矢羽に切り込み","ケバカット","パイピング","ケンボロ口折り","ケンボロ付け","伸止め貼り","芯貼り","口布折り"]
 };
-const K_INK = "#1a1a1a", K_TIME = "#1558d6", K_NOTE = "#c0271d", K_PART = "#0f3d4a", K_PARTBG = "#e4ecef", K_LINE = "#d9d5c8";
+// K_INK/K_TIME/K_NOTE はcanvasのペン色にも使うためhex必須（iquta実測青・--akaと同値に調整済み）。
+// K_PART/K_PARTBG/K_LINE は画面専用なので :root のCSS変数を参照（印刷CSSはリテラル色のため不変）。
+const K_INK = "#1b2333", K_TIME = "#1e5ad7", K_NOTE = "#d0433f", K_PART = "var(--iquta)", K_PARTBG = "var(--iquta-bg)", K_LINE = "var(--line)";
 
 function parseKoteiTime(s) {
   if (!s) return 0; s = ("" + s).trim();
@@ -3746,8 +3748,8 @@ function KoteiEditor(props) {
   // 各ブロック行の下端に置く控えめな挿入ボタン（件2・件3）。押した行の直後に入る。
   // 図・写真の行にも置く：末尾が図のとき、後ろに工程を足す導線が消えないように。
   function insertRow(id) {
-    const insBtn = { border: "1px dashed " + K_LINE, background: "transparent", color: "#999", borderRadius: 7, padding: "5px 12px", fontSize: 11 };
-    return React.createElement("div", { className: "kstepPad", style: { display: "flex", gap: 6, marginTop: 8 } },
+    const insBtn = { border: "1px solid var(--line)", background: "#fff", color: "var(--iquta)", borderRadius: 10, padding: "7px 14px", fontSize: 12, fontWeight: 600, letterSpacing: ".02em" };
+    return React.createElement("div", { className: "kstepPad", style: { display: "flex", gap: 8, marginTop: 12, paddingLeft: 36 } },
       React.createElement("button", { style: insBtn, onClick: function () { addStep(id); } }, "＋ 工程"),
       React.createElement("button", { style: insBtn, onClick: function () { addSketch(id); } }, "＋ 図・写真")
     );
@@ -3774,10 +3776,10 @@ function KoteiEditor(props) {
     const inCell = { width: "100%", border: "none", textAlign: "center", padding: "7px 2px", fontSize: 13, background: "transparent", color: K_INK, boxSizing: "border-box" };
     return React.createElement("div", { style: { marginTop: 12 } },
       React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 } },
-        React.createElement("span", { style: { fontSize: 11, color: "#999" } }, "色 × サイズ別 枚数"),
+        React.createElement("span", { style: { fontSize: 10, color: "var(--faint)", letterSpacing: ".1em", fontWeight: 600 } }, "色 × サイズ別 枚数"),
         React.createElement("div", { style: { display: "flex", gap: 6 } },
-          React.createElement("button", { style: { border: "1px solid " + K_LINE, background: "#fff", borderRadius: 6, padding: "4px 9px", fontSize: 12, color: "#555" }, onClick: addColor }, "＋色"),
-          React.createElement("button", { style: { border: "1px solid " + K_LINE, background: "#fff", borderRadius: 6, padding: "4px 9px", fontSize: 12, color: "#555" }, onClick: addSize }, "＋サイズ")
+          React.createElement("button", { style: { border: "1px solid var(--line)", background: "#fff", borderRadius: 8, padding: "4px 10px", fontSize: 12, color: "var(--iquta)", fontWeight: 600 }, onClick: addColor }, "＋色"),
+          React.createElement("button", { style: { border: "1px solid var(--line)", background: "#fff", borderRadius: 8, padding: "4px 10px", fontSize: 12, color: "var(--iquta)", fontWeight: 600 }, onClick: addSize }, "＋サイズ")
         )
       ),
       React.createElement("div", { style: { overflowX: "auto" } },
@@ -3792,7 +3794,7 @@ function KoteiEditor(props) {
                   sizes.length > 1 && React.createElement("button", { style: { border: "none", background: "none", color: "#c99", fontSize: 10, cursor: "pointer", padding: 0 }, onClick: function () { removeSize(i); } }, "削除")
                 );
               }),
-              React.createElement("th", { style: Object.assign({}, cell, { background: "#f5f4f0", padding: "6px 8px" }) }, "計"),
+              React.createElement("th", { style: Object.assign({}, cell, { background: "var(--paper)", color: "var(--iquta)", padding: "6px 8px" }) }, "計"),
               React.createElement("th", { style: Object.assign({}, cell, { background: K_PARTBG, width: 30 }) }, "")
             )
           ),
@@ -3805,16 +3807,16 @@ function KoteiEditor(props) {
                 sizes.map(function (_, si) {
                   return React.createElement("td", { key: si, style: cell }, React.createElement("input", { style: inCell, type: "number", inputMode: "numeric", value: (c.counts || [])[si] || "", onChange: function (e) { setCount(ci, si, e.target.value); } }));
                 }),
-                React.createElement("td", { style: Object.assign({}, cell, { background: "#f5f4f0", fontWeight: 700, padding: "0 8px" }) }, rowTotal || ""),
+                React.createElement("td", { style: Object.assign({}, cell, { background: "var(--paper)", fontWeight: 700, padding: "0 8px", fontVariantNumeric: "tabular-nums" }) }, rowTotal || ""),
                 React.createElement("td", { style: cell }, colors.length > 1 && React.createElement("button", { style: { border: "none", background: "none", color: K_NOTE, fontSize: 14, cursor: "pointer", padding: "0 4px" }, onClick: function () { removeColor(ci); } }, "✕"))
               );
             }),
             React.createElement("tr", null,
-              React.createElement("td", { style: Object.assign({}, cell, { background: "#e8e6e0", fontWeight: 700, padding: "6px 8px" }) }, "合計"),
-              React.createElement("td", { style: Object.assign({}, cell, { background: "#e8e6e0" }) }, ""),
-              colTotals.map(function (n, i) { return React.createElement("td", { key: i, style: Object.assign({}, cell, { background: "#e8e6e0", fontWeight: 700 }) }, n || ""); }),
-              React.createElement("td", { style: Object.assign({}, cell, { background: "#1a1a1a", color: "#fff", fontWeight: 700, padding: "0 8px" }) }, grandQty || ""),
-              React.createElement("td", { style: Object.assign({}, cell, { background: "#e8e6e0" }) }, "")
+              React.createElement("td", { style: Object.assign({}, cell, { background: "var(--iquta-bg)", color: "var(--iquta)", fontWeight: 700, padding: "6px 8px" }) }, "合計"),
+              React.createElement("td", { style: Object.assign({}, cell, { background: "var(--iquta-bg)" }) }, ""),
+              colTotals.map(function (n, i) { return React.createElement("td", { key: i, style: Object.assign({}, cell, { background: "var(--iquta-bg)", color: "var(--iquta)", fontWeight: 700, fontVariantNumeric: "tabular-nums" }) }, n || ""); }),
+              React.createElement("td", { style: Object.assign({}, cell, { background: "var(--iquta)", color: "#fff", fontWeight: 700, padding: "0 8px", fontVariantNumeric: "tabular-nums" }) }, grandQty || ""),
+              React.createElement("td", { style: Object.assign({}, cell, { background: "var(--iquta-bg)" }) }, "")
             )
           )
         )
@@ -4128,21 +4130,22 @@ function KoteiEditor(props) {
     const baseList = suggCat === "履歴" ? histPhrases : ((props.phraseCats || {})[suggCat] || []);
     const tokA = lastKoteiToken(b.act);
     const tokenList = (tokA ? baseList.filter(function (p) { return p.indexOf(tokA) >= 0 && p !== tokA; }) : baseList).slice(0, 14);
-    return React.createElement("div", { key: b.id, style: { position: "relative", borderBottom: "1px solid " + K_LINE, padding: "10px 0 12px" } },
+    return React.createElement("div", { key: b.id, style: { position: "relative", borderBottom: "1px solid var(--line)", padding: "16px 0 14px" } },
       React.createElement("div", { className: "kstepGrid" },
+        React.createElement("div", { className: "kstepNo" }, String(koteiStepNo[b.id]).padStart(2, "0")),
         React.createElement("div", { className: "kstepPart" },
-          React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, React.createElement("span", { style: { color: K_PART, fontWeight: 700, fontSize: 13 } }, koteiParenNum(koteiStepNo[b.id])), " パーツ"),
-          React.createElement("select", { style: { width: "100%", height: 42, border: "1px solid " + K_LINE, borderRadius: 8, background: K_PARTBG, color: K_PART, fontWeight: 700, fontSize: 14, padding: "0 6px" }, value: b.part, onChange: function (e) { const v = e.target.value; if (v === "__new__") { const nv = window.prompt("新しいパーツ名を入力"); if (nv && nv.trim()) patchBlock(b.id, { part: nv.trim() }); } else { patchBlock(b.id, { part: v }); } } },
+          React.createElement("div", { className: "kfld" }, "PART"),
+          React.createElement("select", { style: { width: "100%", height: 46, border: "1px solid var(--line)", borderRadius: 12, background: "var(--iquta-bg)", color: "var(--iquta)", fontWeight: 700, fontSize: 14, padding: "0 12px" }, value: b.part, onChange: function (e) { const v = e.target.value; if (v === "__new__") { const nv = window.prompt("新しいパーツ名を入力"); if (nv && nv.trim()) patchBlock(b.id, { part: nv.trim() }); } else { patchBlock(b.id, { part: v }); } } },
             React.createElement("option", { value: "" }, "—"),
             (function () { let list = (props.partList || KOTEI_PARTS).concat(props.extraParts || []); if (b.part && list.indexOf(b.part) < 0) list = list.concat([b.part]); return list; })().map(function (p) { return React.createElement("option", { key: p, value: p }, p); }),
             React.createElement("option", { value: "__new__" }, "＋ 新しいパーツ…")
           )
         ),
         React.createElement("div", { className: "kstepAct" },
-          React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "作業内容"),
-          React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "flex-start" } },
-            React.createElement("textarea", { style: { flex: 1, minHeight: 42, border: "1px solid " + K_LINE, borderRadius: 8, padding: 9, fontSize: 15, color: K_INK, resize: "vertical", lineHeight: 1.35, fontFamily: "inherit", boxSizing: "border-box" }, placeholder: b.hint || "手打ち / 下の定型句 / 🎤", value: b.act, onFocus: function () { lastFocusRef.current = b.id; setActiveSugg(b.id); }, onBlur: function () { learn(b.act); setTimeout(function () { setActiveSugg(function (s) { return s === b.id ? null : s; }); }, 200); }, onChange: function (e) { patchBlock(b.id, { act: e.target.value }); } }),
-            React.createElement("button", { style: { width: 42, height: 42, border: "1px solid " + K_LINE, borderRadius: 8, background: recId === b.id ? K_NOTE : "#fff", color: recId === b.id ? "#fff" : "#333", fontSize: 18, flex: "none" }, onClick: function () { startVoice(b.id); } }, "🎤")
+          React.createElement("div", { className: "kfld" }, "作業内容"),
+          React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "flex-start" } },
+            React.createElement("textarea", { className: "kact", style: { flex: 1, minHeight: 46, border: "1px solid var(--line)", borderRadius: 12, background: "var(--paper)", padding: "12px 14px", fontSize: 15, color: "var(--ink)", resize: "vertical", lineHeight: 1.5, fontFamily: "inherit", boxSizing: "border-box" }, placeholder: b.hint || "手打ち / 下の定型句 / 音声", value: b.act, onFocus: function () { lastFocusRef.current = b.id; setActiveSugg(b.id); }, onBlur: function () { learn(b.act); setTimeout(function () { setActiveSugg(function (s) { return s === b.id ? null : s; }); }, 200); }, onChange: function (e) { patchBlock(b.id, { act: e.target.value }); } }),
+            React.createElement("button", { style: { width: 46, height: 46, border: "1px solid " + (recId === b.id ? "var(--aka)" : "var(--line)"), borderRadius: 12, background: recId === b.id ? "var(--aka)" : "#fff", color: recId === b.id ? "#fff" : "var(--iquta)", fontSize: 11, fontWeight: 600, flex: "none", letterSpacing: ".04em" }, onClick: function () { startVoice(b.id); } }, recId === b.id ? "録音中" : "音声")
           ),
           activeSugg === b.id && React.createElement("div", { style: { marginTop: 6 } },
             React.createElement("div", { style: { display: "flex", gap: 5, marginBottom: 6, flexWrap: "wrap" } },
@@ -4152,21 +4155,21 @@ function KoteiEditor(props) {
             ),
             tokenList.length > 0 && React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 5 } },
               tokenList.map(function (p) {
-                return React.createElement("button", { key: p, style: { border: "1px solid " + K_PART, background: "#eef3f4", color: K_PART, borderRadius: 14, padding: "5px 10px", fontSize: 12 }, onMouseDown: function (e) { e.preventDefault(); const v = b.act || ""; let nv; if (v === "" || /[\s、・\n]$/.test(v)) { nv = v + p; } else { const tk = lastKoteiToken(v); nv = v.slice(0, v.length - tk.length) + p; } patchBlock(b.id, { act: nv }); } }, p);
+                return React.createElement("button", { key: p, style: { border: "1px solid var(--line)", background: "var(--iquta-bg)", color: "var(--iquta)", borderRadius: 14, padding: "5px 10px", fontSize: 12 }, onMouseDown: function (e) { e.preventDefault(); const v = b.act || ""; let nv; if (v === "" || /[\s、・\n]$/.test(v)) { nv = v + p; } else { const tk = lastKoteiToken(v); nv = v.slice(0, v.length - tk.length) + p; } patchBlock(b.id, { act: nv }); } }, p);
               })
             )
           )
         ),
         React.createElement("div", { className: "kstepTime" },
-          React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "時間"),
-          React.createElement("input", { style: { width: "100%", height: 42, border: "1px solid " + K_LINE, borderRadius: 8, textAlign: "center", fontSize: 16, color: K_TIME, fontWeight: 700, boxSizing: "border-box" }, inputMode: "numeric", placeholder: "2:10", value: b.time, onFocus: function () { lastFocusRef.current = b.id; }, onChange: function (e) { patchBlock(b.id, { time: e.target.value }); }, onBlur: function () { const s = parseKoteiTime(b.time); if (s) patchBlock(b.id, { time: fmtKoteiTime(s) }); } })
+          React.createElement("div", { className: "kfld" }, "TIME"),
+          React.createElement("input", { className: "ktime", style: { width: "100%", height: 46, border: "1px solid var(--line)", borderRadius: 12, background: "var(--paper)", textAlign: "center", fontSize: 18, color: "var(--iquta)", fontWeight: 700, boxSizing: "border-box", fontVariantNumeric: "tabular-nums", letterSpacing: ".03em" }, inputMode: "numeric", placeholder: "—", value: b.time, onFocus: function () { lastFocusRef.current = b.id; }, onChange: function (e) { patchBlock(b.id, { time: e.target.value }); }, onBlur: function () { const s = parseKoteiTime(b.time); if (s) patchBlock(b.id, { time: fmtKoteiTime(s) }); } })
         )
       ),
-      React.createElement("div", { className: "kstepPad", style: { marginTop: 8 } },
-        React.createElement("input", { style: { width: "100%", height: 38, border: "1px dashed " + K_NOTE, borderRadius: 8, padding: "0 9px", fontSize: 13, color: K_NOTE, background: "#fffafa", boxSizing: "border-box" }, placeholder: "注意点（赤）", value: b.note, onFocus: function () { lastFocusRef.current = b.id; }, onChange: function (e) { patchBlock(b.id, { note: e.target.value }); } })
+      React.createElement("div", { className: "kstepPad", style: { marginTop: 10, paddingLeft: 36 } },
+        React.createElement("input", { style: { width: "100%", height: 36, border: "1px solid #f0dbdb", borderRadius: 10, padding: "0 12px", fontSize: 12, color: "var(--aka)", background: "#fdf6f6", boxSizing: "border-box" }, placeholder: "注意点（赤）", value: b.note, onFocus: function () { lastFocusRef.current = b.id; }, onChange: function (e) { patchBlock(b.id, { note: e.target.value }); } })
       ),
-      b.part && React.createElement("div", { className: "kstepPad", style: { marginTop: 6 } },
-        React.createElement("input", { style: { width: "100%", height: 36, border: "1px solid " + K_LINE, borderRadius: 8, padding: "0 9px", fontSize: 12, color: "#555", boxSizing: "border-box" }, placeholder: "📝 パーツのメモ（印刷でパーツ名の横に出ます）", value: b.gmemo || "", onChange: function (e) { patchBlock(b.id, { gmemo: e.target.value }); } })
+      b.part && React.createElement("div", { className: "kstepPad", style: { marginTop: 8, paddingLeft: 36 } },
+        React.createElement("input", { style: { width: "100%", height: 34, border: "1px solid var(--line)", borderRadius: 10, padding: "0 12px", fontSize: 12, color: "var(--soft)", background: "#fff", boxSizing: "border-box" }, placeholder: "パーツのメモ（印刷でパーツ名の横に出ます）", value: b.gmemo || "", onChange: function (e) { patchBlock(b.id, { gmemo: e.target.value }); } })
       ),
       insertRow(b.id),
       moveButtons(b.id)
@@ -4184,7 +4187,7 @@ function KoteiEditor(props) {
       ),
       React.createElement("div", { style: { width: s.w, height: s.h, border: "1px solid " + K_LINE, borderRadius: 8, overflow: "hidden", background: "#fff", cursor: "pointer", position: "relative", display: "flex", alignItems: "center", justifyContent: "center", color: "#aaa", fontSize: 13 }, onClick: function () { setModalId(b.id); } },
         (function () { const src = b.imgId ? imgData[b.imgId] : b.img; if (src) return React.createElement("img", { src: src, style: { width: "100%", height: "100%", objectFit: "contain" } }); if (b.imgId) return "読み込み中…"; return "タップして描く / 写真"; })(),
-        React.createElement("span", { style: { position: "absolute", right: 6, bottom: 5, background: "rgba(15,61,74,.85)", color: "#fff", fontSize: 10, padding: "2px 7px", borderRadius: 10 } }, "編集")
+        React.createElement("span", { style: { position: "absolute", right: 6, bottom: 5, background: "rgba(30,90,215,.88)", color: "#fff", fontSize: 10, padding: "2px 7px", borderRadius: 10 } }, "編集")
       ),
       React.createElement("input", { style: { width: "100%", border: "none", borderBottom: "1px solid " + K_LINE, background: "transparent", padding: "6px 2px", fontSize: 13, color: "#555", marginTop: 8, boxSizing: "border-box" }, placeholder: "図の説明（任意）", value: b.caption, onChange: function (e) { patchBlock(b.id, { caption: e.target.value }); } }),
       insertRow(b.id),
@@ -4199,15 +4202,15 @@ function KoteiEditor(props) {
       React.createElement("button", { style: Object.assign({}, mvBtn, { color: K_NOTE }), onClick: function () { del(id); } }, "✕")
     );
   }
-  const mvBtn = { width: 30, height: 30, border: "1px solid " + K_LINE, background: "#fff", borderRadius: 7, fontSize: 14, color: "#555" };
+  const mvBtn = { width: 30, height: 30, border: "1px solid var(--line)", background: "#fff", borderRadius: 8, fontSize: 13, color: "var(--faint)" };
 
   function renderSummary() {
     const tot = summary.tot, map = summary.map;
     const rows = Object.keys(map).map(function (p) { const o = map[p]; const pct = tot ? Math.round(o.s / tot * 100) : 0; return { p: p, n: o.n, s: o.s, pct: pct }; });
-    return React.createElement("div", { style: { background: "#fff", borderRadius: 12, padding: 14, marginTop: 16, boxShadow: "0 1px 4px rgba(0,0,0,.06)" } },
+    return React.createElement("div", { style: { background: "#fff", borderRadius: 12, padding: 16, marginTop: 20, border: "1px solid var(--line)" } },
       React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
-        React.createElement("span", { style: { fontSize: 13, fontWeight: 700 } }, "集計"),
-        React.createElement("span", { style: { fontSize: 13 } }, "1着 総工数 ", React.createElement("b", { style: { fontSize: 20, color: K_TIME } }, fmtKoteiTime(tot)))
+        React.createElement("span", { style: { fontSize: 12, fontWeight: 600, letterSpacing: ".2em", color: "var(--iquta)" } }, "集計"),
+        React.createElement("span", { style: { fontSize: 13, color: "var(--soft)" } }, "1着 総工数 ", React.createElement("b", { style: { fontSize: 20, color: "var(--iquta)", fontVariantNumeric: "tabular-nums" } }, fmtKoteiTime(tot)))
       ),
       React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 13 } },
         React.createElement("span", null, "1日実働"),
@@ -4230,8 +4233,8 @@ function KoteiEditor(props) {
       )
     );
   }
-  const thKotei = { border: "1px solid #eee", padding: "6px 8px", background: K_PARTBG, color: K_PART, textAlign: "center" };
-  const tdKotei = { border: "1px solid #eee", padding: "6px 8px", textAlign: "center" };
+  const thKotei = { border: "1px solid var(--line)", padding: "6px 8px", background: "var(--iquta-bg)", color: "var(--iquta)", textAlign: "center" };
+  const tdKotei = { border: "1px solid var(--line)", padding: "6px 8px", textAlign: "center" };
 
   function renderModal() {
     const penBtn = function (c, label) { return React.createElement("button", { style: { width: 30, height: 30, borderRadius: "50%", border: "2px solid #fff", boxShadow: "0 0 0 1px " + K_LINE + (((tool === "ink" && c === K_INK) || (tool === "time" && c === K_TIME) || (tool === "note" && c === K_NOTE)) ? ",0 0 0 3px " + K_PART : ""), background: c, padding: 0 }, onClick: function () { pickTool(c === K_TIME ? "time" : c === K_NOTE ? "note" : "ink"); }, title: label }); };
@@ -4264,55 +4267,63 @@ function KoteiEditor(props) {
   }
   const mTool = { border: "1px solid " + K_LINE, background: "#fff", borderRadius: 8, padding: "9px 12px", fontSize: 14, color: "#333", display: "inline-flex", alignItems: "center", gap: 5 };
   const mToolOn = { background: K_PART, color: "#fff", borderColor: K_PART };
+  const kMetaK = { fontSize: 9, color: "var(--faint)", letterSpacing: ".18em", marginBottom: 4, fontWeight: 600 };
 
   return React.createElement(Shell, null,
     // 工程行のレスポンシブ切替（件1）。インラインstyleではメディアクエリが書けないためhere。
     // 430px以下: 作業内容を全幅1行目に、パーツ・時間を2行目で横2分割。移動ボタン(絶対配置)とは
     // margin-topで重なりを回避。431px以上は既定値＝従来の3列（108px|1fr|78px・右余白76px）のまま。
+    // 工程行のレイアウト（iqutaモック準拠）。PC: 番号24|PART92|作業内容1fr|TIME62。
+    // 430px以下: 番号＋作業内容が上段、下段にPART(1fr)＋TIME(82px)（時間欄が画面内に収まる改修を維持）。
     React.createElement("style", null,
-      ".kstepGrid{display:grid;grid-template-columns:108px 1fr 78px;gap:8px;padding-right:76px}" +
+      ".kstepGrid{display:grid;grid-template-columns:24px 92px 1fr 62px;grid-template-areas:'no part act time';gap:12px;padding-right:76px;align-items:start}" +
+      ".kstepNo{grid-area:no;font-size:12px;color:var(--faint);font-weight:600;line-height:46px;text-align:center;font-variant-numeric:tabular-nums}" +
+      ".kstepPart{grid-area:part}.kstepAct{grid-area:act}.kstepTime{grid-area:time}" +
+      ".kfld{font-size:9px;color:var(--iquta);opacity:.55;letter-spacing:.16em;margin-bottom:6px;font-weight:600}" +
+      ".kact:focus,.ktime:focus{outline:none;border-color:var(--iquta);background:#fff}" +
       ".kstepPad{padding-right:76px}" +
       "@media (max-width:430px){" +
-      ".kstepGrid{grid-template-columns:1fr 1fr;padding-right:0;margin-top:34px}" +
-      ".kstepAct{grid-column:1/-1;grid-row:1}" +
-      ".kstepPart{grid-row:2;grid-column:1}" +
-      ".kstepTime{grid-row:2;grid-column:2}" +
+      ".kstepGrid{grid-template-columns:24px 1fr 82px;grid-template-areas:'no act act' 'sp part time';row-gap:10px;padding-right:0;margin-top:34px}" +
+      ".kstepPart .kfld,.kstepTime .kfld{display:none}" +
       ".kstepPad{padding-right:0}" +
       "}"
     ),
-    React.createElement(Header, { title: "📐 工程分析表", back: props.back }),
+    React.createElement(Header, { sub: "工程分析表", back: props.back }),
     React.createElement(Body, null,
-      React.createElement("div", { style: { background: "#fff", borderRadius: 12, padding: "12px 16px", marginBottom: 14, boxShadow: "0 1px 4px rgba(0,0,0,.06)" } },
-        React.createElement("div", { style: { display: "flex", gap: 12, alignItems: "flex-start" } },
+      // ── topbar（iqutaモック準拠）：品番=青24px、サブ情報、TOTAL/1日目標/工程数のメタ行 ──
+      React.createElement("div", { style: { borderBottom: "1px solid var(--line)", padding: "4px 4px 18px", marginBottom: 4 } },
+        React.createElement("div", { style: { display: "flex", gap: 14, alignItems: "flex-start" } },
           React.createElement("div", { style: { flex: 1, minWidth: 0 } },
-            React.createElement("div", { style: { fontSize: 16, fontWeight: 700 } }, part.partNo + (part.partName ? "　" + part.partName : "")),
-            props.brandName && React.createElement("div", { style: { fontSize: 12, color: "#888", marginTop: 2 } }, "🏷 " + props.brandName),
-            React.createElement("div", { style: { display: "flex", gap: 16, marginTop: 10, flexWrap: "wrap", alignItems: "flex-end" } },
-              React.createElement("div", null, React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "1着 総工数（自動）"), React.createElement("div", { style: { fontSize: 20, fontWeight: 700, color: K_TIME, lineHeight: "38px" } }, fmtKoteiTime(summary.tot))),
-              React.createElement("div", null, React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "1日の目標枚数"), React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 4 } },
-                React.createElement("input", { style: { width: 80, border: "1px solid " + K_LINE, borderRadius: 8, padding: "8px 9px", fontSize: 14, textAlign: "center" }, placeholder: "12〜15", value: targetPerDay, onChange: function (e) { setTargetPerDay(e.target.value); } }),
-                React.createElement("span", { style: { fontSize: 13, color: "#888" } }, "着")
-              )),
-              React.createElement("div", null, React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "運針(3c間)"), React.createElement("input", { style: { width: 90, border: "1px solid " + K_LINE, borderRadius: 8, padding: "8px 9px", fontSize: 14 }, placeholder: "例: 12針", value: unten, onChange: function (e) { setUnten(e.target.value); } })),
-              React.createElement("div", null, React.createElement("div", { style: { fontSize: 10, color: "#999", marginBottom: 3 } }, "糸番手"), React.createElement("input", { style: { width: 90, border: "1px solid " + K_LINE, borderRadius: 8, padding: "8px 9px", fontSize: 14 }, placeholder: "例: #50", value: thread, onChange: function (e) { setThread(e.target.value); } }))
+            React.createElement("div", { style: { fontSize: 24, fontWeight: 400, color: "var(--iquta)", letterSpacing: ".01em" } }, part.partNo),
+            (part.partName || props.brandName) && React.createElement("div", { style: { fontSize: 12, color: "var(--soft)", marginTop: 5, letterSpacing: ".03em" } }, [part.partName, props.brandName].filter(Boolean).join(" · ")),
+            React.createElement("div", { style: { display: "flex", gap: 24, marginTop: 18, flexWrap: "wrap", alignItems: "flex-end" } },
+              React.createElement("div", null, React.createElement("div", { style: kMetaK }, "TOTAL"), React.createElement("div", { style: { fontSize: 20, fontWeight: 700, color: "var(--iquta)", fontVariantNumeric: "tabular-nums", letterSpacing: ".01em" } }, fmtKoteiTime(summary.tot))),
+              React.createElement("div", null, React.createElement("div", { style: kMetaK }, "1日目標"), React.createElement("input", { style: { width: 64, border: "1px solid var(--line)", borderRadius: 8, padding: "6px 8px", fontSize: 16, fontWeight: 700, textAlign: "center", color: "var(--ink)", background: "var(--paper)" }, placeholder: "15", value: targetPerDay, onChange: function (e) { setTargetPerDay(e.target.value); } })),
+              React.createElement("div", null, React.createElement("div", { style: kMetaK }, "工程数"), React.createElement("div", { style: { fontSize: 18, fontWeight: 700, color: "var(--ink)", fontVariantNumeric: "tabular-nums" } }, blocks.filter(function (b) { return b.type === "step"; }).length)),
+              React.createElement("div", null, React.createElement("div", { style: kMetaK }, "運針(3c間)"), React.createElement("input", { style: { width: 80, border: "1px solid var(--line)", borderRadius: 8, padding: "6px 8px", fontSize: 14, background: "var(--paper)", color: "var(--ink)" }, placeholder: "12針", value: unten, onChange: function (e) { setUnten(e.target.value); } })),
+              React.createElement("div", null, React.createElement("div", { style: kMetaK }, "糸番手"), React.createElement("input", { style: { width: 80, border: "1px solid var(--line)", borderRadius: 8, padding: "6px 8px", fontSize: 14, background: "var(--paper)", color: "var(--ink)" }, placeholder: "#50", value: thread, onChange: function (e) { setThread(e.target.value); } }))
             )
           ),
-          React.createElement("button", { style: { flex: "none", width: 92, height: 122, border: "1px dashed " + K_LINE, borderRadius: 8, background: designImgId && imgData[designImgId] ? "#fff" : "#f5f4f0", padding: 0, cursor: "pointer", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }, onClick: function () { setDesignOpen(true); } },
+          React.createElement("button", { style: { flex: "none", width: 84, height: 110, border: "1px dashed var(--line)", borderRadius: 10, background: designImgId && imgData[designImgId] ? "#fff" : "var(--paper)", padding: 0, cursor: "pointer", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }, onClick: function () { setDesignOpen(true); } },
             (designImgId && imgData[designImgId])
               ? React.createElement("img", { src: imgData[designImgId], style: { width: "100%", height: "100%", objectFit: "cover" } })
-              : React.createElement("div", { style: { fontSize: 11, color: "#999", textAlign: "center", lineHeight: 1.5 } }, "＋\nデザイン画"),
-            React.createElement("span", { style: { position: "absolute", right: 4, bottom: 4, background: "rgba(15,61,74,.85)", color: "#fff", fontSize: 9, padding: "1px 6px", borderRadius: 8 } }, designImgId ? "変更" : "追加")
+              : React.createElement("div", { style: { fontSize: 11, color: "var(--faint)", textAlign: "center", lineHeight: 1.5 } }, "＋\nデザイン画"),
+            React.createElement("span", { style: { position: "absolute", right: 4, bottom: 4, background: "rgba(30,90,215,.88)", color: "#fff", fontSize: 9, padding: "1px 6px", borderRadius: 8 } }, designImgId ? "変更" : "追加")
           )
         ),
-        React.createElement("div", { style: { display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-start", marginTop: 4 } },
+        React.createElement("div", { style: { display: "flex", gap: 14, flexWrap: "wrap", alignItems: "flex-start", marginTop: 16 } },
           React.createElement("div", { style: { flex: "1 1 auto", minWidth: 0 } }, renderQtyTable()),
           React.createElement("div", { style: { flex: "1 1 200px", minWidth: 180 } },
-            React.createElement("div", { style: { fontSize: 11, color: "#999", marginBottom: 4 } }, "全体の注意事項・コメント"),
-            React.createElement("textarea", { style: { width: "100%", minHeight: 96, border: "1px solid " + K_LINE, borderRadius: 8, padding: 9, fontSize: 13, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box", lineHeight: 1.5, fontWeight: 700, color: K_NOTE }, placeholder: "全体への注意点・申し送りなど", value: headNote, onChange: function (e) { setHeadNote(e.target.value); } })
+            React.createElement("div", { style: kMetaK }, "全体の注意事項"),
+            React.createElement("textarea", { style: { width: "100%", minHeight: 96, border: "1px solid #f0dbdb", borderRadius: 10, padding: 10, fontSize: 13, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box", lineHeight: 1.5, fontWeight: 700, color: "var(--aka)", background: "#fdf6f6" }, placeholder: "全体への注意点・申し送りなど", value: headNote, onChange: function (e) { setHeadNote(e.target.value); } })
           )
         )
       ),
-      React.createElement("div", { style: { background: "#fbfaf6", borderRadius: 10, padding: "4px 12px", boxShadow: "0 1px 4px rgba(0,0,0,.06)" } },
+      React.createElement("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "16px 6px 10px" } },
+        React.createElement("div", { style: { fontSize: 12, letterSpacing: ".2em", color: "var(--iquta)", fontWeight: 600 } }, "工程を組む"),
+        React.createElement("div", { style: { fontSize: 11, color: "var(--faint)", letterSpacing: ".04em" } }, blocks.filter(function (b) { return b.type === "step"; }).length + " 工程")
+      ),
+      React.createElement("div", { style: { padding: "0 2px" } },
         blocks.map(function (b) { return b.type === "step" ? renderStep(b) : renderSketch(b); })
       ),
       // 追加ボタンは各行に付けたため末尾の行は撤去（重複排除）。
@@ -4322,13 +4333,13 @@ function KoteiEditor(props) {
         React.createElement("button", { style: addBtn, onClick: function () { addSketch(); } }, "＋ 図・写真")
       ),
       renderSummary(),
-      React.createElement("button", { style: { width: "100%", background: K_PART, color: "#fff", border: "none", borderRadius: 8, padding: 14, fontSize: 15, fontWeight: 700, marginTop: 16 }, onClick: handleSave }, "保存する"),
-      React.createElement("button", { style: { width: "100%", background: "#14555a", color: "#fff", border: "none", borderRadius: 8, padding: 13, fontSize: 14, fontWeight: 700, marginTop: 8 }, onClick: function () { if (!uploading) doPrint(); } }, uploading ? "図を準備中…" : "🖨 A4印刷 / PDF保存"),
-      (sheet && sheet.id) && React.createElement("button", { style: { width: "100%", background: "#fff0f0", color: "#c00", border: "none", borderRadius: 8, padding: 12, fontSize: 13, fontWeight: 700, marginTop: 8 }, onClick: function () { if (window.confirm("この工程表を削除しますか？")) { props.onDelete(sheet.id); props.back(); } } }, "削除する")
+      React.createElement("button", { style: { width: "100%", background: "var(--iquta)", color: "#fff", border: "none", borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 700, marginTop: 18 }, onClick: handleSave }, "保存する"),
+      React.createElement("button", { style: { width: "100%", background: "#fff", color: "var(--iquta)", border: "1px solid var(--line)", borderRadius: 12, padding: 13, fontSize: 14, fontWeight: 700, marginTop: 8 }, onClick: function () { if (!uploading) doPrint(); } }, uploading ? "図を準備中…" : "A4印刷 / PDF保存"),
+      (sheet && sheet.id) && React.createElement("button", { style: { width: "100%", background: "none", color: "var(--aka)", border: "none", borderRadius: 12, padding: 12, fontSize: 13, fontWeight: 700, marginTop: 8 }, onClick: function () { if (window.confirm("この工程表を削除しますか？")) { props.onDelete(sheet.id); props.back(); } } }, "削除する")
     ),
     modalId != null && renderModal(),
     designOpen && renderDesignModal(),
     React.createElement(props.SI)
   );
 }
-const addBtn = { flex: 1, border: "2px dashed " + K_PART, background: "#fff", color: K_PART, borderRadius: 10, padding: 14, fontSize: 15, fontWeight: 700 };
+const addBtn = { flex: 1, border: "1px solid var(--line)", background: "#fff", color: "var(--iquta)", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 600 };
