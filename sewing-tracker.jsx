@@ -1431,12 +1431,12 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const toggleOpen = (key) => set({ kEntryOpen: Object.assign({}, ui.kEntryOpen, { [key]: !ui.kEntryOpen[key] }) });
     // 工程1行（番号＋作業内容＋時間＋枚数）
     const stepRow = (s) => React.createElement("div", { key: s.id, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6 } },
-      React.createElement("div", { style: { width: 26, textAlign: "center", fontSize: 15, fontWeight: 700, color: "#0f3d4a", flex: "none" } }, koteiParenNum(stepNo[s.id])),
+      React.createElement("div", { style: { width: 26, textAlign: "center", fontSize: 12, fontWeight: 600, color: "var(--faint)", flex: "none", fontVariantNumeric: "tabular-nums" } }, stepNo[s.id]),
       React.createElement("div", { style: { flex: 1, minWidth: 0 } },
-        React.createElement("div", { style: { fontSize: 13, color: "#333", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, s.act || "（無題の工程）"),
-        React.createElement("div", { style: { fontSize: 10, color: "#aaa" } }, (s.part ? s.part + "　" : "") + fmtKoteiTime(parseKoteiTime(s.time)))
+        React.createElement("div", { style: { fontSize: 13, color: "var(--ink)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, s.act || "（無題の工程）"),
+        React.createElement("div", { style: { fontSize: 10, color: "var(--faint)" } }, (s.part ? s.part + "　" : "") + fmtKoteiTime(parseKoteiTime(s.time)))
       ),
-      React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid #d9d5c8", borderRadius: 8, padding: "8px 4px", fontSize: 15, background: "#fff" }, type: "number", min: "0", placeholder: "枚", value: (ui.kEntryQty || {})[s.id] || "", onChange: (e) => setKQ({ [s.id]: e.target.value }) })
+      React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 4px", fontSize: 15, background: "var(--paper)", color: "var(--iquta)", fontWeight: 700 }, type: "number", min: "0", placeholder: "枚", value: (ui.kEntryQty || {})[s.id] || "", onChange: (e) => setKQ({ [s.id]: e.target.value }) })
     );
     const hasQty = Object.keys(ui.kEntryQty || {}).some((id) => parseFloat((ui.kEntryQty || {})[id]) > 0);
     const ready = f.memberId && f.partId && ((f.hours && parseFloat(f.hours) > 0) || hasQty);
@@ -1503,28 +1503,63 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                   })
                 ),
                 f.partId && !selSheet && React.createElement("div", { style: { fontSize: 11, color: "#bbb", margin: "4px 0 8px" } }, "この品番は工程表がないため、時間のみ記録します"),
-                f.partId && React.createElement("button", { style: Object.assign({}, st.primaryBtn, { background: "#0f3d4a", opacity: ready ? 1 : 0.35 }), disabled: !ready, onClick: saveEntry }, "記録する")
+                f.partId && React.createElement("button", { style: Object.assign({}, st.primaryBtn, { opacity: ready ? 1 : 0.35 }), disabled: !ready, onClick: saveEntry }, "記録する")
               )
             ),
 
         f.memberId && (myRecs.length > 0 || myKotei.length > 0) && React.createElement("div", null,
-          React.createElement(SectionLabel, null, "本日の記録 (" + f.date + ")"),
-          React.createElement("div", { style: { display: "flex", gap: 10, marginBottom: 12 } },
-            React.createElement("div", { style: { flex: 1, background: "#1a1a1a", color: "#fff", borderRadius: 12, padding: "14px 16px" } },
-              React.createElement("div", { style: { fontSize: 11, opacity: 0.6, marginBottom: 4 } }, "時間"),
-              React.createElement("div", { style: { fontSize: 22, fontWeight: 700 } }, dayHours.toFixed(1) + "h")
-            ),
-            React.createElement("div", { style: { flex: 1, background: "#0f3d4a", color: "#fff", borderRadius: 12, padding: "14px 16px" } },
-              React.createElement("div", { style: { fontSize: 11, opacity: 0.65, marginBottom: 4 } }, "生産価値"),
-              React.createElement("div", { style: { fontSize: 22, fontWeight: 700 } }, "¥" + Math.round(dayValue).toLocaleString())
-            )
+          // ── 作業記録ヒーロー（iqutaモック）: 今日の生産価値を青の大きな数字で主役に ──
+          React.createElement("div", { style: { textAlign: "center", padding: "24px 8px 4px" } },
+            myMemberName && React.createElement("div", { style: { fontSize: 13, color: "var(--soft)", letterSpacing: ".04em" } }, myMemberName + "さん"),
+            React.createElement("div", { style: { fontSize: 10, color: "var(--faint)", letterSpacing: ".2em", marginTop: 14 } }, "今日の生産価値"),
+            React.createElement("div", { style: { fontSize: 46, fontWeight: 800, color: "var(--iquta)", letterSpacing: "-.02em", lineHeight: 1.05, marginTop: 4, fontVariantNumeric: "tabular-nums" } }, "¥" + Math.round(dayValue).toLocaleString()),
+            React.createElement("div", { style: { fontSize: 13, color: "var(--soft)", marginTop: 10, letterSpacing: ".02em" } }, myKotei.reduce(function (a, r) { return a + (r.qty || 0); }, 0) + "枚 ・ " + dayHours.toFixed(1) + "時間"),
+            dayValue > 0 && React.createElement("div", { style: { display: "inline-block", marginTop: 14, fontSize: 13, fontWeight: 700, color: "var(--iquta)", background: "var(--iquta-bg)", borderRadius: 20, padding: "7px 16px", letterSpacing: ".03em" } }, "その調子！")
           ),
+          // ── 襞グラフ（直近1週間・金額/枚数トグル）──
+          (function () {
+            const mode = ui.heroMode === "qty" ? "qty" : "yen";
+            const week = [];
+            for (let i = 6; i >= 0; i--) {
+              const d = new Date((f.date || today()) + "T00:00:00");
+              d.setDate(d.getDate() - i);
+              const ds = d.toISOString().slice(0, 10);
+              const recs = (data.koteiRecords || []).filter(function (r) { return r.memberId === f.memberId && r.date === ds; });
+              week.push({ ds: ds, label: i === 0 ? (ds === today() ? "今日" : ds.slice(5).replace("-", "/")) : "日月火水木金土"[d.getDay()],
+                yen: recs.reduce(function (a, r) { return a + koteiValue(r, data.parts); }, 0),
+                qty: recs.reduce(function (a, r) { return a + (r.qty || 0); }, 0) });
+            }
+            const maxV = Math.max.apply(null, week.map(function (w) { return mode === "yen" ? w.yen : w.qty; }).concat([1]));
+            const togBtn = function (on) { return { border: "none", background: on ? "#fff" : "none", color: on ? "var(--iquta)" : "var(--soft)", fontSize: 12, fontWeight: 700, padding: "5px 13px", borderRadius: 7, cursor: "pointer", boxShadow: on ? "0 1px 3px rgba(43,92,230,.12)" : "none" }; };
+            return React.createElement("div", { style: { padding: "8px 4px 6px", marginBottom: 10 } },
+              React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 } },
+                React.createElement("div", { style: { fontSize: 10, color: "var(--faint)", letterSpacing: ".2em" } }, "直近1週間"),
+                React.createElement("div", { style: { display: "inline-flex", background: "var(--iquta-bg)", borderRadius: 9, padding: 2 } },
+                  React.createElement("button", { style: togBtn(mode === "yen"), onClick: function () { set({ heroMode: "yen" }); } }, "金額"),
+                  React.createElement("button", { style: togBtn(mode === "qty"), onClick: function () { set({ heroMode: "qty" }); } }, "枚数")
+                )
+              ),
+              React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 6, height: 116 } },
+                week.map(function (w, i) {
+                  const v = mode === "yen" ? w.yen : w.qty;
+                  const isToday = i === 6;
+                  const h = Math.max(2, Math.round(92 * v / maxV));
+                  const vLabel = mode === "yen" ? (v >= 1000 ? "¥" + (Math.round(v / 100) / 10) + "k" : (v ? "¥" + Math.round(v) : "")) : (v || "");
+                  return React.createElement("div", { key: w.ds, style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" } },
+                    React.createElement("div", { style: { fontSize: 9, color: isToday ? "var(--iquta)" : "var(--faint)", fontWeight: isToday ? 700 : 400, marginBottom: 4, whiteSpace: "nowrap" } }, vLabel),
+                    React.createElement("div", { style: { width: "100%", maxWidth: 15, height: h, borderRadius: "4px 4px 0 0", background: isToday ? "linear-gradient(180deg,#4f7ef0,var(--iquta))" : "#dbe4fb" } }),
+                    React.createElement("div", { style: { fontSize: 11, color: isToday ? "var(--iquta)" : "var(--faint)", fontWeight: isToday ? 700 : 400, marginTop: 8 } }, w.label)
+                  );
+                })
+              )
+            );
+          })(),
           myRecs.length > 0 && React.createElement("div", null,
-            React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginBottom: 6 } }, "⏱ 時間"),
+            React.createElement("div", { style: { fontSize: 10, color: "var(--faint)", letterSpacing: ".14em", marginBottom: 6, fontWeight: 600 } }, "時間"),
             myRecs.map((r) => { const part = data.parts.find((x) => x.id === r.partId); return React.createElement("div", { key: r.id, style: st.recRow }, React.createElement("span", { style: { fontSize: 13, fontWeight: 700, flex: 1 } }, part ? part.partNo : "?"), React.createElement("span", { style: { fontSize: 13, color: "#555" } }, r.hours + "h"), React.createElement("button", { style: st.deleteBtn, onClick: () => deleteRecord(r.id) }, "✕")); })
           ),
           myKotei.length > 0 && React.createElement("div", { style: { marginTop: 10 } },
-            React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginBottom: 6 } }, "📐 生産価値"),
+            React.createElement("div", { style: { fontSize: 10, color: "var(--faint)", letterSpacing: ".14em", marginBottom: 6, fontWeight: 600 } }, "生産価値"),
             myKotei.slice().sort((a, b) => koteiValue(b, data.parts) - koteiValue(a, data.parts)).map((r) => {
               const part = data.parts.find((p) => p.id === r.partId);
               return React.createElement("div", { key: r.id, style: Object.assign({}, st.recRow, { alignItems: "flex-start" }) },
@@ -1532,7 +1567,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                   React.createElement("div", { style: { fontSize: 13, fontWeight: 700 } }, (part ? part.partNo : "?") + "　" + (r.stepPart || "")),
                   React.createElement("div", { style: { fontSize: 12, color: "#777", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, (r.stepAct || "") + " ×" + r.qty + "枚")
                 ),
-                React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: "#0f3d4a", whiteSpace: "nowrap" } }, "¥" + Math.round(koteiValue(r, data.parts)).toLocaleString()),
+                React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: "var(--iquta)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" } }, "¥" + Math.round(koteiValue(r, data.parts)).toLocaleString()),
                 React.createElement("button", { style: st.deleteBtn, onClick: () => deleteKoteiRecord(r.id) }, "✕")
               );
             })
