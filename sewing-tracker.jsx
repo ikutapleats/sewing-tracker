@@ -3538,11 +3538,13 @@ function KoteiMemoImport(props) {
   const part = props.part, SI = props.SI;
   const [text, setText] = useState("");
   const rows = parseKoteiMemo(text);
-  let tot = 0, noTime = 0, badTime = 0;
+  let tot = 0, noTime = 0, badTime = 0, unsure = 0;
   rows.forEach(function (r) {
     const s = parseKoteiTime(r.time);
     tot += s || 0; // 読めないコロン表記はNaNになるためガード
     if (!r.time) noTime++; else if (!s) badTime++;
+    // 書き起こしルールでAIは読めない字を「？」と書くため、要見直し行として数える
+    if ((r.part + r.act + r.time + r.note).indexOf("？") >= 0 || (r.part + r.act + r.time + r.note).indexOf("?") >= 0) unsure++;
   });
   return React.createElement(Shell, null,
     React.createElement(Header, { title: "メモから取り込む", back: props.back }),
@@ -3568,7 +3570,8 @@ function KoteiMemoImport(props) {
           React.createElement("span", null, rows.length + "工程"),
           React.createElement("span", { style: { color: K_TIME, fontWeight: 700 } }, "合計 " + fmtKoteiTime(tot)),
           noTime > 0 && React.createElement("span", { style: { color: "#aaa" } }, "時間未記入 " + noTime + "件"),
-          badTime > 0 && React.createElement("span", { style: { color: K_NOTE, fontWeight: 700 } }, "読めない時間 " + badTime + "件")
+          badTime > 0 && React.createElement("span", { style: { color: K_NOTE, fontWeight: 700 } }, "読めない時間 " + badTime + "件"),
+          unsure > 0 && React.createElement("span", { style: { color: "#c25000", fontWeight: 700 } }, "「？」あり " + unsure + "件")
         ),
         React.createElement("div", { style: Object.assign({}, st.card, { padding: "6px 12px", marginBottom: 12 }) },
           rows.map(function (r, i) {
