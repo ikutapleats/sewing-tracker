@@ -3972,10 +3972,14 @@ function KoteiEditor(props) {
     return { tot: tot, map: map };
   }, [blocks]);
 
-  function handleSave() {
-    const rec = { id: (sheet && sheet.id) || genId(), partId: part.id, needle: needle, unten: unten, thread: thread, headNote: headNote, targetPerDay: targetPerDay, workMin: workMin, sizes: sizes, colors: colors, blocks: blocks, totalSec: summary.tot, designImgId: designImgId, updatedAt: today() };
-    props.onSave(rec); props.back();
+  function buildRec() {
+    return { id: (sheet && sheet.id) || genId(), partId: part.id, needle: needle, unten: unten, thread: thread, headNote: headNote, targetPerDay: targetPerDay, workMin: workMin, sizes: sizes, colors: colors, blocks: blocks, totalSec: summary.tot, designImgId: designImgId, updatedAt: today() };
   }
+  // 最下部: 保存して閉じる（従来どおり一覧へ戻る）
+  function handleSave() { props.onSave(buildRec()); props.back(); }
+  // ヘッダー: 一時保存（保存して画面に留まり、入力を続けられる）。
+  // 保存後は未保存判定の基準を現在値に更新（この後ロゴでホームへ移動しても余計な確認を出さない）。
+  function handleSaveStay() { props.onSave(buildRec()); initialSnap.current = editSnap(); }
 
   // 未保存判定（既存stateのスナップショット比較）: 開いた時点の編集対象を丸ごと控えておき、
   // ヘッダーのロゴ（ホームへ）押下時に現在値と比較する。新しい状態管理は増やさない。
@@ -4432,7 +4436,7 @@ function KoteiEditor(props) {
     // ヘッダー常設の保存/印刷は最下部のボタンと同じ関数（handleSave/doPrint）を呼ぶ（入口2つ・処理1つ）
     React.createElement(Header, { sub: "工程分析表", back: props.back, dirty: isDirty, actions: [
       { label: uploading ? "…" : "印刷", onClick: function () { if (!uploading) doPrint(); } },
-      { label: "保存", onClick: handleSave, primary: true },
+      { label: "保存", onClick: handleSaveStay, primary: true },
     ] }),
     React.createElement(Body, null,
       // ── topbar（iqutaモック準拠）：品番=青24px、サブ情報、TOTAL/1日目標/工程数のメタ行 ──
@@ -4478,7 +4482,7 @@ function KoteiEditor(props) {
         React.createElement("button", { style: addBtn, onClick: function () { addSketch(); } }, "＋ 図・写真")
       ),
       renderSummary(),
-      React.createElement("button", { style: { width: "100%", background: "var(--iquta)", color: "#fff", border: "none", borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 700, marginTop: 18 }, onClick: handleSave }, "保存する"),
+      React.createElement("button", { style: { width: "100%", background: "var(--iquta)", color: "#fff", border: "none", borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 700, marginTop: 18 }, onClick: handleSave }, "保存して閉じる"),
       React.createElement("button", { style: { width: "100%", background: "#fff", color: "var(--iquta)", border: "1px solid var(--line)", borderRadius: 12, padding: 13, fontSize: 14, fontWeight: 700, marginTop: 8 }, onClick: function () { if (!uploading) doPrint(); } }, uploading ? "図を準備中…" : "A4印刷 / PDF保存"),
       (sheet && sheet.id) && React.createElement("button", { style: { width: "100%", background: "none", color: "var(--aka)", border: "none", borderRadius: 12, padding: 12, fontSize: 13, fontWeight: 700, marginTop: 8 }, onClick: function () { if (window.confirm("この工程表を削除しますか？")) { props.onDelete(sheet.id); props.back(); } } }, "削除する")
     ),
