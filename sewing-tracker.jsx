@@ -1536,7 +1536,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
               )
             ),
 
-        f.memberId && (myRecs.length > 0 || myKotei.length > 0) && React.createElement("div", null,
+        // 名前を選んだら常に表示（記録0でも昨日までの1週間が見え、"昨日の自分"を意識してから仕事に入れる）
+        f.memberId && React.createElement("div", null,
           // ── 作業記録ヒーロー（iqutaモック）: 今日の生産価値を青の大きな数字で主役に ──
           React.createElement("div", { style: { textAlign: "center", padding: "24px 8px 4px" } },
             myMemberName && React.createElement("div", { style: { fontSize: 13, color: "var(--soft)", letterSpacing: ".04em" } }, myMemberName + "さん"),
