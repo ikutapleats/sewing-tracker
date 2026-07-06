@@ -1684,12 +1684,39 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                       React.createElement("span", { style: { width: 14, textAlign: "center", color: "#ccc" } }, exp ? "▼" : "▶")
                     )
                   ),
-                  exp && React.createElement("div", { style: { background: "#fff", borderRadius: "0 0 12px 12px", margin: "0 0 10px", padding: "2px 14px 10px", boxShadow: "0 1px 4px rgba(0,0,0,.06)" } },
-                    subKeys.map((sk) => React.createElement("div", { key: sk, style: { display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderTop: "1px solid #f0eeea" } },
-                      React.createElement("div", { style: { flex: 1, minWidth: 0, fontSize: 13, color: "#444", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, secLabel(sk)),
-                      React.createElement("div", { style: { width: 56, textAlign: "right", fontSize: 12, color: "#888" } }, o.sub[sk].hours.toFixed(1) + "h"),
-                      React.createElement("div", { style: { width: 90, textAlign: "right", fontSize: 13, fontWeight: 700, color: "var(--iquta)", fontVariantNumeric: "tabular-nums" } }, yen(o.sub[sk].value))
-                    ))
+                  exp && React.createElement("div", { style: { background: "#fff", borderRadius: "0 0 12px 12px", margin: "0 0 10px", padding: "2px 14px 10px", border: "1px solid var(--line-soft)", borderTop: "none" } },
+                    subKeys.map((sk) => {
+                      // ── 3階層目（工程明細）: 品番行をタップで開閉。既存koteiRecordsを絞るだけ・金額はkoteiValue流用 ──
+                      const dkey = pk + "|" + sk;
+                      const dexp = !!ui.vvExpanded[dkey];
+                      const details = kers.filter((r) => primKey(r) === pk && secKey(r) === sk).slice().sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+                      // 品番でグループ化（人ごと/品番ごとの軸では自ずと1品番。日ごと軸では複数品番になり得る）
+                      const dgroups = []; const gIdx = {};
+                      details.forEach((r) => { const k = r.partId || "?"; if (!(k in gIdx)) { gIdx[k] = dgroups.length; dgroups.push({ partId: k, rows: [] }); } dgroups[gIdx[k]].rows.push(r); });
+                      return React.createElement("div", { key: sk },
+                        React.createElement("button", { style: { width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 0", background: "none", border: "none", borderTop: "1px solid var(--line-soft)", cursor: "pointer", textAlign: "left" }, onClick: () => toggle(dkey) },
+                          React.createElement("div", { style: { flex: 1, minWidth: 0, fontSize: 13, color: "var(--ink)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, secLabel(sk)),
+                          React.createElement("div", { style: { width: 56, textAlign: "right", fontSize: 12, color: "var(--soft)" } }, o.sub[sk].hours.toFixed(1) + "h"),
+                          React.createElement("div", { style: { width: 90, textAlign: "right", fontSize: 13, fontWeight: 700, color: "var(--iquta)", fontVariantNumeric: "tabular-nums" } }, yen(o.sub[sk].value)),
+                          React.createElement("span", { style: { width: 14, textAlign: "center", color: "var(--faint)", fontSize: 11 } }, dexp ? "▼" : "▶")
+                        ),
+                        dexp && React.createElement("div", { style: { padding: "0 0 10px 10px" } },
+                          details.length === 0
+                            ? React.createElement("div", { style: { fontSize: 12, color: "var(--soft)", background: "var(--iquta-bg)", borderRadius: 8, padding: "9px 12px", lineHeight: 1.6 } }, "この品番は工程表が未登録のため、生産価値が計算されていません（時間のみの記録です）")
+                            : dgroups.map((g, gi) => React.createElement("div", { key: gi },
+                                (dgroups.length > 1 || ui.vvAxis === "date") && React.createElement("div", { style: { fontSize: 10.5, color: "var(--iquta)", fontWeight: 700, letterSpacing: ".04em", padding: "5px 0 2px" } }, partLabel(g.partId)),
+                                g.rows.map((r) => React.createElement("div", { key: r.id, style: { display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderTop: "1px solid var(--line-soft)" } },
+                                  React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+                                    React.createElement("div", { style: { fontSize: 12.5, color: "var(--ink)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, r.stepAct || "（無題の工程）"),
+                                    (r.stepPart || ui.vvPeriod === "month") && React.createElement("div", { style: { fontSize: 10, color: "var(--faint)" } }, (ui.vvPeriod === "month" && r.date ? r.date.slice(5).replace("-", "/") + "　" : "") + (r.stepPart || ""))
+                                  ),
+                                  React.createElement("div", { style: { width: 52, textAlign: "right", fontSize: 12, color: "var(--soft)", fontVariantNumeric: "tabular-nums", flex: "none" } }, "×" + r.qty + "枚"),
+                                  React.createElement("div", { style: { width: 90, textAlign: "right", fontSize: 12.5, fontWeight: 700, color: "var(--iquta)", fontVariantNumeric: "tabular-nums", flex: "none" } }, yen(koteiValue(r, data.parts)))
+                                ))
+                              ))
+                        )
+                      );
+                    })
                   )
                 );
               })
