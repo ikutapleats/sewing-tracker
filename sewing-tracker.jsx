@@ -203,6 +203,28 @@ function koteiValue(rec, parts) {
   return (rec.stepSec || 0) * (rec.qty || 0) * rate;
 }
 
+// 金額のカウントアップ演出（表示のみ）。値が変わったら前の値からスーッと伸びる。
+function CountUpYen(p) {
+  const [disp, setDisp] = useState(p.value);
+  const prev = useRef(p.value);
+  useEffect(() => {
+    const from = prev.current, to = p.value;
+    prev.current = to;
+    if (from === to) return;
+    const t0 = performance.now(), dur = 700;
+    let raf;
+    const tick = (t) => {
+      const k = Math.min(1, (t - t0) / dur);
+      const e = 1 - Math.pow(1 - k, 3);
+      setDisp(from + (to - from) * e);
+      if (k < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [p.value]);
+  return "¥" + Math.round(disp).toLocaleString();
+}
+
 function App() {
   const [data, setData] = useState(EMPTY_DATA);
   const [ui, setUi] = useState(INIT_UI);
@@ -595,6 +617,11 @@ function App() {
     if (newRecord) ps.push(gasAddRecord(newRecord));
     if (koteiRecs.length) ps.push(gasAddKoteiRecords(koteiRecs));
     Promise.all(ps).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
+    // 記録後はヒーロー（今日の生産価値）へ滑らかにスクロール。フォームが畳まれた後の位置に合わせる
+    setTimeout(() => {
+      const el = document.getElementById("entry-hero");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
   }
 
   function addMember() {
@@ -1582,10 +1609,10 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         // 名前を選んだら常に表示（記録0でも昨日までの1週間が見え、"昨日の自分"を意識してから仕事に入れる）
         f.memberId && React.createElement("div", null,
           // ── 作業記録ヒーロー（iqutaモック）: 今日の生産価値を青の大きな数字で主役に ──
-          React.createElement("div", { style: { textAlign: "center", padding: "24px 8px 4px" } },
+          React.createElement("div", { id: "entry-hero", style: { textAlign: "center", padding: "24px 8px 4px", scrollMarginTop: 64 } },
             myMemberName && React.createElement("div", { style: { fontSize: 13, color: "var(--soft)", letterSpacing: ".04em" } }, myMemberName + "さん"),
             React.createElement("div", { style: { fontSize: 10, color: "var(--faint)", letterSpacing: ".2em", marginTop: 14 } }, "今日の生産価値"),
-            React.createElement("div", { style: { fontSize: 46, fontWeight: 800, color: "var(--iquta)", letterSpacing: "-.02em", lineHeight: 1.05, marginTop: 4, fontVariantNumeric: "tabular-nums" } }, "¥" + Math.round(dayValue).toLocaleString()),
+            React.createElement("div", { style: { fontSize: 46, fontWeight: 800, color: "var(--iquta)", letterSpacing: "-.02em", lineHeight: 1.05, marginTop: 4, fontVariantNumeric: "tabular-nums" } }, React.createElement(CountUpYen, { value: dayValue })),
             React.createElement("div", { style: { fontSize: 13, color: "var(--soft)", marginTop: 10, letterSpacing: ".02em" } }, myKotei.reduce(function (a, r) { return a + (r.qty || 0); }, 0) + "枚 ・ " + dayHours.toFixed(1) + "時間"),
             dayValue > 0 && React.createElement("div", { style: { display: "inline-block", marginTop: 14, fontSize: 13, fontWeight: 700, color: "var(--iquta)", background: "var(--iquta-bg)", borderRadius: 20, padding: "7px 16px", letterSpacing: ".03em" } }, "その調子！")
           ),
