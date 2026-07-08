@@ -84,14 +84,27 @@ async function gasSave(data) {
   if (result.status !== "saved") throw new Error("save failed: " + JSON.stringify(result));
 }
 
-async function gasAddRecord(record) {
-  const res = await fetch(GAS_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain" },
-    body: JSON.stringify({ action: "addRecord", record }),
-  });
+// ── 保存失敗の安全網 ──
+// 失敗した書き込みペイロードを端末(localStorage)に保持し（リロードしても消えない）、
+// 「再試行」ボタン・起動時の自動再送で再送できるようにする。
+// GASは応答が遅い/失敗に見えても書き込み自体は成功していることがあるため、再送で
+// シートに二重行ができ得るが、読み込み時のID重複排除で画面・集計は正しく保たれる。
+const PENDING_KEY = "iquta-pending-saves";
+function loadPending() { try { return JSON.parse(localStorage.getItem(PENDING_KEY) || "[]"); } catch (e) { return []; } }
+function storePending(list) { try { localStorage.setItem(PENDING_KEY, JSON.stringify(list)); } catch (e) {} }
+function pushPending(body) { const l = loadPending(); l.push({ body: body, ts: Date.now() }); storePending(l); try { window.dispatchEvent(new CustomEvent("iquta-pending")); } catch (e) {} }
+async function gasPostRaw(body) {
+  const res = await fetch(GAS_URL, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(body) });
   const result = await res.json();
-  if (result.status !== "saved") throw new Error("addRecord failed");
+  if (result.status !== "saved") throw new Error((body.action || "save") + " failed: " + JSON.stringify(result));
+  return result;
+}
+// 同一IDのレコードを1件に（再送や過去の二重送信でシートに重複行があっても集計を壊さない）
+function dedupById(arr) { const seen = {}; return (arr || []).filter(function (r) { if (!r || !r.id) return true; if (seen[r.id]) return false; seen[r.id] = true; return true; }); }
+
+async function gasAddRecord(record) {
+  const body = { action: "addRecord", record: record };
+  try { await gasPostRaw(body); } catch (e) { pushPending(body); throw e; }
 }
 
 async function gasDeleteRecord(recordId) {
@@ -105,23 +118,13 @@ async function gasDeleteRecord(recordId) {
 }
 
 async function gasAddQtyRecord(record) {
-  const res = await fetch(GAS_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain" },
-    body: JSON.stringify({ action: "addQtyRecord", record }),
-  });
-  const result = await res.json();
-  if (result.status !== "saved") throw new Error("addQtyRecord failed");
+  const body = { action: "addQtyRecord", record: record };
+  try { await gasPostRaw(body); } catch (e) { pushPending(body); throw e; }
 }
 
 async function gasAddKoteiRecords(records) {
-  const res = await fetch(GAS_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain" },
-    body: JSON.stringify({ action: "addKoteiRecords", records }),
-  });
-  const result = await res.json();
-  if (result.status !== "saved") throw new Error("addKoteiRecords failed: " + JSON.stringify(result));
+  const body = { action: "addKoteiRecords", records: records };
+  try { await gasPostRaw(body); } catch (e) { pushPending(body); throw e; }
 }
 
 async function gasAddPart(part) {
@@ -229,6 +232,10 @@ function App() {
       if (!Array.isArray(merged.saidanReports)) merged.saidanReports = [];
       if (!Array.isArray(merged.koteiSheets)) merged.koteiSheets = [];
       if (!Array.isArray(merged.koteiRecords)) merged.koteiRecords = [];
+      // 二重送信・再送でシートに重複行があっても、画面と集計はIDで1件に正規化する
+      merged.records = dedupById(merged.records);
+      merged.qtyRecords = dedupById(merged.qtyRecords);
+      merged.koteiRecords = dedupById(merged.koteiRecords);
       setData(merged);
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
@@ -255,9 +262,43 @@ function App() {
       if (!Array.isArray(merged.saidanReports)) merged.saidanReports = [];
       if (!Array.isArray(merged.koteiSheets)) merged.koteiSheets = [];
       if (!Array.isArray(merged.koteiRecords)) merged.koteiRecords = [];
+      // 二重送信・再送でシートに重複行があっても、画面と集計はIDで1件に正規化する
+      merged.records = dedupById(merged.records);
+      merged.qtyRecords = dedupById(merged.qtyRecords);
+      merged.koteiRecords = dedupById(merged.koteiRecords);
       setData(merged);
     } catch (e) {}
   }, []);
+
+  // ── 未送信キュー（保存失敗の安全網）──
+  // 失敗ペイロードは localStorage に残っているので、リロードしても消えない。
+  const [pendingN, setPendingN] = useState(loadPending().length);
+  useEffect(() => {
+    const onPending = () => setPendingN(loadPending().length);
+    window.addEventListener("iquta-pending", onPending);
+    return () => window.removeEventListener("iquta-pending", onPending);
+  }, []);
+  const retryingRef = useRef(false); // 再送の多重実行防止（連打・自動再送との競合で二重送信しない）
+  const retryPending = useCallback(async () => {
+    if (retryingRef.current) return;
+    retryingRef.current = true;
+    try {
+      const list = loadPending();
+      if (list.length === 0) { setSaveError(false); return; }
+      setSaving(true); setSaveError(false);
+      const remain = [];
+      for (const item of list) {
+        try { await gasPostRaw(item.body); } catch (e) { console.error("resend failed", e); remain.push(item); }
+      }
+      storePending(remain);
+      setPendingN(remain.length);
+      setSaving(false);
+      if (remain.length > 0) setSaveError(true);
+      else reloadData(); // 全件送れたらサーバー状態を取り直す（万一の二重行はID重複排除で吸収）
+    } finally { retryingRef.current = false; }
+  }, [reloadData]);
+  // 起動時: 前回失敗して残った未送信分を自動で再送する
+  useEffect(() => { if (loadPending().length > 0) retryPending(); }, []); // eslint-disable-line
 
   useEffect(() => { savingRef.current = saving; }, [saving]);
 
@@ -953,8 +994,10 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
   );
 
   const SI = () => React.createElement("div", { style: { position: "fixed", bottom: 16, right: 16, zIndex: 100 } },
-    saving && React.createElement("div", { style: st.saveBadge }, "💾 保存中..."),
-    saveError && React.createElement("div", { style: Object.assign({}, st.saveBadge, { background: "#c00" }) }, "⚠️ 保存失敗 - 再試行してください")
+    saving && React.createElement("div", { style: st.saveBadge }, "保存中..."),
+    // 未送信キューがあるときはボタン化: タップで再送（入力内容は端末に保持されているので消えない）
+    !saving && pendingN > 0 && React.createElement("button", { style: Object.assign({}, st.saveBadge, { background: "var(--aka)", border: "none", cursor: "pointer" }), onClick: retryPending }, "保存失敗 - 未送信" + pendingN + "件を再試行"),
+    !saving && pendingN === 0 && saveError && React.createElement("div", { style: Object.assign({}, st.saveBadge, { background: "var(--aka)" }) }, "保存失敗 - もう一度お試しください")
   );
 
   if (ui.screen === "home") {
