@@ -95,16 +95,44 @@ function storePending(list) { try { localStorage.setItem(PENDING_KEY, JSON.strin
 function pushPending(body) { const l = loadPending(); l.push({ body: body, ts: Date.now() }); storePending(l); try { window.dispatchEvent(new CustomEvent("iquta-pending")); } catch (e) {} }
 async function gasPostRaw(body) {
   const res = await fetch(GAS_URL, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(body) });
-  const result = await res.json();
-  if (result.status !== "saved") throw new Error((body.action || "save") + " failed: " + JSON.stringify(result));
+  const text = await res.text();
+  let result = null;
+  try { result = JSON.parse(text); } catch (e) {} // GASの302先がHTML等を返すことがある
+  if (!result || result.status !== "saved") throw new Error((body.action || "save") + " failed: HTTP " + res.status + " " + text.slice(0, 120));
   return result;
 }
 // 同一IDのレコードを1件に（再送や過去の二重送信でシートに重複行があっても集計を壊さない）
 function dedupById(arr) { const seen = {}; return (arr || []).filter(function (r) { if (!r || !r.id) return true; if (seen[r.id]) return false; seen[r.id] = true; return true; }); }
 
+// ── 保存成功の最終判定 ──
+// 書き込みの成否はGAS側で決まるが、応答は302リダイレクト経由で失われることがある
+// （電波切れ・タブ退避・302先の非JSON応答）。IDはアプリ側で生成しているので、
+// 応答が受け取れなかったときはサーバーのデータに該当IDが載ったかをGETで確認して判定する。
+const ADD_LISTS = { addRecord: "records", addQtyRecord: "qtyRecords", addKoteiRecords: "koteiRecords" };
+function bodyIds(body) {
+  if (body.action === "addKoteiRecords") return (body.records || []).map(function (r) { return r && r.id; });
+  return body.record && body.record.id ? [body.record.id] : [];
+}
+function idsOnServer(data, body) {
+  const list = ADD_LISTS[body.action];
+  if (!list) return false;
+  const arr = (data && data[list]) || [];
+  const ids = bodyIds(body);
+  return ids.length > 0 && ids.every(function (id) { return arr.some(function (r) { return r && r.id === id; }); });
+}
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+async function gasAddSafe(body) {
+  try { await gasPostRaw(body); return; }
+  catch (err) {
+    await sleep(1500); // 実行中のdoPost（1〜3秒）が書き終わるのを待ってから確認
+    try { if (idsOnServer(await gasLoad(), body)) return; } catch (e) {} // 実は保存成功（応答だけ失われた）
+    pushPending(body);
+    throw err;
+  }
+}
+
 async function gasAddRecord(record) {
-  const body = { action: "addRecord", record: record };
-  try { await gasPostRaw(body); } catch (e) { pushPending(body); throw e; }
+  await gasAddSafe({ action: "addRecord", record: record });
 }
 
 async function gasDeleteRecord(recordId) {
@@ -118,13 +146,11 @@ async function gasDeleteRecord(recordId) {
 }
 
 async function gasAddQtyRecord(record) {
-  const body = { action: "addQtyRecord", record: record };
-  try { await gasPostRaw(body); } catch (e) { pushPending(body); throw e; }
+  await gasAddSafe({ action: "addQtyRecord", record: record });
 }
 
 async function gasAddKoteiRecords(records) {
-  const body = { action: "addKoteiRecords", records: records };
-  try { await gasPostRaw(body); } catch (e) { pushPending(body); throw e; }
+  await gasAddSafe({ action: "addKoteiRecords", records: records });
 }
 
 async function gasAddPart(part) {
@@ -305,9 +331,16 @@ function App() {
     if (retryingRef.current) return;
     retryingRef.current = true;
     try {
-      const list = loadPending();
+      let list = loadPending();
       if (list.length === 0) { setSaveError(false); return; }
       setSaving(true); setSaveError(false);
+      // 再送の前にサーバーを確認し、実は保存済みだった分は再送しない（シートに二重行を作らない）
+      try {
+        const server = await gasLoad();
+        list = list.filter((item) => !idsOnServer(server, item.body));
+        storePending(list);
+        setPendingN(list.length);
+      } catch (e) {}
       const remain = [];
       for (const item of list) {
         try { await gasPostRaw(item.body); } catch (e) { console.error("resend failed", e); remain.push(item); }
