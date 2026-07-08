@@ -1,9 +1,17 @@
-# 海外問い合わせ対応アプリ 仕様書 v1.2
+# 海外問い合わせ対応アプリ 仕様書 v1.3
 ## 「返信生成エンジン」プロンプト設計 + 入出力JSON定義
 
-作成日: 2026-07-09(v1.0)/ 改訂: 2026-07-08(v1.1 レビュー反映、v1.2 2段階方式へ変更)
+作成日: 2026-07-09(v1.0)/ 改訂: 2026-07-08(v1.1 レビュー反映、v1.2 2段階方式、v1.3 為替自動換算)
 対象: 生田プリーツ株式会社 海外小ロット受注窓口
 前提: React (GitHub Pages) + Apps Script + スプレッドシート + Anthropic API
+
+### v1.3 変更点(見積金額の表記ルール確定)
+**見積は日本円が正。外貨はその時のレートで自動換算して参考併記する。**
+
+1. 表記ルール: **「合計〇〇円(現在のレートで約△△米ドル)」**。円が契約金額、外貨は目安であることを返信文中に明記
+2. 為替レートの自動取得を Phase 2 から v1 本体に繰り上げ。スプレッドシートの `GOOGLEFINANCE` 関数で取得し、GASが換算計算する(§5-1)。**換算もAIにやらせない**
+3. レート取得失敗時のフォールバック(手動レートセル+古いレート警告)を定義
+4. 台帳に「適用為替レート」列を追加(監査用)
 
 ### v1.2 変更点(運用方針の確定)
 **前提: 社員は日本語での確認しかできない。翻訳は完全にAIに頼る。**
@@ -179,12 +187,13 @@ Your job: given an incoming inquiry (any language), return a single JSON object 
 
 ## Hard rules
 1. NEVER invent prices, lead times, or capabilities not present in pricing_context / shipping_context / calculated_estimate. If a number is not provided, the reply must ask for information or say a detailed quote will follow.
-2. NEVER promise delivery dates, discounts, or exclusivity.
-3. NEVER auto-accept an order. Every reply ends with a next step that requires customer action or states that a formal quote will follow after internal confirmation.
-4. If the inquiry involves fur, leather requiring CITES documentation, military/defense use, or counterfeit/replica of another brand's design, set flag "requires_owner_review" to true and generate only a holding reply ("we will get back to you"). In that case the replies array contains exactly one entry.
-5. All replies are written in Japanese, regardless of the inquiry language. Write them so they translate cleanly: short sentences, no wordplay, no Japanese-only idioms.
-6. Length: write so that the eventual translation fits the channel — email replies should translate to under 180 words, Instagram DM replies to under 90 words. As a guide, keep email drafts under 400 Japanese characters and DM drafts under 200.
-7. Tone: warm, precise, craftsman-like. No exclamation marks except at most one. No excessive superlatives.
+2. When presenting the estimate, the Japanese yen amount is the binding price. Write it as 「合計〇〇円(現在のレートで約△△米ドル)」 using calculated_estimate.total_jpy and calculated_estimate.fx.converted_total exactly as given — never compute or adjust the conversion yourself. Always add one sentence stating that payment is in Japanese yen and the converted amount is an indicative figure at today's rate.
+3. NEVER promise delivery dates, discounts, or exclusivity.
+4. NEVER auto-accept an order. Every reply ends with a next step that requires customer action or states that a formal quote will follow after internal confirmation.
+5. If the inquiry involves fur, leather requiring CITES documentation, military/defense use, or counterfeit/replica of another brand's design, set flag "requires_owner_review" to true and generate only a holding reply ("we will get back to you"). In that case the replies array contains exactly one entry.
+6. All replies are written in Japanese, regardless of the inquiry language. Write them so they translate cleanly: short sentences, no wordplay, no Japanese-only idioms. Write all numbers in Arabic numerals (算用数字), never kanji numerals.
+7. Length: write so that the eventual translation fits the channel — email replies should translate to under 180 words, Instagram DM replies to under 90 words. As a guide, keep email drafts under 400 Japanese characters and DM drafts under 200.
+8. Tone: warm, precise, craftsman-like. No exclamation marks except at most one. No excessive superlatives.
 
 ## Reply types (generate all three unless force_reply_types specifies otherwise)
 - "quote": present the calculated estimate (only if calculated_estimate.status == "computable")
@@ -385,13 +394,41 @@ AIの自己申告(Hard rule 1)に頼らず、コードで検証する:
   "processing_fee_jpy": 96000,
   "return_shipping_jpy": 12000,
   "total_jpy": 138000,
-  "total_usd_approx": 920,
-  "exchange_rate_note": "1 USD = 150 JPY (updated 2026-07-01)",
+  "fx": {
+    "currency": "USD",
+    "rate": 150.23,
+    "converted_total": 919,
+    "retrieved_at": "2026-07-08T10:12:00+09:00",
+    "stale": false
+  },
   "lead_time_weeks": 3
 }
 ```
 
-**AIに計算させない理由**: 単価×数量の掛け算でもAIは間違え得る。海外取引で金額誤りは信用問題。数字は必ずコードで計算し、AIは「言葉にする」だけ。さらに翻訳段階でも§4B-4の機械チェックで数字を守る。
+**AIに計算させない理由**: 単価×数量の掛け算でもAIは間違え得る。海外取引で金額誤りは信用問題。数字は必ずコードで計算し、AIは「言葉にする」だけ。**為替換算も同様にGASが計算し、AIは渡された数字をそのまま文章に埋め込む**(§4-1 Hard rule 2)。さらに翻訳段階でも§4B-4の機械チェックで数字を守る。
+
+### 5-1. 為替レートの自動取得(v1.3新設)
+
+**取得方法**: スプレッドシートに「レート」シートを作り、`GOOGLEFINANCE` 関数で常時最新レートを保持する。外部APIキー不要・追加コストゼロで、既存スタック(スプレッドシート)に閉じる。
+
+| セル | 式 | 内容 |
+|---|---|---|
+| A2 | `USD` | 通貨コード |
+| B2 | `=GOOGLEFINANCE("CURRENCY:USDJPY")` | 1 USDあたりの円(約20分遅延) |
+| A3/B3 | `EUR` / `=GOOGLEFINANCE("CURRENCY:EURJPY")` | 将来の国別通貨対応用(v1では未使用) |
+| D2 | (手入力) | **フォールバック用の手動レート**。月1回程度更新 |
+
+**GAS側の処理(見積計算時)**:
+1. 「レート」シートのB2を読む
+2. 数値として妥当(`> 0` かつ `isFinite`)なら採用し、`fx.stale: false`
+3. `#N/A` 等で取得できない場合はD2の手動レートを採用し、`fx.stale: true`
+4. `converted_total = Math.round(total_jpy / rate)`(**整数ドルに丸める**。目安表記なので小数は出さない。丸めにより §4B-4 の数字整合チェックとも整合する)
+5. rate・converted_total・retrieved_at を `calculated_estimate.fx` に格納してプロンプトへ
+
+**表示ルール**:
+- 返信文中の表記は「合計138,000円(現在のレートで約919米ドル)」+「お支払いは日本円です。外貨額は本日のレートによる目安です」の一文(AIがHard rule 2に従い生成)
+- `fx.stale: true` の場合、UIに黄帯「⚠ 為替レートが自動取得できず、手動レート(D2)で換算しています」を表示。返信は可能(目安表記のため致命的でない)
+- 通貨はv1では **USD固定**。国別通貨(EUR/AUD等)への切り替えは、送料マスターのゾーン表に通貨列を足せば対応できる(Phase 2)
 
 ---
 
@@ -417,6 +454,7 @@ AIの自己申告(Hard rule 1)に頼らず、コードで検証する:
 | R | 送信した外国語返信文(翻訳結果) | 2回目 |
 | S | 逆翻訳(日本語) | 2回目 |
 | T | 数字チェック結果(OK / NG詳細) | 2回目 |
+| U | 適用為替レート(例: USD 150.23 / stale有無) | 1回目(見積時) |
 
 ※Q〜S列が揃うと「日本語で何を言ったつもりで、実際に何を送ったか」が後から監査できる。プロンプト改善材料にもなる。
 
@@ -434,6 +472,7 @@ AIの自己申告(Hard rule 1)に頼らず、コードで検証する:
 | stop_reason = "refusal" | requires_owner_review 相当として扱い、原文のみ台帳記録+赤帯表示 |
 | requires_owner_review = true | UIに赤帯表示「代表確認が必要な案件です」+ holding 返信(日本語)のみ表示(replies配列は1件)。翻訳(2回目)は代表確認後に実行 |
 | 数字チェックNG(§4B-4) | 赤帯警告+コピーボタン無効化。「再翻訳」ボタンで2回目を再実行 |
+| 為替レート取得失敗(§5-1) | 手動レートにフォールバック+黄帯表示。返信生成は継続可能 |
 | length_warning = true | 黄帯表示「文字数上限に収まりません。日本語文を短くして再翻訳してください」 |
 | 検出言語が日本語 | 国内問い合わせ。1回目で日本語3案を生成(japanese_translationは原文のまま)。2回目はスキップ(§4B-5) |
 
@@ -478,7 +517,7 @@ claude-sonnet-4-6($3/M入力・$15/M出力、1 USD = 150円換算):
 ## 11. Phase 2 候補(v1完成後)
 
 - Gmail連携: 問い合わせメールの自動取込(コピペ廃止)
-- 為替レート自動取得
+- 国別通貨での換算表記(EUR/AUD等。送料マスターのゾーン表に通貨列を追加して対応)※為替レート自動取得自体はv1.3で本体入り(§5-1)
 - DHL API連携(法人契約後)
 - 台帳ダッシュボード(月次の問い合わせ数・受注率・国別分布)
 - 頻出表現の対訳集(用語集)を2回目のプロンプトに注入し、訳語を固定(例: 「型代」= "mold fee")
