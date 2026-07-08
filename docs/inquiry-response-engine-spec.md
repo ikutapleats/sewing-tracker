@@ -1,9 +1,18 @@
-# 海外問い合わせ対応アプリ 仕様書 v1.3
+# 海外問い合わせ対応アプリ 仕様書 v1.4
 ## 「返信生成エンジン」プロンプト設計 + 入出力JSON定義
 
-作成日: 2026-07-09(v1.0)/ 改訂: 2026-07-08(v1.1 レビュー反映、v1.2 2段階方式、v1.3 為替自動換算)
+作成日: 2026-07-09(v1.0)/ 改訂: 2026-07-08(v1.1 レビュー、v1.2 2段階方式、v1.3 為替自動換算、v1.4 見積もり作成キット)
 対象: 生田プリーツ株式会社 海外小ロット受注窓口
 前提: React (GitHub Pages) + Apps Script + スプレッドシート + Anthropic API
+
+### v1.4 変更点(見積もり作成キットの追加)
+**見積は画一的でなくオーダーメイドが多い。要素を細かく分類した「見積もり作成キット」をアプリ内に組み込む。**
+
+1. **見積もり作成キット(§5-2)**: ひだの形状・ひだの大きさ・ひだの本数・丈・裁断/裾上げの有無・加工枚数・生地m数・型の新規/既存・配送国を要素別に入力するフォーム。AIの抽出結果(1回目)が初期値として自動セットされる
+2. **明細(line_items)方式**: 見積は「型代+加工費+オプション+返送送料」の明細の積み上げ。GASが料金ルール表(マスター)を参照して各行を計算し、AIは明細をそのまま文章化する
+3. **新アクション `calculate_estimate`**: AIを呼ばずGASだけで即時計算・プレビュー(無料・待ち時間なし)。社員が明細を確認・手動調整してから返信生成に進む
+4. **ルール表で計算できない案件への逃げ道**: 該当ルールがない要素は `needs_manual` として明示し、社員が手動で明細行を追加できる。オーダーメイドの多様性を「ルール表を頑張って網羅する」のではなく「自動+手動の併用」で吸収する
+5. 単価マスターを「料金ルール表」として要素別に再設計(§3-1)。台帳に見積明細列を追加
 
 ### v1.3 変更点(見積金額の表記ルール確定)
 **見積は日本円が正。外貨はその時のレートで自動換算して参考併記する。**
@@ -43,6 +52,16 @@ structured outputs採用 / max_tokens増量 / APIキーはScript Properties / do
    ├─ ③ 結果をシート「案件台帳」に自動記録
    ↓
 [React UI] 日本語訳・要約・日本語返信案3つを表示
+   ↓
+(見積が必要な案件のみ)
+[React UI] 見積もり作成キット(AI抽出結果が初期値)
+   ↓
+[Apps Script] doPost (action: calculate_estimate) ※AIは呼ばない
+   ├─ 料金ルール表を参照して明細を自動計算+為替換算
+   ↓
+[社員] 明細を確認。計算不能な項目は手動明細で補完 → 確定
+   ↓
+[Apps Script] doPost (action: process_inquiry ※calculated_estimate付きで再実行)
    ↓
 [社員] 返信案を選択し、日本語のまま自由に修正 → 「翻訳する」ボタン
    ↓
@@ -105,7 +124,50 @@ structured outputs採用 / max_tokens増量 / APIキーはScript Properties / do
 
 `force_reply_types` に "quote" が含まれるが `calculated_estimate` が null または status ≠ "computable" の場合、GAS側でエラーを返す(API呼び出し前に弾く)。UIは「見積情報を入力してください」と表示。
 
-### 2-2. 2回目: 確定文の翻訳
+### 2-2. 見積計算: 見積もり作成キット(AIを呼ばない・v1.4新設)
+
+```json
+{
+  "action": "calculate_estimate",
+  "token": "(簡易認証トークン)",
+  "case_id": "(1回目で発行された案件ID)",
+  "quote_kit": {
+    "pleat_type": "accordion",
+    "pleat_size_mm": 6,
+    "pleat_count": null,
+    "garment_length_cm": 90,
+    "cutting": true,
+    "hemming": false,
+    "quantity_pieces": 20,
+    "fabric_meters": 45,
+    "mold": "new",
+    "country": "Denmark",
+    "notes_ja": "シルクシフォン。バイアス裁断希望"
+  },
+  "manual_line_items": [
+    {"label_ja": "バイアス裁断 追加手間(20枚)", "amount_jpy": 8000}
+  ]
+}
+```
+
+| フィールド | 必須 | 説明 |
+|---|---|---|
+| pleat_type | ○ | ひだの形状。マスターの選択肢から選ぶ(accordion / box / sunray / crystal / geometric_custom …) |
+| pleat_size_mm | - | ひだの大きさ(ピッチ)。形状によっては不要 |
+| pleat_count | - | ひだの本数。サンレイ等、本数で価格が決まる形状用 |
+| garment_length_cm | - | 丈 |
+| cutting / hemming | ○ | 裁断・裾上げの有無(true/false) |
+| quantity_pieces | ○ | 加工枚数 |
+| fabric_meters | - | 生地m数(枚数と併記。単価の単位に合わせてGASがどちらかを使う) |
+| mold | ○ | "existing"(既存型)/ "new"(新規型) |
+| country | ○ | 配送先国(送料ゾーン判定用) |
+| notes_ja | - | 特記事項。台帳記録とAIプロンプトに渡す(価格計算には使わない) |
+| manual_line_items | - | ルール表で計算できない項目を社員が手動追加する明細行 |
+
+- **初期値の自動セット**: 1回目のAI抽出結果(pleat_type_guess / quantity_pieces / fabric_meters / country_guess)をUIがキットのフォームに流し込む。社員は差分だけ直せばよい
+- GASは料金ルール表を参照して明細を計算し、**AIを呼ばずに**即時応答する(§5-2)。社員は明細を確認・調整してから返信生成(process_inquiryの再実行)に進む
+
+### 2-3. 2回目: 確定文の翻訳
 
 ```json
 {
@@ -133,9 +195,36 @@ structured outputs採用 / max_tokens増量 / APIキーはScript Properties / do
 
 ## 3. Apps Script 前処理(1回目のAPI呼び出し前)
 
-### 3-1. マスター読込
-- シート「単価マスター」: プリーツ型ごとの加工単価(円/m)、型代、最小ロット
-- シート「送料マスター」: ゾーン(1〜5)×重量帯(0.5kg刻み)のDHL料金表 + ゾーン国名対応表
+### 3-1. マスター読込(v1.4で「料金ルール表」として再設計)
+
+見積もり作成キット(§2-2)の計算根拠となる4シート:
+
+**① 加工単価ルール表** — 1行 = 1ルール。上から順に評価し、最初に条件が合った行を採用
+
+| 列 | 例 | 説明 |
+|---|---|---|
+| 形状 | accordion | pleat_type と一致 |
+| サイズ帯(mm) | 3〜9 | pleat_size_mm がこの範囲なら適用。空欄 = サイズ不問 |
+| 丈帯(cm) | 〜120 | garment_length_cm がこの範囲なら適用。空欄 = 丈不問 |
+| 単位 | m / 枚 / 本 | 単価の掛け先(fabric_meters / quantity_pieces / pleat_count) |
+| 単価(円) | 2200 | |
+| 最小金額(円) | 15000 | 計算結果がこれを下回る場合は最小金額を採用(小ロット下限) |
+
+**② オプション料金表** — 裁断・裾上げ等
+
+| オプション | 単位 | 単価(円) |
+|---|---|---|
+| 裁断 | 枚 | 500 |
+| 裾上げ | 枚 | 400 |
+
+**③ 型代表** — 形状 × 新規/既存 → 型代(円)。既存型は0円
+
+**④ 送料マスター** — ゾーン(1〜5)×重量帯(0.5kg刻み)のDHL料金表 + ゾーン国名対応表 + 概算重量ルール(例: 1枚≒150g + 梱包500g)
+
+※①〜③の実数値は生田さん側の宿題(§8)。**ルール表に該当行がない組み合わせは「計算不能」として明示し、社員の手動明細入力に委ねる**(§5-2)。全パターンの網羅は目指さない。
+
+### 3-1b. AIプロンプト用コンテキスト
+1回目のAPI呼び出しには、従来どおりマスター全体ではなくサマリー(§3-2)だけを渡す。料金ルール表そのものはAIに見せない(計算はGASの仕事のため)。
 
 ### 3-2. プロンプトに渡すコンテキストの組み立て
 マスター全体は渡さない。以下のサマリーだけをJSON化して渡す:
@@ -187,7 +276,7 @@ Your job: given an incoming inquiry (any language), return a single JSON object 
 
 ## Hard rules
 1. NEVER invent prices, lead times, or capabilities not present in pricing_context / shipping_context / calculated_estimate. If a number is not provided, the reply must ask for information or say a detailed quote will follow.
-2. When presenting the estimate, the Japanese yen amount is the binding price. Write it as 「合計〇〇円(現在のレートで約△△米ドル)」 using calculated_estimate.total_jpy and calculated_estimate.fx.converted_total exactly as given — never compute or adjust the conversion yourself. Always add one sentence stating that payment is in Japanese yen and the converted amount is an indicative figure at today's rate.
+2. When presenting the estimate, reproduce the itemized breakdown from calculated_estimate.line_items — every label_ja and amount_jpy exactly as given, one line per item — followed by the total. The Japanese yen amount is the binding price. Write the total as 「合計〇〇円(現在のレートで約△△米ドル)」 using calculated_estimate.total_jpy and calculated_estimate.fx.converted_total exactly as given — never compute, recompute, or adjust any amount yourself. Always add one sentence stating that payment is in Japanese yen and the converted amount is an indicative figure at today's rate.
 3. NEVER promise delivery dates, discounts, or exclusivity.
 4. NEVER auto-accept an order. Every reply ends with a next step that requires customer action or states that a formal quote will follow after internal confirmation.
 5. If the inquiry involves fur, leather requiring CITES documentation, military/defense use, or counterfeit/replica of another brand's design, set flag "requires_owner_review" to true and generate only a holding reply ("we will get back to you"). In that case the replies array contains exactly one entry.
@@ -381,31 +470,59 @@ AIの自己申告(Hard rule 1)に頼らず、コードで検証する:
 
 ## 5. 見積もり計算の流れ
 
-**Phase 1(推奨)**: 初回問い合わせの大半は情報不足なので、calculated_estimate は null のまま1回目を呼び出す
-- → AIは info_request 中心の日本語3案を返す
-- 情報が揃った2通目以降は、社員がUI上で「生地m数・型・国」を手入力
-- → Apps Scriptがマスター参照で概算計算 → calculated_estimate に入れて再度1回目の呼び出し
-- → AIは quote 案を含む日本語3案を返す
+**運用フロー(v1.4)**:
+
+1. **初回問い合わせ**: 大半は情報不足なので calculated_estimate は null のまま1回目を呼び出す → AIは info_request 中心の日本語3案を返す
+2. **情報が揃ったら**: UIの「見積もり作成キット」を開く。AIの抽出結果が初期値として入っているので、社員は差分(ひだサイズ・丈・裁断有無など)を埋める
+3. `calculate_estimate` でGASが即時計算(AIを呼ばない・無料)→ 明細プレビュー表示
+4. ルール表にない項目は「計算不能」と表示 → 社員が手動明細行を追加、または自動計算行の金額を上書き
+5. 明細確定 → calculated_estimate を添えて process_inquiry を再実行 → AIが quote 案を含む日本語3案を返す(明細を文章化)
+
+### 5-2. 見積もり作成キットの計算ロジック(GAS・v1.4新設)
+
+`calculate_estimate` の応答:
 
 ```json
-"calculated_estimate": {
+{
   "status": "computable",
-  "mold_fee_jpy": 30000,
-  "processing_fee_jpy": 96000,
-  "return_shipping_jpy": 12000,
-  "total_jpy": 138000,
+  "line_items": [
+    {"source": "auto",   "label_ja": "型代(アコーディオン・新規)",        "amount_jpy": 30000},
+    {"source": "auto",   "label_ja": "プリーツ加工(6mm・45m × 2,200円)",  "amount_jpy": 99000},
+    {"source": "auto",   "label_ja": "裁断(20枚 × 500円)",               "amount_jpy": 10000},
+    {"source": "auto",   "label_ja": "返送送料(DHL・デンマーク・約3.5kg)", "amount_jpy": 14000},
+    {"source": "manual", "label_ja": "バイアス裁断 追加手間(20枚)",       "amount_jpy": 8000}
+  ],
+  "total_jpy": 161000,
   "fx": {
     "currency": "USD",
     "rate": 150.23,
-    "converted_total": 919,
+    "converted_total": 1072,
     "retrieved_at": "2026-07-08T10:12:00+09:00",
     "stale": false
   },
-  "lead_time_weeks": 3
+  "lead_time_weeks": 5,
+  "unmatched_ja": []
 }
 ```
 
-**AIに計算させない理由**: 単価×数量の掛け算でもAIは間違え得る。海外取引で金額誤りは信用問題。数字は必ずコードで計算し、AIは「言葉にする」だけ。**為替換算も同様にGASが計算し、AIは渡された数字をそのまま文章に埋め込む**(§4-1 Hard rule 2)。さらに翻訳段階でも§4B-4の機械チェックで数字を守る。
+**計算手順**:
+1. **型代**: 型代表③から `pleat_type × mold` で1行取得
+2. **加工費**: 加工単価ルール表①を上から評価し、`pleat_type / pleat_size_mm / garment_length_cm` が合致した最初の行を採用。`単価 × (単位に応じて fabric_meters / quantity_pieces / pleat_count)`。最小金額を下回れば最小金額
+3. **オプション**: cutting / hemming が true の項目を②から `単価 × quantity_pieces` で加算
+4. **返送送料**: ④の概算重量ルールで重量を推定し、国→ゾーン→重量帯で料金を引く
+5. **納期**: mold = "new" なら 5週、"existing" なら 3週(pricing_context の値を使用)
+6. **手動明細**: `manual_line_items` を `source: "manual"` として合算
+7. どこかで該当ルールが見つからない場合、その項目は明細に入れず `unmatched_ja` に理由を入れて返す(例: 「サンレイ・ひだ本数120本に該当する単価ルールがありません」)。**unmatched が残ったまま(かつ手動行で補われていない)場合、status は "needs_manual" となり、process_inquiry の quote 生成には進めない**
+
+**status**:
+| 値 | 意味 |
+|---|---|
+| computable | 全項目が計算済み(手動行での補完を含む)。quote 生成に進める |
+| needs_manual | 未計算の項目が残っている。UIは unmatched_ja を表示し、手動明細の追加を促す |
+
+明細確定後、この応答がそのまま `calculated_estimate` として process_inquiry(§4)に渡される。
+
+**AIに計算させない理由**: 単価×数量の掛け算でもAIは間違え得る。海外取引で金額誤りは信用問題。数字は必ずコードで計算し、AIは「言葉にする」だけ。**為替換算も同様にGASが計算し、AIは渡された数字をそのまま文章に埋め込む**(§4-1 Hard rule 2)。さらに翻訳段階でも§4B-4の機械チェックで数字を守る。手動明細も社員が入れた金額をそのまま使う。
 
 ### 5-1. 為替レートの自動取得(v1.3新設)
 
@@ -454,7 +571,9 @@ AIの自己申告(Hard rule 1)に頼らず、コードで検証する:
 | R | 送信した外国語返信文(翻訳結果) | 2回目 |
 | S | 逆翻訳(日本語) | 2回目 |
 | T | 数字チェック結果(OK / NG詳細) | 2回目 |
-| U | 適用為替レート(例: USD 150.23 / stale有無) | 1回目(見積時) |
+| U | 適用為替レート(例: USD 150.23 / stale有無) | 見積計算時 |
+| V | 見積明細(line_items をテキスト展開。手動行は「手動」印付き) | 見積計算時 |
+| W | 見積キット入力値(quote_kit のJSON。再見積・監査用) | 見積計算時 |
 
 ※Q〜S列が揃うと「日本語で何を言ったつもりで、実際に何を送ったか」が後から監査できる。プロンプト改善材料にもなる。
 
@@ -473,6 +592,7 @@ AIの自己申告(Hard rule 1)に頼らず、コードで検証する:
 | requires_owner_review = true | UIに赤帯表示「代表確認が必要な案件です」+ holding 返信(日本語)のみ表示(replies配列は1件)。翻訳(2回目)は代表確認後に実行 |
 | 数字チェックNG(§4B-4) | 赤帯警告+コピーボタン無効化。「再翻訳」ボタンで2回目を再実行 |
 | 為替レート取得失敗(§5-1) | 手動レートにフォールバック+黄帯表示。返信生成は継続可能 |
+| 見積 status = needs_manual(§5-2) | unmatched_ja(計算できなかった理由)を表示し、手動明細の追加を促す。補完されるまで quote 生成に進めない |
 | length_warning = true | 黄帯表示「文字数上限に収まりません。日本語文を短くして再翻訳してください」 |
 | 検出言語が日本語 | 国内問い合わせ。1回目で日本語3案を生成(japanese_translationは原文のまま)。2回目はスキップ(§4B-5) |
 
@@ -480,11 +600,13 @@ AIの自己申告(Hard rule 1)に頼らず、コードで検証する:
 
 ## 8. 実装前に必要なデータ(生田さん側の宿題)
 
-1. **単価マスター**: プリーツ型ごとの海外向け単価(国内単価×係数でも可。係数の決定が必要)
-2. **送料マスター**: DHLゾーン表と重量帯別料金の手入力(EU/US/AU/アジアの4ゾーンから開始で十分)
-3. **過去の海外案件3件の実績値**: プロンプトのテストケースに使用(実際の問い合わせ文があれば最良)
-4. **利用規約の骨子**: 生地破損時の責任範囲・前払い条件(※法務は専門家確認が必要)
-5. **簡易認証トークンの決定**: React→GASのdoPost濫用防止用の合言葉
+1. **要素の選択肢リストの確定**: ひだ形状の正式ラインナップ、ひだサイズの刻み(帯)、丈の帯。見積もりキットのフォーム項目とルール表の行がこれで決まる
+2. **加工単価ルール表**: 形状×サイズ帯×丈帯ごとの単価と単位(円/m・円/枚・円/本)、小ロット最小金額(国内単価×係数でも可。係数の決定が必要)
+3. **オプション料金表・型代表**: 裁断・裾上げの枚単価、形状別の新規型代
+4. **送料マスター**: DHLゾーン表と重量帯別料金の手入力(EU/US/AU/アジアの4ゾーンから開始で十分)+ 概算重量ルール(1枚あたり重量の目安)
+5. **過去の海外案件3件の実績値**: 見積もりキットに入力して自動計算結果が実績と合うかの検証に使用(実際の問い合わせ文があれば最良)
+6. **利用規約の骨子**: 生地破損時の責任範囲・前払い条件(※法務は専門家確認が必要)
+7. **簡易認証トークンの決定**: React→GASのdoPost濫用防止用の合言葉
 
 ---
 
