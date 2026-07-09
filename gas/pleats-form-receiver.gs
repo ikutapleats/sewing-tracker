@@ -24,6 +24,11 @@
  * ※ 本エンドポイントは公開フォームの受け口であり、フォーム側は
  *   no-cors の「投げっぱなし」送信で応答を読まない設計のため、
  *   認証トークンは付与しない（既存方針どおり）。
+ *
+ * ※ メール通知(notifyNewInquiry_)は MailApp の権限が必要。
+ *   下記 doPost 冒頭の「一時的なテスト用」の行を使い、
+ *   このファイルをエディタで開いた状態で doPost を手動実行すると
+ *   権限承認ダイアログが出る。許可した後、その1行は必ず削除すること。
  */
 
 // ===== 設定 =====
@@ -49,6 +54,10 @@ function getConfig_() {
 }
 
 function doPost(e) {
+  // ↓↓↓ 一時的なテスト用（権限承認が終わったら、この1行は必ず削除する）↓↓↓
+  if (!e) { authorizeMailApp_(); return json_({ ok: true, test: "auth" }); }
+  // ↑↑↑ 一時的なテスト用 ↑↑↑
+
   // postData が無い呼び出し（ブラウザからの直接アクセス等）を明示的に弾く
   if (!e || !e.postData || !e.postData.contents) {
     return json_({ ok: false, error: "empty" });
@@ -102,11 +111,12 @@ function doPost(e) {
       reply,
     ]);
 
-    // 4. 受付通知メール（失敗しても問い合わせ自体の記録は成立させる）
+    // 4. 受付通知メール（失敗しても問い合わせ自体の記録は成立させる。エラーはログに残す）
     try {
       notifyNewInquiry_(inq, s);
+      Logger.log("通知メール送信成功: " + NOTIFY_EMAIL);
     } catch (mailErr) {
-      // 通知メール失敗は無視する（台帳への記録は既に完了しているため）
+      Logger.log("通知メール送信エラー: " + mailErr);
     }
 
     return json_({ ok: true });
@@ -194,6 +204,15 @@ function notifyNewInquiry_(inq, s) {
       "希望内容: " + (s.pleat_type_label || s.pleat_type || "") + "\n" +
       "希望納期: " + (s.deadline || "") + "\n\n" +
       "台帳で詳細を確認してください:\n" + sheetUrl,
+  });
+}
+
+// ===== メール送信の権限承認用 =====
+function authorizeMailApp_() {
+  MailApp.sendEmail({
+    to: NOTIFY_EMAIL,
+    subject: "【テスト】権限承認用メール",
+    body: "このメールが届けば、MailAppの権限承認は正常に完了しています。",
   });
 }
 
