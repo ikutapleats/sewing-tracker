@@ -4,7 +4,8 @@
  * フォーム(React/GitHub Pages)からの POST を受け、
  *   1. 添付画像を Drive フォルダへ保存
  *   2. スプレッドシート「案件台帳」に1行追記
- *   3.（任意・後付け）Anthropic API で返信案を生成
+ *   3. 受付通知メールを送信
+ *   4.（任意・後付け）Anthropic API で返信案を生成
  * を行う。
  *
  * ■ 初期設定
@@ -28,6 +29,7 @@
 // ===== 設定 =====
 const SHEET_NAME = "案件台帳";
 const ENABLE_AI_REPLY = false; // true にすると doPost 内で返信案生成を試みる（下部参照）
+const NOTIFY_EMAIL = "ikuta@iquta.com"; // 受付通知の送信先
 
 // 台帳のヘッダー（spec 6章に対応）
 const HEADERS = [
@@ -100,6 +102,13 @@ function doPost(e) {
       reply,
     ]);
 
+    // 4. 受付通知メール（失敗しても問い合わせ自体の記録は成立させる）
+    try {
+      notifyNewInquiry_(inq, s);
+    } catch (mailErr) {
+      // 通知メール失敗は無視する（台帳への記録は既に完了しているため）
+    }
+
     return json_({ ok: true });
   } catch (err) {
     // 失敗時も原文だけは記録して取りこぼしを防ぐ
@@ -168,6 +177,24 @@ function sanitize_(x) {
 
 function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ===== 受付通知メール =====
+function notifyNewInquiry_(inq, s) {
+  const sheetUrl = "https://docs.google.com/spreadsheets/d/" + getConfig_().sheetId + "/edit";
+  MailApp.sendEmail({
+    to: NOTIFY_EMAIL,
+    subject: "【プリーツ問い合わせ】新規受付: " + (inq.sender_name || "名前未入力"),
+    body:
+      "新しい問い合わせが届きました。\n\n" +
+      "送信者: " + (inq.sender_name || "") + "\n" +
+      "メール: " + (inq.sender_email || "") + "\n" +
+      "電話: " + (inq.phone || "") + "\n" +
+      "所属: " + (inq.organization || "") + "\n" +
+      "希望内容: " + (s.pleat_type_label || s.pleat_type || "") + "\n" +
+      "希望納期: " + (s.deadline || "") + "\n\n" +
+      "台帳で詳細を確認してください:\n" + sheetUrl,
+  });
 }
 
 // ===== 返信案生成（任意・後付け）=====
