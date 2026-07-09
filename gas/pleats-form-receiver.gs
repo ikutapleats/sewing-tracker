@@ -55,7 +55,6 @@ function getConfig_() {
 
 function doPost(e) {
   // ↓↓↓ 一時的なテスト用（権限承認が終わったら、この1行は必ず削除する）↓↓↓
-  if (!e) { authorizeMailApp_(); return json_({ ok: true, test: "auth" }); }
   // ↑↑↑ 一時的なテスト用 ↑↑↑
 
   // postData が無い呼び出し（ブラウザからの直接アクセス等）を明示的に弾く
