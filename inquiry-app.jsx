@@ -697,14 +697,17 @@ function App() {
   }
 
   function applyProcessResult(json) {
+    // GASはAIの生成結果を result に包んで返す({ok, case_id, detected_language, result:{...}})。
+    // case_id / detected_language はトップレベル、翻訳・抽出・返信案は result の中にある。
+    const data = json.result || json;
     setCaseId(json.case_id || caseId);
-    setDetectedLanguage((json.translation && json.translation.detected_language) || json.detected_language || detectedLanguage);
-    setTranslation(json.translation || null);
-    setExtraction(json.extraction || null);
-    setRisk(json.risk || null);
-    const replies = json.replies || [];
+    setDetectedLanguage((data.translation && data.translation.detected_language) || json.detected_language || detectedLanguage);
+    setTranslation(data.translation || null);
+    setExtraction(data.extraction || null);
+    setRisk(data.risk || null);
+    const replies = data.replies || [];
     setEditableReplies(replies.map(function (r) { return { type: r.type, subject_ja: r.subject_ja || "", body_ja: r.body_ja || "" }; }));
-    setInternalNote(json.internal_note_ja || "");
+    setInternalNote(data.internal_note_ja || "");
     setSelectedIndex(0);
   }
 
@@ -845,7 +848,9 @@ function App() {
         tone: tone,
         operator: operator,
       });
-      setTranslateResult(json);
+      // GASは翻訳結果を result に包んで返す({ok, result:{subject_translated,...}, number_check})。
+      // STEP3は翻訳文・逆翻訳を r 直下から読むため、result を展開しつつ number_check を添える。
+      setTranslateResult(Object.assign({}, json.result || {}, { number_check: json.number_check, skipped: json.skipped }));
     } catch (e) {
       setError(e.message);
     } finally {
