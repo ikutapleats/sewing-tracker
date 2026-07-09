@@ -33,7 +33,10 @@ const gothic = '"Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",sans-seri
 // ---- 送信設定 ----
 // ▼ 受付用GAS(pleats-form-receiver.gs)をデプロイ後、WebアプリURLへ差し替える
 const ENDPOINT = "https://script.google.com/macros/s/AKfycbwMlFQQQR5-1qZMwrwVtZ99wDFrSAITajBwjpDLghGK7-DBLGFsSdVe7WOW6XnccuYnsw/exec";
-const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 推測値・要実測(CLAUDE.md方針)
+// 添付合計の上限。base64化でJSON本文は約1.37倍に膨らむため、実バイトはGASの受信上限より
+// 十分小さく取る。20MB(=base64換算 約27MB)。この値を超える送信は事前に弾く。
+// ※GAS側の真の上限は要実測。上限超で送ると no-cors のため無言で失敗(台帳に行が増えない)。
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const DEBUG = false; // trueで送信後に構造化JSONを表示(開発確認用)
 
 // ---- lucide-react 相当のインラインSVGアイコン（同名・同props・同見た目）----
@@ -374,7 +377,7 @@ function App() {
     // 添付合計サイズのチェック
     const totalBytes = [...f.imageFiles, ...f.designFiles].reduce((s, x) => s + (x.size || 0), 0);
     if (totalBytes > MAX_UPLOAD_BYTES) {
-      setError(`添付が大きすぎます（合計 ${(totalBytes / 1024 / 1024).toFixed(1)}MB）。8MB以内に減らすか、送信後の返信メールに添付してください。`);
+      setError(`添付が大きすぎます（合計 ${(totalBytes / 1024 / 1024).toFixed(1)}MB）。${Math.floor(MAX_UPLOAD_BYTES / 1024 / 1024)}MB以内に減らすか、送信後の返信メールに添付してください。`);
       return;
     }
 
