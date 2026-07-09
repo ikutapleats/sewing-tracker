@@ -4,9 +4,9 @@ const { useState, useEffect, useRef } = React;
 // 設定
 // ============================================================
 // ▼ GASデプロイ後にここを実際のWebアプリURLへ差し替えてください
-const GAS_URL = "https://script.google.com/macros/s/PLACEHOLDER/exec";
+const GAS_URL = "https://script.google.com/macros/s/AKfycbx9TZqMn5W2DUdJqlQxuWVaZ-__2KThtz6jxeB5H8hl1juGMKzD5jwTzjIA6wbEm5cd/exec";
 // ▼ 仕様書§1-1・§8-7の簡易認証トークン(合言葉)。GAS側と一致させること
-const APP_TOKEN = "PLACEHOLDER";
+const APP_TOKEN = "k7Wp9N2mQ5vXb4rZ";
 
 // ============================================================
 // マスター(暫定。docs/inquiry-provisional-masters.md §1 準拠)
