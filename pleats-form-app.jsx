@@ -230,8 +230,8 @@ const inputStyle = {
   color: C.ink, background: C.card, fontFamily: gothic, outline: "none",
 };
 
-function TextInput(props) {
-  return <input {...props} style={inputStyle} onFocus={(e) => (e.target.style.borderColor = C.ai)} onBlur={(e) => (e.target.style.borderColor = C.line)} />;
+function TextInput({ style, ...props }) {
+  return <input {...props} style={{ ...inputStyle, ...style }} onFocus={(e) => (e.target.style.borderColor = C.ai)} onBlur={(e) => (e.target.style.borderColor = C.line)} />;
 }
 
 function Choice({ selected, onClick, children }) {
@@ -619,8 +619,19 @@ function App() {
               <TextInput value={f.hemFinishOther} onChange={(e) => set("hemFinishOther", e.target.value)}
                 placeholder="その他・種類ごとに変えたい場合はこちら" />
             </Field>
-            <Field label="希望納期" required={deadlineRequired(t)} hint="カレンダーから日付を選んでください。未定の場合は空欄で構いません。">
-              <TextInput type="date" value={f.deadline} onChange={(e) => set("deadline", e.target.value)} />
+            <Field label="希望納期" required={deadlineRequired(t)} hint="カレンダーから日付を選ぶか、時期が未定の場合は「特になし」を選んでください。">
+              <TextInput type="date"
+                value={f.deadline === "特になし" ? "" : f.deadline}
+                disabled={f.deadline === "特になし"}
+                onChange={(e) => set("deadline", e.target.value)}
+                style={{ ...inputStyle, opacity: f.deadline === "特になし" ? 0.5 : 1 }} />
+              <div style={{ marginTop: 8 }}>
+                <CheckItem
+                  checked={f.deadline === "特になし"}
+                  onClick={() => set("deadline", f.deadline === "特になし" ? "" : "特になし")}>
+                  特になし（時期は未定）
+                </CheckItem>
+              </div>
             </Field>
             <Field label="デザイン画・仕様書" hint="あればアップロードしてください。">
               <FileInput files={f.designFiles} onChange={(v) => set("designFiles", v)} />
