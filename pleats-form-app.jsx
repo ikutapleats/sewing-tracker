@@ -33,10 +33,11 @@ const gothic = '"Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",sans-seri
 // ---- 送信設定 ----
 // ▼ 受付用GAS(pleats-form-receiver.gs)をデプロイ後、WebアプリURLへ差し替える
 const ENDPOINT = "https://script.google.com/macros/s/AKfycbwMlFQQQR5-1qZMwrwVtZ99wDFrSAITajBwjpDLghGK7-DBLGFsSdVe7WOW6XnccuYnsw/exec";
-// 添付合計の上限。base64化でJSON本文は約1.37倍に膨らむため、実バイトはGASの受信上限より
-// 十分小さく取る。20MB(=base64換算 約27MB)。この値を超える送信は事前に弾く。
-// ※GAS側の真の上限は要実測。上限超で送ると no-cors のため無言で失敗(台帳に行が増えない)。
-const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+// 添付合計の上限(バックストップ)。写真は送信前に自動縮小されるので通常は当たらない。
+// 主に縮小できない大きなPDF/仕様書を守るための安全弁。base64化でJSON本文は約1.37倍に
+// 膨らむため、実測で失敗した約20MB(本文約27MB)より十分低い10MB(本文約13.7MB)に設定。
+// ※上限超で送ると no-cors のため無言で失敗(台帳に行が増えない)。だから事前に弾く。
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const DEBUG = false; // trueで送信後に構造化JSONを表示(開発確認用)
 
 // ---- lucide-react 相当のインラインSVGアイコン（同名・同props・同見た目）----
@@ -86,17 +87,57 @@ function CircleAlert({ size = 24, color = "currentColor", strokeWidth = 2 }) {
   );
 }
 
-// File → { name, mime, size, data(base64) }
-function readFileAsBase64(file) {
+// 画像の自動縮小設定。長辺をこのpx以下に縮小し、JSON本文(base64)の肥大とGAS受信上限を回避する。
+const MAX_IMAGE_EDGE = 2000; // 長辺の上限px(スタッフが仕上がりを確認するには十分)
+const IMAGE_QUALITY = 0.85;  // JPEG書き出し品質
+const DOWNSCALE_TYPES = ["image/jpeg", "image/png", "image/webp"]; // 縮小対象の画像形式
+
+// File → { name, mime, size, data(base64) }。原本をそのままbase64化する低レベル関数。
+function readFileAsBase64(file, overrideName, overrideMime) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
     r.onload = () => {
       const data = String(r.result).split(",")[1] || "";
-      resolve({ name: file.name, mime: file.type || "application/octet-stream", size: file.size, data });
+      resolve({
+        name: overrideName || file.name,
+        mime: overrideMime || file.type || "application/octet-stream",
+        size: file.size,
+        data,
+      });
     };
     r.onerror = () => reject(r.error);
     r.readAsDataURL(file);
   });
+}
+
+// 送信用にファイルを読み込む。写真(jpeg/png/webp)は長辺MAX_IMAGE_EDGEへ縮小しJPEG化する。
+// 縮小できない形式(PDF・HEIC・SVG等)や、縮小しても小さくならない場合は原本のまま送る。
+async function readFileForUpload(file) {
+  if (!DOWNSCALE_TYPES.includes(file.type)) return readFileAsBase64(file);
+  try {
+    // createImageBitmap の imageOrientation でスマホ写真のEXIF回転も正しく反映する
+    const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const longEdge = Math.max(bmp.width, bmp.height);
+    const scale = Math.min(1, MAX_IMAGE_EDGE / longEdge);
+    const w = Math.max(1, Math.round(bmp.width * scale));
+    const h = Math.max(1, Math.round(bmp.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext("2d").drawImage(bmp, 0, 0, w, h);
+    if (bmp.close) bmp.close();
+    const b64 = (canvas.toDataURL("image/jpeg", IMAGE_QUALITY).split(",")[1]) || "";
+    const approxBytes = Math.floor(b64.length * 0.75);
+    if (approxBytes < file.size) {
+      const name = file.name.replace(/\.[^.]+$/, "") + ".jpg";
+      return { name, mime: "image/jpeg", size: approxBytes, data: b64 };
+    }
+    // 元がもともと小さければ原本を採用(拡大や再エンコードで増やさない)
+    return readFileAsBase64(file);
+  } catch (e) {
+    // デコード不可の形式などは原本のまま(上限チェックで別途弾かれる)
+    return readFileAsBase64(file);
+  }
 }
 
 // ---- プリーツ種類の定義（線画つき）----
@@ -238,7 +279,7 @@ function FileInput({ files, onChange, required }) {
   const pick = async (list) => {
     setBusy(true);
     try {
-      const read = await Promise.all(Array.from(list).map(readFileAsBase64));
+      const read = await Promise.all(Array.from(list).map(readFileForUpload));
       onChange([...files, ...read]);
     } finally {
       setBusy(false);
