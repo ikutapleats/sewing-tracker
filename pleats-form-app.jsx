@@ -32,7 +32,7 @@ const gothic = '"Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",sans-seri
 
 // ---- 送信設定 ----
 // ▼ 受付用GAS(pleats-form-receiver.gs)をデプロイ後、WebアプリURLへ差し替える
-const ENDPOINT = "https://script.google.com/macros/s/PLACEHOLDER/exec";
+const ENDPOINT = "https://script.google.com/macros/s/AKfycbwMlFQQQR5-1qZMwrwVtZ99wDFrSAITajBwjpDLghGK7-DBLGFsSdVe7WOW6XnccuYnsw/exec";
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 推測値・要実測(CLAUDE.md方針)
 const DEBUG = false; // trueで送信後に構造化JSONを表示(開発確認用)
 
