@@ -162,6 +162,9 @@ const needsSingleWidth = (t) => t === "accordion";             // ひだ幅1値
 const needsFlow = (t) => t === "one_way";                       // 流れる方向
 const needsPattern = (t) => ["one_way", "box", "accordion"].includes(t);
 const imageRequired = (t) => ["wrinkle", "multiple", "other"].includes(t); // 寸法で表現できない
+// 納期を「必須」にする種類。複数種類希望・その他は加工内容が未確定なため納期を任意とし、
+// 納期未入力で送信できなくなる不具合を防ぐ(納期欄は表示するが必須にしない/その他は非表示)。
+const deadlineRequired = (t) => !!t && t !== "multiple" && t !== "other";
 
 // ---- 小さなUI部品 ----
 function Field({ label, required, hint, children }) {
@@ -280,9 +283,9 @@ function PairWidth({ label, value, onChange }) {
           <div key={k} style={{ flex: 1 }}>
             <div style={{ fontSize: 12, color: C.sub, marginBottom: 4 }}>{k}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <TextInput inputMode="decimal" placeholder="例 15"
+              <TextInput inputMode="decimal" placeholder="例 1.5"
                 value={value[k] || ""} onChange={(e) => onChange({ ...value, [k]: e.target.value })} />
-              <span style={{ fontSize: 13, color: C.sub }}>mm</span>
+              <span style={{ fontSize: 13, color: C.sub }}>cm</span>
             </div>
           </div>
         ))}
@@ -317,7 +320,7 @@ function App() {
     if (!f.email.trim()) m.push("メールアドレス");
     if (!t) m.push("プリーツの種類");
     if (t && imageRequired(t) && f.imageFiles.length === 0) m.push("イメージ写真");
-    if (t && t !== "other" && !f.deadline.trim()) m.push("希望納期");
+    if (deadlineRequired(t) && !f.deadline.trim()) m.push("希望納期");
     return m;
   }, [f, t]);
 
@@ -492,16 +495,16 @@ function App() {
             )}
             {needsSingleWidth(t) && (
               <>
-                <Field label="① ウエスト側　ひだの幅" hint="回答例: 15mm　平行を希望の場合は空欄で構いません。">
+                <Field label="① ウエスト側　ひだの幅" hint="回答例: 1.5cm　平行を希望の場合は空欄で構いません。">
                   <WidthMM value={f.waistSingle} onChange={(v) => set("waistSingle", v)} />
                 </Field>
-                <Field label="② 裾側　ひだの幅" hint="回答例: 20mm">
+                <Field label="② 裾側　ひだの幅" hint="回答例: 2cm">
                   <WidthMM value={f.hemSingle} onChange={(v) => set("hemSingle", v)} />
                 </Field>
               </>
             )}
             <Field label="③ 丈">
-              <WidthMM value={f.length} onChange={(v) => set("length", v)} unit="mm / cm" placeholder="例 600" />
+              <WidthMM value={f.length} onChange={(v) => set("length", v)} unit="cm" placeholder="例 60" />
             </Field>
 
             {needsFlow(t) && (
@@ -572,8 +575,8 @@ function App() {
               <TextInput value={f.hemFinishOther} onChange={(e) => set("hemFinishOther", e.target.value)}
                 placeholder="その他・種類ごとに変えたい場合はこちら" />
             </Field>
-            <Field label="希望納期" required hint="例: 2026年1月7日">
-              <TextInput value={f.deadline} onChange={(e) => set("deadline", e.target.value)} />
+            <Field label="希望納期" required={deadlineRequired(t)} hint="カレンダーから日付を選んでください。未定の場合は空欄で構いません。">
+              <TextInput type="date" value={f.deadline} onChange={(e) => set("deadline", e.target.value)} />
             </Field>
             <Field label="デザイン画・仕様書" hint="あればアップロードしてください。">
               <FileInput files={f.designFiles} onChange={(v) => set("designFiles", v)} />
@@ -613,8 +616,8 @@ function App() {
   );
 }
 
-// mm入力の共通部品
-function WidthMM({ value, onChange, unit = "mm", placeholder = "例 15" }) {
+// 寸法(cm)入力の共通部品
+function WidthMM({ value, onChange, unit = "cm", placeholder = "例 1.5" }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6, maxWidth: 240 }}>
       <TextInput inputMode="decimal" placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
