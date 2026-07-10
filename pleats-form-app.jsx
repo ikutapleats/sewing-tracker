@@ -140,116 +140,50 @@ async function readFileForUpload(file) {
   }
 }
 
-// ---- プリーツ種類の定義（線画つき）----
+// ---- プリーツ種類の定義（イラストつき）----
 const PLEAT_TYPES = [
   { id: "one_way", label: "車ひだ", sub: "ワンウェイプリーツ" },
   { id: "box", label: "ボックスプリーツ", sub: "" },
-  { id: "accordion", label: "アコーディオン", sub: "均等プリーツ" },
+  { id: "accordion", label: "アコーディオン", sub: "均等・平行プリーツ" },
+  { id: "sunray", label: "サンレイ", sub: "裾広がり" },
   { id: "crystal", label: "クリスタル", sub: "細かいプリーツ" },
-  { id: "wrinkle", label: "しわ加工", sub: "" },
+  { id: "wrinkle", label: "しわ加工", sub: "クリンクル" },
   { id: "multiple", label: "複数種類希望", sub: "" },
   { id: "other", label: "その他", sub: "未定・不明" },
 ];
 
-// プリーツ図案（淡いブルーのグラデーション＋光沢の立体タッチ）
-// 参考図の質感に合わせ、全種類を同じ淡いブルーで統一。形の違いで見分ける。
+// プリーツ図案（生田プリーツ提供の手描き水彩イラストを使用）
+// 6種類は pleats/<id>.jpg を表示。複数種類希望・その他は簡易表示。
+const ILLUST_TYPES = ["one_way", "box", "accordion", "sunray", "crystal", "wrinkle"];
 function Diagram({ type }) {
-  const EDGE = "#a7c4dd", EDGE2 = "#9dbdd8", CREASE = "#ffffff";
-  const TOP = 24, BOT = 132, SHIFT = 6;
-
-  const defs = (p) => `<defs>
-    <linearGradient id="${p}f" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#eef6fd"/><stop offset=".55" stop-color="#dcebf8"/><stop offset="1" stop-color="#cbe1f3"/>
-    </linearGradient>
-    <linearGradient id="${p}r" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#a6cae7"/><stop offset="1" stop-color="#c4dcf0"/>
-    </linearGradient>
-    <filter id="${p}s" x="-25%" y="-25%" width="150%" height="150%">
-      <feDropShadow dx="0" dy="3" stdDeviation="3.2" flood-color="#5b7fa0" flood-opacity="0.20"/>
-    </filter>
-  </defs>`;
-
-  // 車ひだ: 一方向に倒れる立ち面＋影ひだ（濃い面）＋折り目のハイライト
-  const oneway = (p, n = 6) => {
-    const m = 14, unit = (200 - 2 * m) / n, rw = unit * 0.30, lean = SHIFT;
-    let s = "";
-    for (let i = 0; i < n; i++) {
-      const x = m + i * unit;
-      s += `<path d="M${x} ${TOP + 5} L${x + rw} ${TOP} L${x + rw} ${BOT} L${x} ${BOT + 5} Z" fill="url(#${p}r)" stroke="${EDGE2}" stroke-width="1"/>`;
-      s += `<path d="M${x + rw} ${TOP} L${x + unit} ${TOP + lean} L${x + unit} ${BOT + lean} L${x + rw} ${BOT} Z" fill="url(#${p}f)" stroke="${EDGE}" stroke-width="1"/>`;
-      s += `<path d="M${x + rw} ${TOP} L${x + rw} ${BOT}" stroke="${CREASE}" stroke-width="1.2" opacity="0.65"/>`;
-    }
-    return s;
-  };
-  // ボックス（生田＝インバーテッド）: 幅広の面の間に谷を突き合わせた沈み込み
-  const box = (p, n = 4) => {
-    const m = 14, unit = (200 - 2 * m) / n, fw = unit * 0.58, tw = unit - fw;
-    let s = "";
-    for (let i = 0; i < n; i++) {
-      const x = m + i * unit, c = x + fw + tw / 2;
-      s += `<path d="M${x} ${TOP} L${x + fw} ${TOP} L${x + fw} ${BOT} L${x} ${BOT} Z" fill="url(#${p}f)" stroke="${EDGE}" stroke-width="1"/>`;
-      s += `<path d="M${x + fw} ${TOP} L${c} ${TOP + 4} L${c} ${BOT + 4} L${x + fw} ${BOT} Z" fill="url(#${p}r)" stroke="${EDGE2}" stroke-width="1"/>`;
-      s += `<path d="M${c} ${TOP + 4} L${x + unit} ${TOP} L${x + unit} ${BOT} L${c} ${BOT + 4} Z" fill="url(#${p}r)" stroke="${EDGE2}" stroke-width="1"/>`;
-      s += `<path d="M${x + fw} ${TOP} L${x + fw} ${BOT}" stroke="${CREASE}" stroke-width="1.1" opacity="0.6"/>`;
-    }
-    return s;
-  };
-  // アコーディオン: 平行・均等のジグザグ（光沢の明暗を交互に）
-  const accordion = (p, n = 9) => {
-    const m = 12, unit = (200 - 2 * m) / n, amp = 6;
-    let s = "";
-    for (let i = 0; i < n; i++) {
-      const x0 = m + i * unit, xm = x0 + unit / 2, x1 = x0 + unit;
-      s += `<path d="M${x0} ${TOP} L${xm} ${TOP + amp} L${xm} ${BOT + amp} L${x0} ${BOT} Z" fill="url(#${p}${i % 2 ? "r" : "f"})" stroke="${EDGE}" stroke-width="0.9"/>`;
-      s += `<path d="M${xm} ${TOP + amp} L${x1} ${TOP} L${x1} ${BOT} L${xm} ${BOT + amp} Z" fill="url(#${p}${i % 2 ? "f" : "r"})" stroke="${EDGE}" stroke-width="0.9"/>`;
-    }
-    return s;
-  };
-  // クリスタル: 細かく山を少し丸めた（マシンプリーツ）
-  const crystal = (p, n = 17) => {
-    const m = 8, unit = (200 - 2 * m) / n, amp = 4;
-    let s = "";
-    for (let i = 0; i < n; i++) {
-      const x0 = m + i * unit, xm = x0 + unit / 2, x1 = x0 + unit;
-      s += `<path d="M${x0} ${TOP} Q${(x0 + xm) / 2} ${TOP + amp} ${xm} ${TOP + amp} L${xm} ${BOT + amp} Q${(x0 + xm) / 2} ${BOT + amp} ${x0} ${BOT} Z" fill="url(#${p}${i % 2 ? "r" : "f"})" stroke="${EDGE}" stroke-width="0.7"/>`;
-      s += `<path d="M${xm} ${TOP + amp} Q${(xm + x1) / 2} ${TOP + amp} ${x1} ${TOP} L${x1} ${BOT} Q${(xm + x1) / 2} ${BOT + amp} ${xm} ${BOT + amp} Z" fill="url(#${p}${i % 2 ? "f" : "r"})" stroke="${EDGE}" stroke-width="0.7"/>`;
-    }
-    return s;
-  };
-  // しわ加工: 不規則な縦のクリンクル
-  const wrinkle = (p) => {
-    let s = `<rect x="12" y="${TOP}" width="176" height="${BOT - TOP}" rx="4" fill="url(#${p}f)" stroke="${EDGE}" stroke-width="1"/>`;
-    const seeds = [24, 40, 54, 72, 88, 106, 122, 140, 158, 176], h = (BOT - TOP) / 2;
-    seeds.forEach((x, i) => {
-      const amp = (i % 3) + 1.2;
-      s += `<path d="M${x} ${TOP} q${amp * 3} ${(BOT - TOP) / 4} 0 ${h} q${-amp * 3} ${(BOT - TOP) / 4} 0 ${h}" fill="none" stroke="${i % 2 ? EDGE2 : CREASE}" stroke-width="${i % 2 ? 1.4 : 1.6}" opacity="${i % 2 ? 0.8 : 0.75}"/>`;
-    });
-    return s;
-  };
-  const multiple = (p) =>
-    `<g transform="translate(6,30) scale(0.30)">${oneway(p, 4)}</g>` +
-    `<g transform="translate(72,30) scale(0.30)">${box(p, 2)}</g>` +
-    `<g transform="translate(136,30) scale(0.30)">${accordion(p, 6)}</g>`;
-  const other = (p) =>
-    `<rect x="30" y="34" width="140" height="88" rx="10" fill="none" stroke="${EDGE2}" stroke-width="1.6" stroke-dasharray="5 5"/>` +
-    `<text x="100" y="90" text-anchor="middle" font-size="42" fill="${EDGE2}" font-family="serif">?</text>`;
-
-  const gens = { one_way: oneway, box, accordion, crystal, wrinkle, multiple, other };
-  const gen = gens[type] || other;
-  const p = "d_" + type + "_"; // グラデーションIDの重複回避（種類ごとに一意）
-  const flat = type === "wrinkle" || type === "other" || type === "multiple";
-  const inner = gen(p);
-  const body = flat ? inner : `<g filter="url(#${p}s)">${inner}</g>`;
-  const svg = `<svg viewBox="0 0 200 156" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block">${defs(p)}${body}</svg>`;
-  return <span style={{ display: "block", width: "100%" }} dangerouslySetInnerHTML={{ __html: svg }} />;
+  const imgStyle = { width: "100%", height: "auto", display: "block", borderRadius: 6 };
+  if (ILLUST_TYPES.includes(type))
+    return <img src={`pleats/${type}.jpg`} alt="" style={imgStyle} loading="lazy" />;
+  if (type === "multiple")
+    return (
+      <div style={{ display: "flex", gap: 4 }}>
+        {["one_way", "box", "accordion"].map((k) => (
+          <img key={k} src={`pleats/${k}.jpg`} alt="" loading="lazy"
+            style={{ width: "33.33%", height: "auto", display: "block", borderRadius: 4 }} />
+        ))}
+      </div>
+    );
+  return (
+    <div style={{
+      width: "100%", aspectRatio: "3 / 2", borderRadius: 6, background: C.paper,
+      border: `1.5px dashed ${C.lineStrong}`, display: "flex", alignItems: "center",
+      justifyContent: "center", color: C.sub, fontSize: 34, fontFamily: serif,
+    }}>?</div>
+  );
 }
 
 // 種類ごとに「寸法セクションで何を訊くか」
 const needsFaceShadow = (t) => t === "one_way" || t === "box"; // 表ひだ/影ひだの2値
-const needsSingleWidth = (t) => t === "accordion";             // ひだ幅1値(ウエスト/裾で変えられる=裾広がり可)
+// アコーディオン=平行、サンレイ=裾広がり。どちらもウエスト側/裾側のひだ幅で入力。
+const needsSingleWidth = (t) => t === "accordion" || t === "sunray";
 const needsCrystal = (t) => t === "crystal";                   // マシンプリーツ: 山〜谷サイズ1値+途中消し
 const needsFlow = (t) => t === "one_way";                       // 流れる方向
-const needsPattern = (t) => ["one_way", "box", "accordion"].includes(t);
+const needsPattern = (t) => ["one_way", "box", "accordion", "sunray"].includes(t);
 const imageRequired = (t) => ["wrinkle", "multiple", "other"].includes(t); // 寸法で表現できない
 // 納期を「必須」にする種類。複数種類希望・その他は加工内容が未確定なため納期を任意とし、
 // 納期未入力で送信できなくなる不具合を防ぐ(納期欄は表示するが必須にしない/その他は非表示)。
@@ -578,7 +512,12 @@ function App() {
 
         {/* 寸法（条件分岐） */}
         {t && t !== "multiple" && t !== "other" && (
-          <Section title="加工の寸法" note={t === "wrinkle" ? "しわ加工は丈のみ。仕上がりはイメージ写真で共有してください。" : "写真を参考に、分かる範囲でご記入ください。"}>
+          <Section title="加工の寸法" note={
+            t === "wrinkle" ? "しわ加工は丈のみ。仕上がりはイメージ写真で共有してください。"
+              : t === "accordion" ? "アコーディオンは平行（ウエストと裾が同じ幅）のプリーツです。裾に向かって広げたい場合は種類「サンレイ」をお選びください。"
+                : t === "sunray" ? "サンレイは裾に向かって広がるプリーツです。ウエスト側より裾側のひだ幅を大きくご指定ください。"
+                  : "写真を参考に、分かる範囲でご記入ください。"
+          }>
             {needsFaceShadow(t) && (
               <>
                 <PairWidth label="① ウエスト側　表ひだ・影ひだの幅" value={f.waistPair} onChange={(v) => set("waistPair", v)} />
@@ -587,10 +526,10 @@ function App() {
             )}
             {needsSingleWidth(t) && (
               <>
-                <Field label="① ウエスト側　ひだの幅" hint="回答例: 1.5cm　平行を希望の場合は空欄で構いません。">
+                <Field label="① ウエスト側　ひだの幅" hint={t === "sunray" ? "回答例: 1.5cm（裾側より狭くなります）" : "回答例: 1.5cm　平行を希望の場合は空欄で構いません。"}>
                   <WidthMM value={f.waistSingle} onChange={(v) => set("waistSingle", v)} />
                 </Field>
-                <Field label="② 裾側　ひだの幅" hint="回答例: 2cm　ウエストより裾を広くすると、裾広がり（アンブレラプリーツ）になります。">
+                <Field label="② 裾側　ひだの幅" hint={t === "sunray" ? "回答例: 3cm　ウエストより広げると裾に向かって広がります。" : "回答例: 2cm"}>
                   <WidthMM value={f.hemSingle} onChange={(v) => set("hemSingle", v)} />
                 </Field>
               </>
@@ -634,7 +573,7 @@ function App() {
         {/* 複数種類希望 */}
         {t === "multiple" && (
           <Section title="ご希望の種類" required note="当てはまるものをすべて選び、下欄に希望を記入してください。">
-            {["車ひだ", "ボックスプリーツ", "アコーディオン", "クリスタル", "しわ加工"].map((o) => (
+            {["車ひだ", "ボックスプリーツ", "アコーディオン", "サンレイ", "クリスタル", "しわ加工"].map((o) => (
               <CheckItem key={o} checked={f.multiTypes.includes(o)} onClick={() => toggleMulti(o)}>{o}</CheckItem>
             ))}
             <Field label="それぞれの希望内容" hint="寸法・丈・組み合わせなど、決まっている範囲で。">
