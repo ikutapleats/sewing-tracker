@@ -1,20 +1,16 @@
 const { useState, useMemo } = React;
 
 /*
-  生田プリーツ｜プリーツ加工 問い合わせフォーム
+  IKUTA PLEATS | Pleating Inquiry Form (English)
   -----------------------------------------------------------------
-  設計の要点:
-  - 現行Googleフォーム(75問)は、分岐ごとに共通質問を重複させていた。
-    → 本フォームは「共通質問は1回だけ」「寸法は選んだ種類の分だけ」表示。
-       1人が見る項目は 約15問 に減る。
-  - 送信時に、問い合わせアプリ(inquiry-app-spec)の web_form 入力JSONを組み立てる。
-    実運用では handleSubmit 内から Apps Script(doPost) へ POST する(投げっぱなし)。
-  - 金額計算はここでは一切しない。数値の解釈・見積もりはバックエンド側。
-  - 「その他(未定)」を選んだ場合は、加工内容が決まっていないため
-    共通の「生地・仕上げ・納期」セクション自体を表示しない(ご希望内容+画像のみ)。
+  This is the English-facing twin of pleats-form-app.jsx.
+  UI is in English, but every SELECTABLE value is submitted in Japanese
+  (each option carries {en, ja}; the `ja` value is stored/sent) so the
+  staff ledger (案件台帳) stays uniformly Japanese. Free-text fields
+  (name, company, notes, fabric, dimensions numbers) are sent as typed.
+  Same backend endpoint, same spreadsheet, same illustrations.
 */
 
-// ---- ブランドトークン（インラインstyleで指定。藍＝textile heritage の一点差し色）----
 const C = {
   paper: "#FBF9F5",
   card: "#FFFFFF",
@@ -22,25 +18,19 @@ const C = {
   sub: "#6E675B",
   line: "#E2DCD0",
   lineStrong: "#CFC7B7",
-  ai: "#2C3E63",      // 藍
+  ai: "#2C3E63",
   aiSoft: "#EAEEF5",
-  fold: "#B8B0A2",    // 線画の影
+  fold: "#B8B0A2",
   warn: "#8A5A2B",
 };
-const serif = '"Hiragino Mincho ProN","Yu Mincho",serif';
-const gothic = '"Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",sans-serif';
+const serif = '"Hiragino Mincho ProN","Yu Mincho",Georgia,serif';
+const gothic = '"Helvetica Neue",Arial,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif';
 
-// ---- 送信設定 ----
-// ▼ 受付用GAS(pleats-form-receiver.gs)をデプロイ後、WebアプリURLへ差し替える
+// Same endpoint / receiver as the Japanese form (writes to the same ledger).
 const ENDPOINT = "https://script.google.com/macros/s/AKfycbwMlFQQQR5-1qZMwrwVtZ99wDFrSAITajBwjpDLghGK7-DBLGFsSdVe7WOW6XnccuYnsw/exec";
-// 添付合計の上限(バックストップ)。写真は送信前に自動縮小されるので通常は当たらない。
-// 主に縮小できない大きなPDF/仕様書を守るための安全弁。base64化でJSON本文は約1.37倍に
-// 膨らむため、実測で失敗した約20MB(本文約27MB)より十分低い10MB(本文約13.7MB)に設定。
-// ※上限超で送ると no-cors のため無言で失敗(台帳に行が増えない)。だから事前に弾く。
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
-const DEBUG = false; // trueで送信後に構造化JSONを表示(開発確認用)
+const DEBUG = false;
 
-// ---- lucide-react 相当のインラインSVGアイコン（同名・同props・同見た目）----
 function Check({ size = 24, color = "currentColor", strokeWidth = 2 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
@@ -48,7 +38,6 @@ function Check({ size = 24, color = "currentColor", strokeWidth = 2 }) {
     </svg>
   );
 }
-
 function Upload({ size = 24, color = "currentColor", strokeWidth = 2 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
@@ -58,7 +47,6 @@ function Upload({ size = 24, color = "currentColor", strokeWidth = 2 }) {
     </svg>
   );
 }
-
 function ArrowRight({ size = 24, color = "currentColor", strokeWidth = 2 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
@@ -67,7 +55,6 @@ function ArrowRight({ size = 24, color = "currentColor", strokeWidth = 2 }) {
     </svg>
   );
 }
-
 function X({ size = 24, color = "currentColor", strokeWidth = 2 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
@@ -76,7 +63,6 @@ function X({ size = 24, color = "currentColor", strokeWidth = 2 }) {
     </svg>
   );
 }
-
 function CircleAlert({ size = 24, color = "currentColor", strokeWidth = 2 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
@@ -87,12 +73,10 @@ function CircleAlert({ size = 24, color = "currentColor", strokeWidth = 2 }) {
   );
 }
 
-// 画像の自動縮小設定。長辺をこのpx以下に縮小し、JSON本文(base64)の肥大とGAS受信上限を回避する。
-const MAX_IMAGE_EDGE = 2000; // 長辺の上限px(スタッフが仕上がりを確認するには十分)
-const IMAGE_QUALITY = 0.85;  // JPEG書き出し品質
-const DOWNSCALE_TYPES = ["image/jpeg", "image/png", "image/webp"]; // 縮小対象の画像形式
+const MAX_IMAGE_EDGE = 2000;
+const IMAGE_QUALITY = 0.85;
+const DOWNSCALE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
-// File → { name, mime, size, data(base64) }。原本をそのままbase64化する低レベル関数。
 function readFileAsBase64(file, overrideName, overrideMime) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -110,12 +94,9 @@ function readFileAsBase64(file, overrideName, overrideMime) {
   });
 }
 
-// 送信用にファイルを読み込む。写真(jpeg/png/webp)は長辺MAX_IMAGE_EDGEへ縮小しJPEG化する。
-// 縮小できない形式(PDF・HEIC・SVG等)や、縮小しても小さくならない場合は原本のまま送る。
 async function readFileForUpload(file) {
   if (!DOWNSCALE_TYPES.includes(file.type)) return readFileAsBase64(file);
   try {
-    // createImageBitmap の imageOrientation でスマホ写真のEXIF回転も正しく反映する
     const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
     const longEdge = Math.max(bmp.width, bmp.height);
     const scale = Math.min(1, MAX_IMAGE_EDGE / longEdge);
@@ -132,28 +113,26 @@ async function readFileForUpload(file) {
       const name = file.name.replace(/\.[^.]+$/, "") + ".jpg";
       return { name, mime: "image/jpeg", size: approxBytes, data: b64 };
     }
-    // 元がもともと小さければ原本を採用(拡大や再エンコードで増やさない)
     return readFileAsBase64(file);
   } catch (e) {
-    // デコード不可の形式などは原本のまま(上限チェックで別途弾かれる)
     return readFileAsBase64(file);
   }
 }
 
-// ---- プリーツ種類の定義（イラストつき）----
+// ---- Pleat types (label = English shown, ja = Japanese sent to ledger) ----
 const PLEAT_TYPES = [
-  { id: "one_way", label: "車ひだ", sub: "ワンウェイプリーツ" },
-  { id: "box", label: "ボックスプリーツ", sub: "" },
-  { id: "accordion", label: "アコーディオン", sub: "均等・平行プリーツ" },
-  { id: "sunray", label: "サンレイ", sub: "裾広がり" },
-  { id: "crystal", label: "クリスタル", sub: "細かいプリーツ" },
-  { id: "wrinkle", label: "しわ加工", sub: "クリンクル" },
-  { id: "multiple", label: "複数種類希望", sub: "" },
-  { id: "other", label: "その他", sub: "未定・不明" },
+  { id: "one_way", label: "Knife pleats", sub: "One-way", ja: "車ひだ" },
+  { id: "box", label: "Box pleats", sub: "Inverted", ja: "ボックスプリーツ" },
+  { id: "accordion", label: "Accordion", sub: "Even / parallel", ja: "アコーディオン" },
+  { id: "sunray", label: "Sunray", sub: "Flared hem", ja: "サンレイ" },
+  { id: "crystal", label: "Crystal", sub: "Fine pleats", ja: "クリスタル" },
+  { id: "wrinkle", label: "Crinkle", sub: "Wrinkle finish", ja: "しわ加工" },
+  { id: "multiple", label: "Multiple types", sub: "", ja: "複数種類希望" },
+  { id: "other", label: "Other / undecided", sub: "", ja: "その他" },
 ];
+const jaLabel = (id) => (PLEAT_TYPES.find((x) => x.id === id) || {}).ja || id;
 
-// プリーツ図案（生田プリーツ提供の手描き水彩イラストを使用）
-// 6種類は pleats/<id>.jpg を表示。複数種類希望・その他は簡易表示。
+// ---- Illustrations (shared with the Japanese form: pleats/<id>.jpg) ----
 const ILLUST_TYPES = ["one_way", "box", "accordion", "sunray", "crystal", "wrinkle"];
 function Diagram({ type }) {
   const imgStyle = { width: "100%", height: "auto", display: "block", borderRadius: 6 };
@@ -177,26 +156,48 @@ function Diagram({ type }) {
   );
 }
 
-// 種類ごとに「寸法セクションで何を訊くか」
-const needsFaceShadow = (t) => t === "one_way" || t === "box"; // 表ひだ/影ひだの2値
-// アコーディオン=平行なのでひだ幅は1値。サンレイ=裾広がりなのでウエスト/裾の2値。
-const needsParallelWidth = (t) => t === "accordion"; // 1値(ウエスト〜裾 同寸)
-const needsFlareWidth = (t) => t === "sunray";       // ウエスト側/裾側の2値(裾を広げる)
-const needsCrystal = (t) => t === "crystal";                   // マシンプリーツ: 山〜谷サイズ1値+途中消し
-const needsFlow = (t) => t === "one_way";                       // 流れる方向
+// ---- which dimension fields each type asks (identical logic to the JP form) ----
+const needsFaceShadow = (t) => t === "one_way" || t === "box";
+const needsParallelWidth = (t) => t === "accordion";
+const needsFlareWidth = (t) => t === "sunray";
+const needsCrystal = (t) => t === "crystal";
+const needsFlow = (t) => t === "one_way";
 const needsPattern = (t) => ["one_way", "box", "accordion", "sunray"].includes(t);
-const imageRequired = (t) => ["wrinkle", "multiple", "other"].includes(t); // 寸法で表現できない
-// 納期を「必須」にする種類。複数種類希望・その他は加工内容が未確定なため納期を任意とし、
-// 納期未入力で送信できなくなる不具合を防ぐ(納期欄は表示するが必須にしない/その他は非表示)。
+const imageRequired = (t) => ["wrinkle", "multiple", "other"].includes(t);
 const deadlineRequired = (t) => !!t && t !== "multiple" && t !== "other";
 
-// ---- 小さなUI部品 ----
+// ---- option lists: shown in English, submitted in Japanese ----
+const FLOW_OPTS = [
+  { en: "Left-flowing", ja: "左流れ" },
+  { en: "Right-flowing", ja: "右流れ" },
+  { en: "Undecided", ja: "未定・わからない" },
+];
+const PATTERN_OPTS = [
+  { en: "I have a paper pattern", ja: "紙のパターンがある" },
+  { en: "I have pattern data", ja: "パターンデータがある" },
+  { en: "None", ja: "ない" },
+];
+const FADE_OPTS = [
+  { en: "Yes, please", ja: "希望する" },
+  { en: "No", ja: "希望しない" },
+  { en: "Undecided / want to discuss", ja: "未定・相談したい" },
+];
+const HEM_OPTS = [
+  { en: "Rolled hem (three-fold)", ja: "三つ巻き" },
+  { en: "Rock Lewis (hand-stitch look)", ja: "ロックルイス" },
+  { en: "Merrow finish", ja: "メロー始末" },
+  { en: "No hemming (raw cut)", ja: "裾上げなし（裁ちきり）" },
+  { en: "Undecided", ja: "未定・わからない" },
+];
+const NO_DEADLINE = "特になし"; // stored/sent value; shown as English below
+
+// ---- small UI parts ----
 function Field({ label, required, hint, children }) {
   return (
     <label style={{ display: "block", marginBottom: 20 }}>
       <div style={{ fontSize: 14, color: C.ink, fontWeight: 600, marginBottom: 6 }}>
         {label}
-        {required && <span style={{ color: C.warn, marginLeft: 6, fontSize: 12 }}>必須</span>}
+        {required && <span style={{ color: C.warn, marginLeft: 6, fontSize: 12 }}>Required</span>}
       </div>
       {hint && <div style={{ fontSize: 12, color: C.sub, marginBottom: 8, lineHeight: 1.6 }}>{hint}</div>}
       {children}
@@ -275,7 +276,7 @@ function FileInput({ files, onChange, required }) {
         fontSize: 13, color: C.ai, background: C.card, fontFamily: gothic, opacity: busy ? 0.6 : 1,
       }}>
         <Upload size={15} />
-        {busy ? "読み込み中…" : "画像・ファイルを選ぶ"}
+        {busy ? "Loading…" : "Choose images / files"}
         <input type="file" multiple style={{ display: "none" }}
           onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
       </label>
@@ -291,24 +292,25 @@ function FileInput({ files, onChange, required }) {
       )}
       {required && files.length === 0 && (
         <div style={{ fontSize: 12, color: C.warn, marginTop: 6, display: "flex", alignItems: "center", gap: 4 }}>
-          <CircleAlert size={13} /> この種類では画像が必須です
+          <CircleAlert size={13} /> An image is required for this type.
         </div>
       )}
     </div>
   );
 }
 
-// 寸法の2値入力（表ひだ / 影ひだ）
+// two-value width input (face / shadow). Shown in English, stored under Japanese keys.
 function PairWidth({ label, value, onChange }) {
+  const KEYS = [{ en: "Face pleat", ja: "表ひだ" }, { en: "Shadow pleat", ja: "影ひだ" }];
   return (
-    <Field label={label} hint="表ひだと影ひだを同じ寸法にすることもできます。平行を希望の場合は空欄で構いません。">
+    <Field label={label} hint="You may enter the same size for both, or leave blank if you want them parallel.">
       <div style={{ display: "flex", gap: 10 }}>
-        {["表ひだ", "影ひだ"].map((k) => (
-          <div key={k} style={{ flex: 1 }}>
-            <div style={{ fontSize: 12, color: C.sub, marginBottom: 4 }}>{k}</div>
+        {KEYS.map((k) => (
+          <div key={k.ja} style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 4 }}>{k.en}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <TextInput inputMode="decimal" placeholder="例 1.5"
-                value={value[k] || ""} onChange={(e) => onChange({ ...value, [k]: e.target.value })} />
+              <TextInput inputMode="decimal" placeholder="e.g. 1.5"
+                value={value[k.ja] || ""} onChange={(e) => onChange({ ...value, [k.ja]: e.target.value })} />
               <span style={{ fontSize: 13, color: C.sub }}>cm</span>
             </div>
           </div>
@@ -341,11 +343,11 @@ function App() {
 
   const missing = useMemo(() => {
     const m = [];
-    if (!f.name.trim()) m.push("氏名");
-    if (!f.email.trim()) m.push("メールアドレス");
-    if (!t) m.push("プリーツの種類");
-    if (t && imageRequired(t) && f.imageFiles.length === 0) m.push("イメージ写真");
-    if (deadlineRequired(t) && !f.deadline.trim()) m.push("希望納期");
+    if (!f.name.trim()) m.push("Name");
+    if (!f.email.trim()) m.push("Email address");
+    if (!t) m.push("Pleat type");
+    if (t && imageRequired(t) && f.imageFiles.length === 0) m.push("Reference photo");
+    if (deadlineRequired(t) && !f.deadline.trim()) m.push("Desired deadline");
     return m;
   }, [f, t]);
 
@@ -355,19 +357,17 @@ function App() {
     set("multiTypes", f.multiTypes.includes(v) ? f.multiTypes.filter((x) => x !== v) : [...f.multiTypes, v]);
 
   function buildPayload() {
-    // inquiry-app-spec の web_form 入力に沿った構造化データ
-    const typeLabel = PLEAT_TYPES.find((x) => x.id === t)?.label;
     return {
       action: "process_inquiry",
       inquiry: {
-        channel: "web_form",
+        channel: "web_form_en",
         sender_name: f.name,
         sender_email: f.email,
         phone: f.phone,
         organization: f.org,
         structured: {
           pleat_type: t,
-          pleat_type_label: typeLabel,
+          pleat_type_label: jaLabel(t), // Japanese label for the staff ledger
           dimensions: {
             waist: needsFaceShadow(t) ? f.waistPair : (needsParallelWidth(t) || needsFlareWidth(t)) ? { ひだ幅: f.waistSingle } : null,
             hem: needsFaceShadow(t) ? f.hemPair : needsFlareWidth(t) ? { ひだ幅: f.hemSingle } : null,
@@ -398,18 +398,15 @@ function App() {
     if (missing.length || sending) return;
     const payload = buildPayload();
 
-    // 添付合計サイズのチェック
     const totalBytes = [...f.imageFiles, ...f.designFiles].reduce((s, x) => s + (x.size || 0), 0);
     if (totalBytes > MAX_UPLOAD_BYTES) {
-      setError(`添付が大きすぎます（合計 ${(totalBytes / 1024 / 1024).toFixed(1)}MB）。${Math.floor(MAX_UPLOAD_BYTES / 1024 / 1024)}MB以内に減らすか、送信後の返信メールに添付してください。`);
+      setError(`Attachments are too large (total ${(totalBytes / 1024 / 1024).toFixed(1)} MB). Please reduce them to under ${Math.floor(MAX_UPLOAD_BYTES / 1024 / 1024)} MB, or attach them to the reply email after submitting.`);
       return;
     }
 
     setError("");
     setSending(true);
     try {
-      // CORSを避けるため text/plain + no-cors の「投げっぱなし」送信。
-      // 応答は読めないが、台帳への記録はサーバー側で完了する。
       await fetch(ENDPOINT, {
         method: "POST",
         mode: "no-cors",
@@ -419,13 +416,13 @@ function App() {
       setSubmitted(payload);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (e) {
-      setError("送信に失敗しました。通信環境をご確認のうえ、もう一度お試しください。");
+      setError("Failed to send. Please check your connection and try again.");
     } finally {
       setSending(false);
     }
   }
 
-  // ---- 送信後の確認画面 ----
+  // ---- confirmation screen ----
   if (submitted) {
     return (
       <div style={{ background: C.paper, minHeight: "100vh", fontFamily: gothic, padding: "48px 20px" }}>
@@ -434,20 +431,20 @@ function App() {
             <div style={{ width: 44, height: 44, borderRadius: 999, background: C.aiSoft, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
               <Check size={22} color={C.ai} strokeWidth={2.5} />
             </div>
-            <h2 style={{ fontFamily: serif, fontSize: 22, color: C.ink, margin: "0 0 8px" }}>受け付けました</h2>
+            <h2 style={{ fontFamily: serif, fontSize: 22, color: C.ink, margin: "0 0 8px" }}>Thank you — we've received your inquiry.</h2>
             <p style={{ fontSize: 14, color: C.sub, lineHeight: 1.8, margin: 0 }}>
-              後日、担当者よりメールでご連絡します。内容の確認や見積もりのため、追加でお伺いすることがあります。
+              A member of our team will contact you by email. We may ask a few more questions to confirm details and prepare a quote.
             </p>
             {DEBUG && (
               <div style={{ marginTop: 24, paddingTop: 20, borderTop: `1px solid ${C.line}` }}>
-                <div style={{ fontSize: 12, color: C.sub, marginBottom: 8 }}>送信された構造化データ（開発確認用・実運用では非表示。画像はファイル名のみ表示）</div>
+                <div style={{ fontSize: 12, color: C.sub, marginBottom: 8 }}>Structured data sent (dev only; images shown as filename)</div>
                 <pre style={{ fontSize: 11, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 6, padding: 14, overflow: "auto", color: C.ink, lineHeight: 1.6 }}>
 {JSON.stringify(submitted, (k, v) => (k === "data" ? `[base64 ${Math.ceil((v?.length || 0) * 0.75 / 1024)}KB]` : v), 2)}
                 </pre>
               </div>
             )}
             <button onClick={() => setSubmitted(null)} style={{ marginTop: 20, fontSize: 13, color: C.ai, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-              ← フォームに戻る
+              ← Back to the form
             </button>
           </div>
         </div>
@@ -455,46 +452,44 @@ function App() {
     );
   }
 
-  // ---- 本体 ----
+  // ---- body ----
   return (
     <div style={{ background: C.paper, minHeight: "100vh", fontFamily: gothic }}>
-      {/* ヘッダー */}
       <div style={{ borderBottom: `1px solid ${C.line}`, background: C.card }}>
         <div style={{ maxWidth: 640, margin: "0 auto", padding: "28px 20px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <div style={{ fontSize: 12, letterSpacing: 3, color: C.ai }}>IKUTA PLEATS</div>
-            <a href="pleats-form-en.html" style={{ fontSize: 12, color: C.sub, textDecoration: "none" }}>English</a>
+            <a href="pleats-form.html" style={{ fontSize: 12, color: C.sub, textDecoration: "none" }}>日本語</a>
           </div>
           <h1 style={{ fontFamily: serif, fontSize: 26, color: C.ink, margin: "0 0 10px", fontWeight: 600 }}>
-            プリーツ加工 お問い合わせ
+            Pleating Inquiry
           </h1>
           <p style={{ fontSize: 13.5, color: C.sub, lineHeight: 1.85, margin: 0 }}>
-            決まっていない項目は空欄で構いません。分かる範囲でご記入ください。
-            種類を選ぶと、その加工に必要な項目だけを表示します。
+            Leave anything undecided blank — fill in what you can. Choosing a type shows only the fields needed for that process. Measurements are in cm/mm.
           </p>
         </div>
       </div>
 
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "28px 20px 80px" }}>
 
-        {/* 基本情報 */}
-        <Section title="ご連絡先">
-          <Field label="氏名" required>
+        {/* contact */}
+        <Section title="Contact details">
+          <Field label="Name" required>
             <TextInput value={f.name} onChange={(e) => set("name", e.target.value)} />
           </Field>
-          <Field label="メールアドレス" required>
+          <Field label="Email address" required>
             <TextInput type="email" value={f.email} onChange={(e) => set("email", e.target.value)} />
           </Field>
-          <Field label="電話番号">
+          <Field label="Phone number">
             <TextInput type="tel" value={f.phone} onChange={(e) => set("phone", e.target.value)} />
           </Field>
-          <Field label="所属（学校・ブランド・企業名）" hint="個人の方は空欄で構いません。">
+          <Field label="Affiliation (school, brand, or company)" hint="Leave blank if you are an individual.">
             <TextInput value={f.org} onChange={(e) => set("org", e.target.value)} />
           </Field>
         </Section>
 
-        {/* 種類 */}
-        <Section title="プリーツの種類" required>
+        {/* type */}
+        <Section title="Pleat type" required>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             {PLEAT_TYPES.map((p) => {
               const sel = t === p.id;
@@ -514,148 +509,150 @@ function App() {
           </div>
         </Section>
 
-        {/* 寸法（条件分岐） */}
+        {/* dimensions */}
         {t && t !== "multiple" && t !== "other" && (
-          <Section title="加工の寸法" note={
-            t === "wrinkle" ? "しわ加工は丈のみ。仕上がりはイメージ写真で共有してください。"
-              : t === "accordion" ? "アコーディオンは平行（ウエストと裾が同じ幅）のプリーツです。裾に向かって広げたい場合は種類「サンレイ」をお選びください。"
-                : t === "sunray" ? "サンレイは裾に向かって広がるプリーツです。ウエスト側より裾側のひだ幅を大きくご指定ください。"
-                  : "写真を参考に、分かる範囲でご記入ください。"
+          <Section title="Dimensions" note={
+            t === "wrinkle" ? "Wrinkle finish uses length only. Please share the desired result with a reference photo."
+              : t === "accordion" ? "Accordion is a parallel pleat (same width at waist and hem). For a flared hem, please choose the “Sunray” type."
+                : t === "sunray" ? "Sunray flares toward the hem. Please make the hem-side pleat width larger than the waist side."
+                  : "Please fill in what you can, referring to a photo."
           }>
             {needsFaceShadow(t) && (
               <>
-                <PairWidth label="① ウエスト側　表ひだ・影ひだの幅" value={f.waistPair} onChange={(v) => set("waistPair", v)} />
-                <PairWidth label="② 裾側　表ひだ・影ひだの幅" value={f.hemPair} onChange={(v) => set("hemPair", v)} />
+                <PairWidth label="① Waist side — face & shadow pleat width" value={f.waistPair} onChange={(v) => set("waistPair", v)} />
+                <PairWidth label="② Hem side — face & shadow pleat width" value={f.hemPair} onChange={(v) => set("hemPair", v)} />
               </>
             )}
             {needsParallelWidth(t) && (
-              <Field label="ひだの幅" hint="回答例: 2cm　アコーディオンは平行なので、ウエストから裾まで同じ幅になります。（裾広がりにしたい場合は種類「サンレイプリーツ」をお選びください）">
+              <Field label="Pleat width" hint="e.g. 2 cm. Accordion is parallel, so the width is the same from waist to hem. (For a flared hem, please choose the “Sunray” type.)">
                 <WidthMM value={f.waistSingle} onChange={(v) => set("waistSingle", v)} />
               </Field>
             )}
             {needsFlareWidth(t) && (
               <>
-                <Field label="① ウエスト側　ひだの幅" hint="回答例: 1.5cm（裾側より狭くなります）">
+                <Field label="① Waist-side pleat width" hint="e.g. 1.5 cm (narrower than the hem side)">
                   <WidthMM value={f.waistSingle} onChange={(v) => set("waistSingle", v)} />
                 </Field>
-                <Field label="② 裾側　ひだの幅" hint="回答例: 3cm　ウエストより広げると裾に向かって広がります。">
+                <Field label="② Hem-side pleat width" hint="e.g. 3 cm. Making the hem wider than the waist creates the flare.">
                   <WidthMM value={f.hemSingle} onChange={(v) => set("hemSingle", v)} />
                 </Field>
               </>
             )}
             {needsCrystal(t) && (
               <>
-                <Field label="① ひだの大きさ（山から谷）" hint="マシンプリーツのため3〜14mmの範囲。ウエストと裾は同じ大きさになり、裾広がりにはできません。回答例: 5mm">
-                  <WidthMM value={f.crystalPitch} onChange={(v) => set("crystalPitch", v)} unit="mm" placeholder="例 5" />
+                <Field label="① Pleat size (peak to valley)" hint="Machine-pleated, so within 3–14 mm. Waist and hem are the same size; it cannot be flared. e.g. 5 mm">
+                  <WidthMM value={f.crystalPitch} onChange={(v) => set("crystalPitch", v)} unit="mm" placeholder="e.g. 5" />
                 </Field>
-                <Field label="② 途中からプリーツを消す加工" hint="裾や途中でプリーツを消す（無くす）加工も可能です。">
-                  {["希望する", "希望しない", "未定・相談したい"].map((o) => (
-                    <Choice key={o} selected={f.crystalFade === o} onClick={() => set("crystalFade", o)}>{o}</Choice>
+                <Field label="② Fade-out pleating" hint="We can also fade the pleats out partway (for example, toward the hem).">
+                  {FADE_OPTS.map((o) => (
+                    <Choice key={o.ja} selected={f.crystalFade === o.ja} onClick={() => set("crystalFade", o.ja)}>{o.en}</Choice>
                   ))}
                 </Field>
               </>
             )}
-            <Field label="③ 丈">
-              <WidthMM value={f.length} onChange={(v) => set("length", v)} unit="cm" placeholder="例 60" />
+            <Field label="③ Length">
+              <WidthMM value={f.length} onChange={(v) => set("length", v)} unit="cm" placeholder="e.g. 60" />
             </Field>
 
             {needsFlow(t) && (
-              <Field label="プリーツの流れる方向" hint="一般的なプリーツスカートは左流れが多いです。">
-                {["左流れ", "右流れ", "未定・わからない"].map((o) => (
-                  <Choice key={o} selected={f.flow === o} onClick={() => set("flow", o)}>{o}</Choice>
+              <Field label="Pleat direction" hint="Most pleated skirts flow to the left.">
+                {FLOW_OPTS.map((o) => (
+                  <Choice key={o.ja} selected={f.flow === o.ja} onClick={() => set("flow", o.ja)}>{o.en}</Choice>
                 ))}
               </Field>
             )}
             {needsPattern(t) && (
-              <Field label="パターンはありますか">
-                {["紙のパターンがある", "パターンデータがある", "ない"].map((o) => (
-                  <Choice key={o} selected={f.pattern === o} onClick={() => set("pattern", o)}>{o}</Choice>
+              <Field label="Do you have a pattern?">
+                {PATTERN_OPTS.map((o) => (
+                  <Choice key={o.ja} selected={f.pattern === o.ja} onClick={() => set("pattern", o.ja)}>{o.en}</Choice>
                 ))}
               </Field>
             )}
-            <Field label="イメージ写真" required={imageRequired(t)} hint="仕上がりの参考になる写真があれば。">
+            <Field label="Reference photo" required={imageRequired(t)} hint="A photo of the desired result, if you have one.">
               <FileInput files={f.imageFiles} onChange={(v) => set("imageFiles", v)} required={imageRequired(t)} />
             </Field>
           </Section>
         )}
 
-        {/* 複数種類希望 */}
+        {/* multiple */}
         {t === "multiple" && (
-          <Section title="ご希望の種類" required note="当てはまるものをすべて選び、下欄に希望を記入してください。">
-            {["車ひだ", "ボックスプリーツ", "アコーディオン", "サンレイ", "クリスタル", "しわ加工"].map((o) => (
-              <CheckItem key={o} checked={f.multiTypes.includes(o)} onClick={() => toggleMulti(o)}>{o}</CheckItem>
+          <Section title="Requested types" required note="Select all that apply and describe your request below.">
+            {PLEAT_TYPES.filter((p) => ILLUST_TYPES.includes(p.id)).map((p) => (
+              <CheckItem key={p.id} checked={f.multiTypes.includes(p.ja)} onClick={() => toggleMulti(p.ja)}>
+                {p.label}
+              </CheckItem>
             ))}
-            <Field label="それぞれの希望内容" hint="寸法・丈・組み合わせなど、決まっている範囲で。">
+            <Field label="Details for each" hint="Sizes, length, combinations — as far as decided.">
               <textarea value={f.multiDetail} onChange={(e) => set("multiDetail", e.target.value)}
                 rows={4} style={{ ...inputStyle, resize: "vertical" }} />
             </Field>
-            <Field label="イメージ写真・デザイン画" required>
+            <Field label="Reference photos / design sketches" required>
               <FileInput files={f.imageFiles} onChange={(v) => set("imageFiles", v)} required />
             </Field>
           </Section>
         )}
 
-        {/* その他（未定） */}
+        {/* other */}
         {t === "other" && (
-          <Section title="ご希望の内容" required>
-            <Field label="ご希望・お困りごと" hint="やりたいこと、決まっていないことなど、そのまま書いてください。">
+          <Section title="Your request" required>
+            <Field label="What you'd like / what you're unsure about" hint="Write freely — what you want to do, what's undecided, etc.">
               <textarea value={f.otherDetail} onChange={(e) => set("otherDetail", e.target.value)}
                 rows={4} style={{ ...inputStyle, resize: "vertical" }} />
             </Field>
-            <Field label="イメージ写真・デザイン画" required>
+            <Field label="Reference photos / design sketches" required>
               <FileInput files={f.imageFiles} onChange={(v) => set("imageFiles", v)} required />
             </Field>
           </Section>
         )}
 
-        {/* 共通事項（type選択後、かつ「その他」以外にのみ表示） */}
+        {/* common (after a type is chosen, except "other") */}
         {t && t !== "other" && (
-          <Section title="生地・仕上げ・納期">
-            <Field label="生地の種類・組成" hint="回答例: オーガンジー ポリエステル100% ／ ブロード ポリエステル90% 綿10%　※ポリエステル率はプリーツの定着に関わるため、分かればご記入ください。">
+          <Section title="Fabric, finishing & deadline">
+            <Field label="Fabric type & composition" hint="e.g. Organza, 100% polyester / Broadcloth, 90% polyester 10% cotton. The polyester ratio affects how well pleats set, so please note it if known.">
               <TextInput value={f.fabric} onChange={(e) => set("fabric", e.target.value)} />
             </Field>
-            <Field label="耳を除いた生地幅">
-              <WidthMM value={f.fabricWidth} onChange={(v) => set("fabricWidth", v)} unit="cm" placeholder="例 140" />
+            <Field label="Fabric width (excluding selvage)">
+              <WidthMM value={f.fabricWidth} onChange={(v) => set("fabricWidth", v)} unit="cm" placeholder="e.g. 140" />
             </Field>
-            <Field label="数量" hint="枚数、または m 数でお答えください。">
-              <TextInput value={f.quantity} onChange={(e) => set("quantity", e.target.value)} placeholder="例 30m ／ 20枚" />
+            <Field label="Quantity" hint="Answer in number of pieces or in meters.">
+              <TextInput value={f.quantity} onChange={(e) => set("quantity", e.target.value)} placeholder="e.g. 30 m / 20 pcs" />
             </Field>
-            <Field label="裾上げの有無" hint="三つ巻き・ロックルイス（手まつり風）・メロー始末に対応可能です。">
-              {["三つ巻き", "ロックルイス", "メロー始末", "裾上げなし（裁ちきり）", "未定・わからない"].map((o) => (
-                <CheckItem key={o} checked={f.hemFinish.includes(o)} onClick={() => toggleHem(o)}>{o}</CheckItem>
+            <Field label="Hemming" hint="We can do rolled hem, Rock Lewis (hand-stitch look), or Merrow finish.">
+              {HEM_OPTS.map((o) => (
+                <CheckItem key={o.ja} checked={f.hemFinish.includes(o.ja)} onClick={() => toggleHem(o.ja)}>{o.en}</CheckItem>
               ))}
               <TextInput value={f.hemFinishOther} onChange={(e) => set("hemFinishOther", e.target.value)}
-                placeholder="その他・種類ごとに変えたい場合はこちら" />
+                placeholder="Other, or if it differs per type" />
             </Field>
-            <Field label="希望納期" required={deadlineRequired(t)} hint="カレンダーから日付を選ぶか、時期が未定の場合は「特になし」を選んでください。">
+            <Field label="Desired deadline" required={deadlineRequired(t)} hint="Pick a date, or choose “No specific deadline” if the timing is undecided.">
               <TextInput type="date"
-                value={f.deadline === "特になし" ? "" : f.deadline}
-                disabled={f.deadline === "特になし"}
+                value={f.deadline === NO_DEADLINE ? "" : f.deadline}
+                disabled={f.deadline === NO_DEADLINE}
                 onChange={(e) => set("deadline", e.target.value)}
-                style={{ ...inputStyle, opacity: f.deadline === "特になし" ? 0.5 : 1 }} />
+                style={{ ...inputStyle, opacity: f.deadline === NO_DEADLINE ? 0.5 : 1 }} />
               <div style={{ marginTop: 8 }}>
                 <CheckItem
-                  checked={f.deadline === "特になし"}
-                  onClick={() => set("deadline", f.deadline === "特になし" ? "" : "特になし")}>
-                  特になし（時期は未定）
+                  checked={f.deadline === NO_DEADLINE}
+                  onClick={() => set("deadline", f.deadline === NO_DEADLINE ? "" : NO_DEADLINE)}>
+                  No specific deadline (timing undecided)
                 </CheckItem>
               </div>
             </Field>
-            <Field label="デザイン画・仕様書" hint="あればアップロードしてください。">
+            <Field label="Design sketches / spec sheets" hint="Upload if available.">
               <FileInput files={f.designFiles} onChange={(v) => set("designFiles", v)} />
             </Field>
-            <Field label="その他" hint="来社希望や質問があればご記入ください。">
+            <Field label="Anything else" hint="Let us know if you'd like to visit us or have any questions.">
               <textarea value={f.note} onChange={(e) => set("note", e.target.value)}
                 rows={3} style={{ ...inputStyle, resize: "vertical" }} />
             </Field>
           </Section>
         )}
 
-        {/* 送信 */}
+        {/* submit */}
         <div style={{ marginTop: 8 }}>
           {missing.length > 0 && t && (
             <div style={{ fontSize: 13, color: C.warn, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
-              <CircleAlert size={15} /> 未入力: {missing.join("・")}
+              <CircleAlert size={15} /> Missing: {missing.join(", ")}
             </div>
           )}
           {error && (
@@ -671,7 +668,7 @@ function App() {
               fontSize: 15, fontWeight: 600, fontFamily: gothic,
               cursor: missing.length || sending ? "not-allowed" : "pointer",
             }}>
-            {sending ? "送信中…" : "送信する"} {!sending && <ArrowRight size={17} />}
+            {sending ? "Sending…" : "Send"} {!sending && <ArrowRight size={17} />}
           </button>
         </div>
       </div>
@@ -679,8 +676,8 @@ function App() {
   );
 }
 
-// 寸法(cm)入力の共通部品
-function WidthMM({ value, onChange, unit = "cm", placeholder = "例 1.5" }) {
+// cm/mm width input
+function WidthMM({ value, onChange, unit = "cm", placeholder = "e.g. 1.5" }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6, maxWidth: 240 }}>
       <TextInput inputMode="decimal" placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
@@ -689,14 +686,14 @@ function WidthMM({ value, onChange, unit = "cm", placeholder = "例 1.5" }) {
   );
 }
 
-// セクション枠
+// section frame
 function Section({ title, required, note, children }) {
   return (
     <section style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 10, padding: 24, marginBottom: 18 }}>
       <div style={{ marginBottom: note ? 6 : 18 }}>
         <h2 style={{ fontFamily: serif, fontSize: 17, color: C.ink, margin: 0, fontWeight: 600 }}>
           {title}
-          {required && <span style={{ color: C.warn, marginLeft: 8, fontSize: 11, fontFamily: gothic }}>必須</span>}
+          {required && <span style={{ color: C.warn, marginLeft: 8, fontSize: 11, fontFamily: gothic }}>Required</span>}
         </h2>
       </div>
       {note && <p style={{ fontSize: 12.5, color: C.sub, lineHeight: 1.7, margin: "0 0 18px" }}>{note}</p>}

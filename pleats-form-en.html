@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
+<title>Pleating Inquiry | IKUTA PLEATS</title>
+<meta name="apple-mobile-web-app-title" content="Pleating Inquiry | IKUTA PLEATS" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
+<style>
+  html, body { margin: 0; padding: 0; background: #ffffff; -webkit-text-size-adjust: 100%; overflow-x: clip; }
+  #root { min-height: 100vh; }
+  #boot { font-family: 'Helvetica Neue',Arial,sans-serif; color: #aaa; text-align: center; padding-top: 42vh; font-size: 14px; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+</head>
+<body>
+<div id="root"><div id="boot">Loading…</div></div>
+<script>
+(function () {
+  var JSX_FILE = "pleats-form-en-app.jsx";
+
+  function showError(msg) {
+    var r = document.getElementById("root");
+    if (r) {
+      r.innerHTML =
+        '<div style="font-family:sans-serif;color:#c00;padding:24px;font-size:14px;line-height:1.7;text-align:center">' +
+        'Failed to load the form.<br>Please check your connection and reopen this page.' +
+        '<br><br><span style="color:#999;font-size:12px">' + (msg || "") + '</span></div>';
+    }
+  }
+
+  var url = JSX_FILE + "?t=" + Date.now();
+
+  fetch(url, { cache: "no-store" })
+    .then(function (res) {
+      if (!res.ok) throw new Error("Load error HTTP " + res.status);
+      return res.text();
+    })
+    .then(function (code) {
+      var out;
+      try {
+        out = Babel.transform(code, { presets: ["react"] }).code;
+      } catch (e) {
+        throw new Error("Transform error: " + (e && e.message ? e.message : e));
+      }
+      var factory = new Function("React", "ReactDOM", out + "\n;return App;");
+      var App = factory(React, ReactDOM);
+      if (typeof App !== "function") throw new Error("App not found");
+      var root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(React.createElement(App));
+    })
+    .catch(function (e) {
+      showError(e && e.message ? e.message : String(e));
+    });
+})();
+</script>
+</body>
+</html>
