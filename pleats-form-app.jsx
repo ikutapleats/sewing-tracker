@@ -209,9 +209,10 @@ function Diagram({ type }) {
 
 // 種類ごとに「寸法セクションで何を訊くか」
 const needsFaceShadow = (t) => t === "one_way" || t === "box"; // 表ひだ/影ひだの2値
-const needsSingleWidth = (t) => t === "accordion" || t === "crystal"; // ひだ幅1値
+const needsSingleWidth = (t) => t === "accordion";             // ひだ幅1値(ウエスト/裾で変えられる=裾広がり可)
+const needsCrystal = (t) => t === "crystal";                   // マシンプリーツ: 山〜谷サイズ1値+途中消し
 const needsFlow = (t) => t === "one_way";                       // 流れる方向
-const needsPattern = (t) => ["one_way", "box", "accordion", "crystal"].includes(t);
+const needsPattern = (t) => ["one_way", "box", "accordion"].includes(t);
 const imageRequired = (t) => ["wrinkle", "multiple", "other"].includes(t); // 寸法で表現できない
 // 納期を「必須」にする種類。複数種類希望・その他は加工内容が未確定なため納期を任意とし、
 // 納期未入力で送信できなくなる不具合を防ぐ(納期欄は表示するが必須にしない/その他は非表示)。
@@ -350,6 +351,7 @@ function App() {
     name: "", email: "", phone: "", org: "",
     type: "",
     waistPair: {}, hemPair: {}, waistSingle: "", hemSingle: "", length: "",
+    crystalPitch: "", crystalFade: "",
     flow: "", pattern: "",
     fabric: "", fabricWidth: "", quantity: "",
     hemFinish: [], hemFinishOther: "",
@@ -397,10 +399,12 @@ function App() {
           dimensions: {
             waist: needsFaceShadow(t) ? f.waistPair : needsSingleWidth(t) ? { ひだ幅: f.waistSingle } : null,
             hem: needsFaceShadow(t) ? f.hemPair : needsSingleWidth(t) ? { ひだ幅: f.hemSingle } : null,
+            pleat_size: needsCrystal(t) ? f.crystalPitch || null : null,
             length: f.length || null,
           },
           flow_direction: needsFlow(t) ? f.flow || null : null,
           pattern: needsPattern(t) ? f.pattern || null : null,
+          crystal_fade: needsCrystal(t) ? f.crystalFade || null : null,
           multi_types: t === "multiple" ? f.multiTypes : null,
           multi_detail: t === "multiple" ? f.multiDetail : null,
           other_detail: t === "other" ? f.otherDetail : null,
@@ -551,6 +555,18 @@ function App() {
                 </Field>
                 <Field label="② 裾側　ひだの幅" hint="回答例: 2cm">
                   <WidthMM value={f.hemSingle} onChange={(v) => set("hemSingle", v)} />
+                </Field>
+              </>
+            )}
+            {needsCrystal(t) && (
+              <>
+                <Field label="① ひだの大きさ（山から谷）" hint="マシンプリーツのため3〜14mmの範囲。ウエストと裾は同じ大きさになり、裾広がりにはできません。回答例: 5mm">
+                  <WidthMM value={f.crystalPitch} onChange={(v) => set("crystalPitch", v)} unit="mm" placeholder="例 5" />
+                </Field>
+                <Field label="② 途中からプリーツを消す加工" hint="裾や途中でプリーツを消す（無くす）加工も可能です。">
+                  {["希望する", "希望しない", "未定・相談したい"].map((o) => (
+                    <Choice key={o} selected={f.crystalFade === o} onClick={() => set("crystalFade", o)}>{o}</Choice>
+                  ))}
                 </Field>
               </>
             )}
