@@ -526,7 +526,7 @@ function App() {
               </>
             )}
             {needsParallelWidth(t) && (
-              <Field label="ひだの幅" hint="回答例: 2cm　アコーディオンは平行なので、ウエストから裾まで同じ幅になります。">
+              <Field label="ひだの幅" hint="回答例: 2cm　アコーディオンは平行なので、ウエストから裾まで同じ幅になります。（裾広がりにしたい場合は種類「サンレイプリーツ」をお選びください）">
                 <WidthMM value={f.waistSingle} onChange={(v) => set("waistSingle", v)} />
               </Field>
             )}
