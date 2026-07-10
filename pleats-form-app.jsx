@@ -151,59 +151,95 @@ const PLEAT_TYPES = [
   { id: "other", label: "その他", sub: "未定・不明" },
 ];
 
-// 小さな線画（原本の手描き図の代わり）
+// プリーツ図案（折り面＋上端キャップで立体感を出した図）
+// 色は統一ニュートラル。形の違いだけで種類を見分ける。
 function Diagram({ type }) {
-  const s = { stroke: C.fold, strokeWidth: 1.2, fill: "none" };
-  const common = { width: "100%", height: 46, viewBox: "0 0 120 46" };
-  if (type === "one_way")
-    return (
-      <svg {...common}><g style={s}>
-        {[0, 20, 40, 60, 80, 100].map((x, i) => (
-          <path key={i} d={`M${x} 6 L${x + 12} 6 L${x + 6} 40 Z`} />
-        ))}
-      </g></svg>
-    );
-  if (type === "box")
-    return (
-      <svg {...common}><g style={s}>
-        {[4, 44, 84].map((x, i) => (
-          <path key={i} d={`M${x} 6 h24 M${x} 6 l6 34 M${x + 24} 6 l-6 34 M${x + 6} 40 h12`} />
-        ))}
-      </g></svg>
-    );
-  if (type === "accordion")
-    return (
-      <svg {...common}><g style={s}>
-        <path d={`M6 6 ${Array.from({ length: 11 }).map((_, i) => `L${6 + i * 10} ${i % 2 ? 40 : 6}`).join(" ")}`} />
-      </g></svg>
-    );
-  if (type === "crystal")
-    return (
-      <svg {...common}><g style={{ ...s, strokeWidth: 1 }}>
-        <path d={`M4 6 ${Array.from({ length: 21 }).map((_, i) => `L${4 + i * 5.6} ${i % 2 ? 40 : 6}`).join(" ")}`} />
-      </g></svg>
-    );
-  if (type === "wrinkle")
-    return (
-      <svg {...common}><g style={{ ...s, strokeWidth: 1 }}>
-        {[10, 20, 30].map((y) => (
-          <path key={y} d={`M4 ${y} q10 -6 20 0 t20 0 t20 0 t20 0 t20 0`} />
-        ))}
-      </g></svg>
-    );
+  const OUT = "#6F6353", LIGHT = "#F3EEE2", MID = "#DCCFB4", DARK = "#C2B491";
+  const TOP = 22, BOT = 112, CAP = 10, SH = 7; // 上端キャップの高さ / 立体シフト
+  const common = {
+    style: { width: "100%", height: "auto", display: "block" },
+    viewBox: "0 8 200 116",
+    preserveAspectRatio: "xMidYMid meet",
+  };
+  // spec配列 → <path>要素
+  const P = (specs) =>
+    specs.map((sp, i) => (
+      <path key={i} d={sp.d} fill={sp.fill || "none"} stroke={sp.stroke || OUT}
+        strokeWidth={sp.sw || 1.4} strokeLinejoin="round" strokeLinecap="round" />
+    ));
+
+  // 車ひだ: 一方向に倒れる立ち面＋右側に影ひだ（濃い面）＋上端キャップ
+  const oneway = (n = 6) => {
+    const m = 12, unit = (200 - 2 * m) / n, fw = unit * 0.74, a = [];
+    for (let i = 0; i < n; i++) {
+      const x = m + i * unit;
+      a.push({ d: `M${x + fw} ${TOP} L${x + unit} ${TOP} L${x + unit} ${BOT} L${x + fw} ${BOT} Z`, fill: DARK, sw: 1.3 });
+      a.push({ d: `M${x} ${TOP} L${x + fw} ${TOP} L${x + fw} ${BOT} L${x} ${BOT} Z`, fill: LIGHT, sw: 1.6 });
+      a.push({ d: `M${x} ${TOP} L${x + SH} ${TOP - CAP} L${x + fw + SH} ${TOP - CAP} L${x + fw} ${TOP} Z`, fill: MID, sw: 1.3 });
+    }
+    return a;
+  };
+  // ボックス（生田＝インバーテッド）: 幅広の面の間に谷を突き合わせた沈み込み
+  const box = (n = 4) => {
+    const m = 12, unit = (200 - 2 * m) / n, fw = unit * 0.62, a = [];
+    for (let i = 0; i < n; i++) {
+      const x = m + i * unit;
+      a.push({ d: `M${x + fw} ${TOP} L${x + unit} ${TOP} L${x + unit} ${BOT} L${x + fw} ${BOT} Z`, fill: DARK, sw: 1.2 });
+      a.push({ d: `M${x} ${TOP} L${x + fw} ${TOP} L${x + fw} ${BOT} L${x} ${BOT} Z`, fill: LIGHT, sw: 1.6 });
+      a.push({ d: `M${x} ${TOP} L${x + SH} ${TOP - CAP} L${x + fw + SH} ${TOP - CAP} L${x + fw} ${TOP} Z`, fill: MID, sw: 1.3 });
+      a.push({ d: `M${x + fw} ${TOP} L${x + fw + SH} ${TOP - CAP} L${x + unit + SH} ${TOP - CAP} L${x + unit} ${TOP} Z`, fill: DARK, sw: 1.1 });
+    }
+    return a;
+  };
+  // アコーディオン: 平行・均等の二色ジグザグ
+  const accordion = (n = 9) => {
+    const m = 10, unit = (200 - 2 * m) / n, amp = 7, a = [];
+    for (let i = 0; i < n; i++) {
+      const x0 = m + i * unit, xm = x0 + unit / 2, x1 = x0 + unit;
+      a.push({ d: `M${x0} ${TOP} L${xm} ${TOP + amp} L${xm} ${BOT + amp} L${x0} ${BOT} Z`, fill: i % 2 ? MID : LIGHT, sw: 1.4 });
+      a.push({ d: `M${xm} ${TOP + amp} L${x1} ${TOP} L${x1} ${BOT} L${xm} ${BOT + amp} Z`, fill: i % 2 ? LIGHT : MID, sw: 1.4 });
+    }
+    return a;
+  };
+  // クリスタル: 細かく山を少し丸めた（マシンプリーツ）
+  const crystal = (n = 17) => {
+    const m = 8, unit = (200 - 2 * m) / n, amp = 5, a = [];
+    for (let i = 0; i < n; i++) {
+      const x0 = m + i * unit, xm = x0 + unit / 2, x1 = x0 + unit;
+      a.push({ d: `M${x0} ${TOP} Q${(x0 + xm) / 2} ${TOP + amp} ${xm} ${TOP + amp} L${xm} ${BOT + amp} Q${(x0 + xm) / 2} ${BOT + amp} ${x0} ${BOT} Z`, fill: i % 2 ? MID : LIGHT, sw: 1.1 });
+      a.push({ d: `M${xm} ${TOP + amp} Q${(xm + x1) / 2} ${TOP + amp} ${x1} ${TOP} L${x1} ${BOT} Q${(xm + x1) / 2} ${BOT + amp} ${xm} ${BOT + amp} Z`, fill: i % 2 ? LIGHT : MID, sw: 1.1 });
+    }
+    return a;
+  };
+  // しわ加工: 不規則な縦のクリンクル
+  const wrinkle = () => {
+    const a = [{ d: `M10 ${TOP} H190 V${BOT} H10 Z`, fill: LIGHT, sw: 1.6 }];
+    const seeds = [16, 32, 46, 64, 80, 98, 114, 132, 150, 168, 184], h = (BOT - TOP) / 2;
+    seeds.forEach((x, i) => {
+      const amp = (i % 3) + 1;
+      a.push({ d: `M${x} ${TOP} q${amp * 3} ${(BOT - TOP) / 4} 0 ${h} q${-amp * 3} ${(BOT - TOP) / 4} 0 ${h}`, fill: "none", sw: i % 2 ? 1.4 : 1 });
+    });
+    return a;
+  };
+
+  if (type === "one_way") return <svg {...common}>{P(oneway())}</svg>;
+  if (type === "box") return <svg {...common}>{P(box())}</svg>;
+  if (type === "accordion") return <svg {...common}>{P(accordion())}</svg>;
+  if (type === "crystal") return <svg {...common}>{P(crystal())}</svg>;
+  if (type === "wrinkle") return <svg {...common}>{P(wrinkle())}</svg>;
   if (type === "multiple")
     return (
-      <svg {...common}><g style={s}>
-        <path d="M6 6 L18 6 L12 40 Z" />
-        <path d="M34 6 h20 M34 6 l5 30 M54 6 l-5 30" />
-        <path d={`M70 8 ${Array.from({ length: 6 }).map((_, i) => `L${70 + i * 8} ${i % 2 ? 38 : 8}`).join(" ")}`} />
-      </g></svg>
+      <svg {...common}>
+        <g transform="translate(4,26) scale(0.30)">{P(oneway(4))}</g>
+        <g transform="translate(70,26) scale(0.30)">{P(box(2))}</g>
+        <g transform="translate(134,26) scale(0.30)">{P(accordion(6))}</g>
+      </svg>
     );
   return (
-    <svg {...common}><g style={{ ...s, strokeDasharray: "3 3" }}>
-      <rect x="10" y="8" width="100" height="30" rx="3" />
-      <text x="60" y="28" textAnchor="middle" fontSize="11" fill={C.fold} style={{ strokeWidth: 0 }}>?</text>
-    </g></svg>
+    <svg {...common}>
+      <rect x="26" y="26" width="148" height="78" rx="8" fill="none" stroke={OUT} strokeWidth="1.6" strokeDasharray="5 5" />
+      <text x="100" y="82" textAnchor="middle" fontSize="40" fill={OUT}>?</text>
+    </svg>
   );
 }
 
