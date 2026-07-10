@@ -538,13 +538,13 @@ function App() {
                 <Field label="② Hem-side pleat width" hint="e.g. 3 cm. Making the hem wider than the waist creates the flare.">
                   <WidthMM value={f.hemSingle} onChange={(v) => set("hemSingle", v)} />
                 </Field>
-                <Field label="Fan angle" hint="A half circle (180°) is the most common request.">
+                <Field label="Fan angle" hint="A half circle (180°) is the most common request. Please specify within 180°.">
                   {[{ val: "90度", en: "90°" }, { val: "180度", en: "180° (half circle)" }, { val: "その他", en: "Other (enter a value)" }].map((o) => (
                     <Choice key={o.val} selected={f.sunrayAngle === o.val} onClick={() => set("sunrayAngle", o.val)}>{o.en}</Choice>
                   ))}
                   {f.sunrayAngle === "その他" && (
                     <div style={{ marginTop: 4 }}>
-                      <WidthMM value={f.sunrayAngleOther} onChange={(v) => set("sunrayAngleOther", v)} unit="°" placeholder="e.g. 270" />
+                      <WidthMM value={f.sunrayAngleOther} onChange={(v) => set("sunrayAngleOther", v)} unit="°" placeholder="e.g. 45 (within 180°)" />
                     </div>
                   )}
                 </Field>

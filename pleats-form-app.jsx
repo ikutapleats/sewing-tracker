@@ -543,13 +543,13 @@ function App() {
                 <Field label="② 裾側　ひだの幅" hint="回答例: 3cm　ウエストより広げると裾に向かって広がります。">
                   <WidthMM value={f.hemSingle} onChange={(v) => set("hemSingle", v)} />
                 </Field>
-                <Field label="扇形の角度" hint="半円（180度）のご依頼が多いです。">
+                <Field label="扇形の角度" hint="半円（180度）のご依頼が多いです。角度は180度以内でご指定ください。">
                   {[{ val: "90度", label: "90度" }, { val: "180度", label: "180度（半円）" }, { val: "その他", label: "その他（自由記入）" }].map((o) => (
                     <Choice key={o.val} selected={f.sunrayAngle === o.val} onClick={() => set("sunrayAngle", o.val)}>{o.label}</Choice>
                   ))}
                   {f.sunrayAngle === "その他" && (
                     <div style={{ marginTop: 4 }}>
-                      <WidthMM value={f.sunrayAngleOther} onChange={(v) => set("sunrayAngleOther", v)} unit="度" placeholder="例 270" />
+                      <WidthMM value={f.sunrayAngleOther} onChange={(v) => set("sunrayAngleOther", v)} unit="度" placeholder="例 45（180度以内）" />
                     </div>
                   )}
                 </Field>
