@@ -194,6 +194,14 @@ function json_(obj) {
 // ===== 受付通知メール =====
 function notifyNewInquiry_(inq, s) {
   const sheetUrl = "https://docs.google.com/spreadsheets/d/" + getConfig_().sheetId + "/edit";
+  // スタッフ閲覧ページ(pleats-admin)のURL。スクリプトプロパティ ADMIN_VIEW_URL に
+  // 設定されていれば通知メールに載せる(任意)。未設定なら台帳リンクのみ。
+  const viewUrl = PropertiesService.getScriptProperties().getProperty("ADMIN_VIEW_URL");
+  let links = "";
+  if (viewUrl) {
+    links += "スタッフ閲覧ページ（画像も同じ画面で確認できます）:\n" + viewUrl + "\n\n";
+  }
+  links += "台帳（スプレッドシート）で詳細を確認:\n" + sheetUrl;
   MailApp.sendEmail({
     to: NOTIFY_EMAIL,
     subject: "【プリーツ問い合わせ】新規受付: " + (inq.sender_name || "名前未入力"),
@@ -205,7 +213,7 @@ function notifyNewInquiry_(inq, s) {
       "所属: " + (inq.organization || "") + "\n" +
       "希望内容: " + (s.pleat_type_label || s.pleat_type || "") + "\n" +
       "希望納期: " + (s.deadline || "") + "\n\n" +
-      "台帳で詳細を確認してください:\n" + sheetUrl,
+      links,
   });
 }
 
