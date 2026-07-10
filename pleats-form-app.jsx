@@ -151,96 +151,97 @@ const PLEAT_TYPES = [
   { id: "other", label: "その他", sub: "未定・不明" },
 ];
 
-// プリーツ図案（折り面＋上端キャップで立体感を出した図）
-// 色は統一ニュートラル。形の違いだけで種類を見分ける。
+// プリーツ図案（淡いブルーのグラデーション＋光沢の立体タッチ）
+// 参考図の質感に合わせ、全種類を同じ淡いブルーで統一。形の違いで見分ける。
 function Diagram({ type }) {
-  const OUT = "#6F6353", LIGHT = "#F3EEE2", MID = "#DCCFB4", DARK = "#C2B491";
-  const TOP = 22, BOT = 112, CAP = 10, SH = 7; // 上端キャップの高さ / 立体シフト
-  const common = {
-    style: { width: "100%", height: "auto", display: "block" },
-    viewBox: "0 8 200 116",
-    preserveAspectRatio: "xMidYMid meet",
-  };
-  // spec配列 → <path>要素
-  const P = (specs) =>
-    specs.map((sp, i) => (
-      <path key={i} d={sp.d} fill={sp.fill || "none"} stroke={sp.stroke || OUT}
-        strokeWidth={sp.sw || 1.4} strokeLinejoin="round" strokeLinecap="round" />
-    ));
+  const EDGE = "#a7c4dd", EDGE2 = "#9dbdd8", CREASE = "#ffffff";
+  const TOP = 24, BOT = 132, SHIFT = 6;
 
-  // 車ひだ: 一方向に倒れる立ち面＋右側に影ひだ（濃い面）＋上端キャップ
-  const oneway = (n = 6) => {
-    const m = 12, unit = (200 - 2 * m) / n, fw = unit * 0.74, a = [];
+  const defs = (p) => `<defs>
+    <linearGradient id="${p}f" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#eef6fd"/><stop offset=".55" stop-color="#dcebf8"/><stop offset="1" stop-color="#cbe1f3"/>
+    </linearGradient>
+    <linearGradient id="${p}r" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#a6cae7"/><stop offset="1" stop-color="#c4dcf0"/>
+    </linearGradient>
+    <filter id="${p}s" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3.2" flood-color="#5b7fa0" flood-opacity="0.20"/>
+    </filter>
+  </defs>`;
+
+  // 車ひだ: 一方向に倒れる立ち面＋影ひだ（濃い面）＋折り目のハイライト
+  const oneway = (p, n = 6) => {
+    const m = 14, unit = (200 - 2 * m) / n, rw = unit * 0.30, lean = SHIFT;
+    let s = "";
     for (let i = 0; i < n; i++) {
       const x = m + i * unit;
-      a.push({ d: `M${x + fw} ${TOP} L${x + unit} ${TOP} L${x + unit} ${BOT} L${x + fw} ${BOT} Z`, fill: DARK, sw: 1.3 });
-      a.push({ d: `M${x} ${TOP} L${x + fw} ${TOP} L${x + fw} ${BOT} L${x} ${BOT} Z`, fill: LIGHT, sw: 1.6 });
-      a.push({ d: `M${x} ${TOP} L${x + SH} ${TOP - CAP} L${x + fw + SH} ${TOP - CAP} L${x + fw} ${TOP} Z`, fill: MID, sw: 1.3 });
+      s += `<path d="M${x} ${TOP + 5} L${x + rw} ${TOP} L${x + rw} ${BOT} L${x} ${BOT + 5} Z" fill="url(#${p}r)" stroke="${EDGE2}" stroke-width="1"/>`;
+      s += `<path d="M${x + rw} ${TOP} L${x + unit} ${TOP + lean} L${x + unit} ${BOT + lean} L${x + rw} ${BOT} Z" fill="url(#${p}f)" stroke="${EDGE}" stroke-width="1"/>`;
+      s += `<path d="M${x + rw} ${TOP} L${x + rw} ${BOT}" stroke="${CREASE}" stroke-width="1.2" opacity="0.65"/>`;
     }
-    return a;
+    return s;
   };
   // ボックス（生田＝インバーテッド）: 幅広の面の間に谷を突き合わせた沈み込み
-  const box = (n = 4) => {
-    const m = 12, unit = (200 - 2 * m) / n, fw = unit * 0.62, a = [];
+  const box = (p, n = 4) => {
+    const m = 14, unit = (200 - 2 * m) / n, fw = unit * 0.58, tw = unit - fw;
+    let s = "";
     for (let i = 0; i < n; i++) {
-      const x = m + i * unit;
-      a.push({ d: `M${x + fw} ${TOP} L${x + unit} ${TOP} L${x + unit} ${BOT} L${x + fw} ${BOT} Z`, fill: DARK, sw: 1.2 });
-      a.push({ d: `M${x} ${TOP} L${x + fw} ${TOP} L${x + fw} ${BOT} L${x} ${BOT} Z`, fill: LIGHT, sw: 1.6 });
-      a.push({ d: `M${x} ${TOP} L${x + SH} ${TOP - CAP} L${x + fw + SH} ${TOP - CAP} L${x + fw} ${TOP} Z`, fill: MID, sw: 1.3 });
-      a.push({ d: `M${x + fw} ${TOP} L${x + fw + SH} ${TOP - CAP} L${x + unit + SH} ${TOP - CAP} L${x + unit} ${TOP} Z`, fill: DARK, sw: 1.1 });
+      const x = m + i * unit, c = x + fw + tw / 2;
+      s += `<path d="M${x} ${TOP} L${x + fw} ${TOP} L${x + fw} ${BOT} L${x} ${BOT} Z" fill="url(#${p}f)" stroke="${EDGE}" stroke-width="1"/>`;
+      s += `<path d="M${x + fw} ${TOP} L${c} ${TOP + 4} L${c} ${BOT + 4} L${x + fw} ${BOT} Z" fill="url(#${p}r)" stroke="${EDGE2}" stroke-width="1"/>`;
+      s += `<path d="M${c} ${TOP + 4} L${x + unit} ${TOP} L${x + unit} ${BOT} L${c} ${BOT + 4} Z" fill="url(#${p}r)" stroke="${EDGE2}" stroke-width="1"/>`;
+      s += `<path d="M${x + fw} ${TOP} L${x + fw} ${BOT}" stroke="${CREASE}" stroke-width="1.1" opacity="0.6"/>`;
     }
-    return a;
+    return s;
   };
-  // アコーディオン: 平行・均等の二色ジグザグ
-  const accordion = (n = 9) => {
-    const m = 10, unit = (200 - 2 * m) / n, amp = 7, a = [];
+  // アコーディオン: 平行・均等のジグザグ（光沢の明暗を交互に）
+  const accordion = (p, n = 9) => {
+    const m = 12, unit = (200 - 2 * m) / n, amp = 6;
+    let s = "";
     for (let i = 0; i < n; i++) {
       const x0 = m + i * unit, xm = x0 + unit / 2, x1 = x0 + unit;
-      a.push({ d: `M${x0} ${TOP} L${xm} ${TOP + amp} L${xm} ${BOT + amp} L${x0} ${BOT} Z`, fill: i % 2 ? MID : LIGHT, sw: 1.4 });
-      a.push({ d: `M${xm} ${TOP + amp} L${x1} ${TOP} L${x1} ${BOT} L${xm} ${BOT + amp} Z`, fill: i % 2 ? LIGHT : MID, sw: 1.4 });
+      s += `<path d="M${x0} ${TOP} L${xm} ${TOP + amp} L${xm} ${BOT + amp} L${x0} ${BOT} Z" fill="url(#${p}${i % 2 ? "r" : "f"})" stroke="${EDGE}" stroke-width="0.9"/>`;
+      s += `<path d="M${xm} ${TOP + amp} L${x1} ${TOP} L${x1} ${BOT} L${xm} ${BOT + amp} Z" fill="url(#${p}${i % 2 ? "f" : "r"})" stroke="${EDGE}" stroke-width="0.9"/>`;
     }
-    return a;
+    return s;
   };
   // クリスタル: 細かく山を少し丸めた（マシンプリーツ）
-  const crystal = (n = 17) => {
-    const m = 8, unit = (200 - 2 * m) / n, amp = 5, a = [];
+  const crystal = (p, n = 17) => {
+    const m = 8, unit = (200 - 2 * m) / n, amp = 4;
+    let s = "";
     for (let i = 0; i < n; i++) {
       const x0 = m + i * unit, xm = x0 + unit / 2, x1 = x0 + unit;
-      a.push({ d: `M${x0} ${TOP} Q${(x0 + xm) / 2} ${TOP + amp} ${xm} ${TOP + amp} L${xm} ${BOT + amp} Q${(x0 + xm) / 2} ${BOT + amp} ${x0} ${BOT} Z`, fill: i % 2 ? MID : LIGHT, sw: 1.1 });
-      a.push({ d: `M${xm} ${TOP + amp} Q${(xm + x1) / 2} ${TOP + amp} ${x1} ${TOP} L${x1} ${BOT} Q${(xm + x1) / 2} ${BOT + amp} ${xm} ${BOT + amp} Z`, fill: i % 2 ? LIGHT : MID, sw: 1.1 });
+      s += `<path d="M${x0} ${TOP} Q${(x0 + xm) / 2} ${TOP + amp} ${xm} ${TOP + amp} L${xm} ${BOT + amp} Q${(x0 + xm) / 2} ${BOT + amp} ${x0} ${BOT} Z" fill="url(#${p}${i % 2 ? "r" : "f"})" stroke="${EDGE}" stroke-width="0.7"/>`;
+      s += `<path d="M${xm} ${TOP + amp} Q${(xm + x1) / 2} ${TOP + amp} ${x1} ${TOP} L${x1} ${BOT} Q${(xm + x1) / 2} ${BOT + amp} ${xm} ${BOT + amp} Z" fill="url(#${p}${i % 2 ? "f" : "r"})" stroke="${EDGE}" stroke-width="0.7"/>`;
     }
-    return a;
+    return s;
   };
   // しわ加工: 不規則な縦のクリンクル
-  const wrinkle = () => {
-    const a = [{ d: `M10 ${TOP} H190 V${BOT} H10 Z`, fill: LIGHT, sw: 1.6 }];
-    const seeds = [16, 32, 46, 64, 80, 98, 114, 132, 150, 168, 184], h = (BOT - TOP) / 2;
+  const wrinkle = (p) => {
+    let s = `<rect x="12" y="${TOP}" width="176" height="${BOT - TOP}" rx="4" fill="url(#${p}f)" stroke="${EDGE}" stroke-width="1"/>`;
+    const seeds = [24, 40, 54, 72, 88, 106, 122, 140, 158, 176], h = (BOT - TOP) / 2;
     seeds.forEach((x, i) => {
-      const amp = (i % 3) + 1;
-      a.push({ d: `M${x} ${TOP} q${amp * 3} ${(BOT - TOP) / 4} 0 ${h} q${-amp * 3} ${(BOT - TOP) / 4} 0 ${h}`, fill: "none", sw: i % 2 ? 1.4 : 1 });
+      const amp = (i % 3) + 1.2;
+      s += `<path d="M${x} ${TOP} q${amp * 3} ${(BOT - TOP) / 4} 0 ${h} q${-amp * 3} ${(BOT - TOP) / 4} 0 ${h}" fill="none" stroke="${i % 2 ? EDGE2 : CREASE}" stroke-width="${i % 2 ? 1.4 : 1.6}" opacity="${i % 2 ? 0.8 : 0.75}"/>`;
     });
-    return a;
+    return s;
   };
+  const multiple = (p) =>
+    `<g transform="translate(6,30) scale(0.30)">${oneway(p, 4)}</g>` +
+    `<g transform="translate(72,30) scale(0.30)">${box(p, 2)}</g>` +
+    `<g transform="translate(136,30) scale(0.30)">${accordion(p, 6)}</g>`;
+  const other = (p) =>
+    `<rect x="30" y="34" width="140" height="88" rx="10" fill="none" stroke="${EDGE2}" stroke-width="1.6" stroke-dasharray="5 5"/>` +
+    `<text x="100" y="90" text-anchor="middle" font-size="42" fill="${EDGE2}" font-family="serif">?</text>`;
 
-  if (type === "one_way") return <svg {...common}>{P(oneway())}</svg>;
-  if (type === "box") return <svg {...common}>{P(box())}</svg>;
-  if (type === "accordion") return <svg {...common}>{P(accordion())}</svg>;
-  if (type === "crystal") return <svg {...common}>{P(crystal())}</svg>;
-  if (type === "wrinkle") return <svg {...common}>{P(wrinkle())}</svg>;
-  if (type === "multiple")
-    return (
-      <svg {...common}>
-        <g transform="translate(4,26) scale(0.30)">{P(oneway(4))}</g>
-        <g transform="translate(70,26) scale(0.30)">{P(box(2))}</g>
-        <g transform="translate(134,26) scale(0.30)">{P(accordion(6))}</g>
-      </svg>
-    );
-  return (
-    <svg {...common}>
-      <rect x="26" y="26" width="148" height="78" rx="8" fill="none" stroke={OUT} strokeWidth="1.6" strokeDasharray="5 5" />
-      <text x="100" y="82" textAnchor="middle" fontSize="40" fill={OUT}>?</text>
-    </svg>
-  );
+  const gens = { one_way: oneway, box, accordion, crystal, wrinkle, multiple, other };
+  const gen = gens[type] || other;
+  const p = "d_" + type + "_"; // グラデーションIDの重複回避（種類ごとに一意）
+  const flat = type === "wrinkle" || type === "other" || type === "multiple";
+  const inner = gen(p);
+  const body = flat ? inner : `<g filter="url(#${p}s)">${inner}</g>`;
+  const svg = `<svg viewBox="0 0 200 156" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block">${defs(p)}${body}</svg>`;
+  return <span style={{ display: "block", width: "100%" }} dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
 // 種類ごとに「寸法セクションで何を訊くか」
