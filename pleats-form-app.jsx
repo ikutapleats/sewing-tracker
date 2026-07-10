@@ -553,7 +553,7 @@ function App() {
                 <Field label="① ウエスト側　ひだの幅" hint="回答例: 1.5cm　平行を希望の場合は空欄で構いません。">
                   <WidthMM value={f.waistSingle} onChange={(v) => set("waistSingle", v)} />
                 </Field>
-                <Field label="② 裾側　ひだの幅" hint="回答例: 2cm">
+                <Field label="② 裾側　ひだの幅" hint="回答例: 2cm　ウエストより裾を広くすると、裾広がり（アンブレラプリーツ）になります。">
                   <WidthMM value={f.hemSingle} onChange={(v) => set("hemSingle", v)} />
                 </Field>
               </>
