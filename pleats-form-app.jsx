@@ -179,8 +179,9 @@ function Diagram({ type }) {
 
 // 種類ごとに「寸法セクションで何を訊くか」
 const needsFaceShadow = (t) => t === "one_way" || t === "box"; // 表ひだ/影ひだの2値
-// アコーディオン=平行、サンレイ=裾広がり。どちらもウエスト側/裾側のひだ幅で入力。
-const needsSingleWidth = (t) => t === "accordion" || t === "sunray";
+// アコーディオン=平行なのでひだ幅は1値。サンレイ=裾広がりなのでウエスト/裾の2値。
+const needsParallelWidth = (t) => t === "accordion"; // 1値(ウエスト〜裾 同寸)
+const needsFlareWidth = (t) => t === "sunray";       // ウエスト側/裾側の2値(裾を広げる)
 const needsCrystal = (t) => t === "crystal";                   // マシンプリーツ: 山〜谷サイズ1値+途中消し
 const needsFlow = (t) => t === "one_way";                       // 流れる方向
 const needsPattern = (t) => ["one_way", "box", "accordion", "sunray"].includes(t);
@@ -368,8 +369,8 @@ function App() {
           pleat_type: t,
           pleat_type_label: typeLabel,
           dimensions: {
-            waist: needsFaceShadow(t) ? f.waistPair : needsSingleWidth(t) ? { ひだ幅: f.waistSingle } : null,
-            hem: needsFaceShadow(t) ? f.hemPair : needsSingleWidth(t) ? { ひだ幅: f.hemSingle } : null,
+            waist: needsFaceShadow(t) ? f.waistPair : (needsParallelWidth(t) || needsFlareWidth(t)) ? { ひだ幅: f.waistSingle } : null,
+            hem: needsFaceShadow(t) ? f.hemPair : needsFlareWidth(t) ? { ひだ幅: f.hemSingle } : null,
             pleat_size: needsCrystal(t) ? f.crystalPitch || null : null,
             length: f.length || null,
           },
@@ -524,12 +525,17 @@ function App() {
                 <PairWidth label="② 裾側　表ひだ・影ひだの幅" value={f.hemPair} onChange={(v) => set("hemPair", v)} />
               </>
             )}
-            {needsSingleWidth(t) && (
+            {needsParallelWidth(t) && (
+              <Field label="ひだの幅" hint="回答例: 2cm　アコーディオンは平行なので、ウエストから裾まで同じ幅になります。">
+                <WidthMM value={f.waistSingle} onChange={(v) => set("waistSingle", v)} />
+              </Field>
+            )}
+            {needsFlareWidth(t) && (
               <>
-                <Field label="① ウエスト側　ひだの幅" hint={t === "sunray" ? "回答例: 1.5cm（裾側より狭くなります）" : "回答例: 1.5cm　平行を希望の場合は空欄で構いません。"}>
+                <Field label="① ウエスト側　ひだの幅" hint="回答例: 1.5cm（裾側より狭くなります）">
                   <WidthMM value={f.waistSingle} onChange={(v) => set("waistSingle", v)} />
                 </Field>
-                <Field label="② 裾側　ひだの幅" hint={t === "sunray" ? "回答例: 3cm　ウエストより広げると裾に向かって広がります。" : "回答例: 2cm"}>
+                <Field label="② 裾側　ひだの幅" hint="回答例: 3cm　ウエストより広げると裾に向かって広がります。">
                   <WidthMM value={f.hemSingle} onChange={(v) => set("hemSingle", v)} />
                 </Field>
               </>
