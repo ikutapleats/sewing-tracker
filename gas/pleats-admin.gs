@@ -45,9 +45,14 @@ function getAdminConfig_() {
 //   「次のユーザーとして実行: ウェブアプリにアクセスしているユーザー」＋
 //   「アクセスできるユーザー: Googleアカウントを持つ全員」にし、
 //   台帳スプレッドシートを対象者に「閲覧者」で共有しておく必要がある（手順書参照）。
+// コードに直接埋め込む許可メール（iquta.com 以外・Gmail等）。
+// スクリプトプロパティ ALLOWED_EMAILS を設定すれば、この既定値に加えて許可される。
+var ALLOWED_EMAILS_DEFAULT = ["ishii.hinata.iquta@gmail.com"];
 function getAllowedEmails_() {
   var raw = PropertiesService.getScriptProperties().getProperty("ALLOWED_EMAILS") || "";
-  return raw.split(/[\s,;]+/).map(function (x) { return x.trim().toLowerCase(); }).filter(Boolean);
+  var fromProp = raw.split(/[\s,;]+/).map(function (x) { return x.trim().toLowerCase(); }).filter(Boolean);
+  var fromCode = ALLOWED_EMAILS_DEFAULT.map(function (x) { return String(x).trim().toLowerCase(); }).filter(Boolean);
+  return fromCode.concat(fromProp);
 }
 function isViewerAllowed_(email) {
   if (!email) return false;

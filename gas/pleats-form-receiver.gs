@@ -34,7 +34,7 @@
 // ===== 設定 =====
 const SHEET_NAME = "案件台帳";
 const ENABLE_AI_REPLY = false; // true にすると doPost 内で返信案生成を試みる（下部参照）
-const NOTIFY_EMAIL = "ikuta@iquta.com"; // 受付通知の送信先
+const NOTIFY_EMAIL = "ikuta@iquta.com, ishii.hinata.iquta@gmail.com"; // 受付通知の送信先（カンマ区切りで複数可）
 // スタッフ閲覧ページ(pleats-admin)のウェブアプリURL。通知メールに載せる。
 // スクリプトプロパティ ADMIN_VIEW_URL があればそちらを優先し、無ければこの既定値を使う。
 // ※ iquta.com ドメイン限定(Googleログイン保護)のため、URL単体では社外からは開けない。
