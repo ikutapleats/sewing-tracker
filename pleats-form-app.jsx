@@ -144,7 +144,8 @@ async function readFileForUpload(file) {
 const PLEAT_TYPES = [
   { id: "one_way", label: "車ひだ", sub: "ワンウェイプリーツ" },
   { id: "box", label: "ボックスプリーツ", sub: "" },
-  { id: "accordion", label: "アコーディオン", sub: "クリスタルプリーツ" },
+  { id: "accordion", label: "アコーディオン", sub: "均等プリーツ" },
+  { id: "crystal", label: "クリスタル", sub: "細かいプリーツ" },
   { id: "wrinkle", label: "しわ加工", sub: "" },
   { id: "multiple", label: "複数種類希望", sub: "" },
   { id: "other", label: "その他", sub: "未定・不明" },
@@ -176,6 +177,12 @@ function Diagram({ type }) {
         <path d={`M6 6 ${Array.from({ length: 11 }).map((_, i) => `L${6 + i * 10} ${i % 2 ? 40 : 6}`).join(" ")}`} />
       </g></svg>
     );
+  if (type === "crystal")
+    return (
+      <svg {...common}><g style={{ ...s, strokeWidth: 1 }}>
+        <path d={`M4 6 ${Array.from({ length: 21 }).map((_, i) => `L${4 + i * 5.6} ${i % 2 ? 40 : 6}`).join(" ")}`} />
+      </g></svg>
+    );
   if (type === "wrinkle")
     return (
       <svg {...common}><g style={{ ...s, strokeWidth: 1 }}>
@@ -202,9 +209,9 @@ function Diagram({ type }) {
 
 // 種類ごとに「寸法セクションで何を訊くか」
 const needsFaceShadow = (t) => t === "one_way" || t === "box"; // 表ひだ/影ひだの2値
-const needsSingleWidth = (t) => t === "accordion";             // ひだ幅1値
+const needsSingleWidth = (t) => t === "accordion" || t === "crystal"; // ひだ幅1値
 const needsFlow = (t) => t === "one_way";                       // 流れる方向
-const needsPattern = (t) => ["one_way", "box", "accordion"].includes(t);
+const needsPattern = (t) => ["one_way", "box", "accordion", "crystal"].includes(t);
 const imageRequired = (t) => ["wrinkle", "multiple", "other"].includes(t); // 寸法で表現できない
 // 納期を「必須」にする種類。複数種類希望・その他は加工内容が未確定なため納期を任意とし、
 // 納期未入力で送信できなくなる不具合を防ぐ(納期欄は表示するが必須にしない/その他は非表示)。
@@ -574,7 +581,7 @@ function App() {
         {/* 複数種類希望 */}
         {t === "multiple" && (
           <Section title="ご希望の種類" required note="当てはまるものをすべて選び、下欄に希望を記入してください。">
-            {["車ひだ", "ボックスプリーツ", "アコーディオン（クリスタル）", "しわ加工"].map((o) => (
+            {["車ひだ", "ボックスプリーツ", "アコーディオン", "クリスタル", "しわ加工"].map((o) => (
               <CheckItem key={o} checked={f.multiTypes.includes(o)} onClick={() => toggleMulti(o)}>{o}</CheckItem>
             ))}
             <Field label="それぞれの希望内容" hint="寸法・丈・組み合わせなど、決まっている範囲で。">
