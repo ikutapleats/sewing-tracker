@@ -174,6 +174,7 @@ function summarizeDimensions_(s) {
   pair("ウエスト", d.waist);
   pair("裾", d.hem);
   if (d.pleat_size) parts.push("ひだ(山〜谷) " + d.pleat_size);
+  if (s.sunray_angle) parts.push("扇形角度:" + s.sunray_angle);
   if (s.crystal_fade) parts.push("途中消し:" + s.crystal_fade);
   if (d.length) parts.push("丈 " + d.length);
   if (s.multi_types && s.multi_types.length) parts.push("希望:" + s.multi_types.join("・"));

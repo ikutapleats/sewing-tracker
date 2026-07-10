@@ -326,6 +326,7 @@ function App() {
     type: "",
     waistPair: {}, hemPair: {}, waistSingle: "", hemSingle: "", length: "",
     crystalPitch: "", crystalFade: "",
+    sunrayAngle: "", sunrayAngleOther: "",
     flow: "", pattern: "",
     fabric: "", fabricWidth: "", quantity: "",
     hemFinish: [], hemFinishOther: "",
@@ -377,6 +378,7 @@ function App() {
           flow_direction: needsFlow(t) ? f.flow || null : null,
           pattern: needsPattern(t) ? f.pattern || null : null,
           crystal_fade: needsCrystal(t) ? f.crystalFade || null : null,
+          sunray_angle: needsFlareWidth(t) ? (f.sunrayAngle === "その他" ? (f.sunrayAngleOther ? f.sunrayAngleOther + "度" : null) : (f.sunrayAngle || null)) : null,
           multi_types: t === "multiple" ? f.multiTypes : null,
           multi_detail: t === "multiple" ? f.multiDetail : null,
           other_detail: t === "other" ? f.otherDetail : null,
@@ -535,6 +537,16 @@ function App() {
                 </Field>
                 <Field label="② Hem-side pleat width" hint="e.g. 3 cm. Making the hem wider than the waist creates the flare.">
                   <WidthMM value={f.hemSingle} onChange={(v) => set("hemSingle", v)} />
+                </Field>
+                <Field label="Fan angle" hint="A half circle (180°) is the most common request.">
+                  {[{ val: "90度", en: "90°" }, { val: "180度", en: "180° (half circle)" }, { val: "その他", en: "Other (enter a value)" }].map((o) => (
+                    <Choice key={o.val} selected={f.sunrayAngle === o.val} onClick={() => set("sunrayAngle", o.val)}>{o.en}</Choice>
+                  ))}
+                  {f.sunrayAngle === "その他" && (
+                    <div style={{ marginTop: 4 }}>
+                      <WidthMM value={f.sunrayAngleOther} onChange={(v) => set("sunrayAngleOther", v)} unit="°" placeholder="e.g. 270" />
+                    </div>
+                  )}
                 </Field>
               </>
             )}
