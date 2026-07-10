@@ -38,8 +38,44 @@ function getAdminConfig_() {
   return { sheetId: sheetId, sheetName: sheetName };
 }
 
+// ===== 閲覧許可ゲート =====
+// iquta.com ドメインのアカウントは全員許可。加えて、スクリプトプロパティ
+// ALLOWED_EMAILS（カンマ/空白/改行区切り）に列挙したメール（Gmail等）も許可する。
+// ※ Gmailなどドメイン外のアクセス者のメールを取得するには、ウェブアプリのデプロイを
+//   「次のユーザーとして実行: ウェブアプリにアクセスしているユーザー」＋
+//   「アクセスできるユーザー: Googleアカウントを持つ全員」にし、
+//   台帳スプレッドシートを対象者に「閲覧者」で共有しておく必要がある（手順書参照）。
+function getAllowedEmails_() {
+  var raw = PropertiesService.getScriptProperties().getProperty("ALLOWED_EMAILS") || "";
+  return raw.split(/[\s,;]+/).map(function (x) { return x.trim().toLowerCase(); }).filter(Boolean);
+}
+function isViewerAllowed_(email) {
+  if (!email) return false;
+  if (email.slice(-11) === "@iquta.com") return true;
+  return getAllowedEmails_().indexOf(email) !== -1;
+}
+function buildDeniedHtml_(email) {
+  var who = email ? escapeHtml_(email) : "（アカウント情報を取得できませんでした）";
+  return '<!doctype html><html lang="ja"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1"></head>' +
+    '<body style="margin:0;background:#FBF9F5;font-family:sans-serif;color:#26221C">' +
+    '<div style="max-width:520px;margin:48px auto;padding:24px;border:1px solid #E2DCD0;border-radius:10px;background:#fff">' +
+    '<h2 style="font-size:18px;margin:0 0 10px">閲覧権限がありません</h2>' +
+    '<p style="font-size:14px;color:#555;line-height:1.9;margin:0">このアカウント（' + who + '）ではこのページを閲覧できません。<br>' +
+    '会社（iquta.com）アカウント、または管理者に許可されたアカウントでログインしてください。</p>' +
+    '<p style="font-size:12px;color:#999;line-height:1.7;margin:14px 0 0">閲覧を追加したい場合は、管理者がスクリプトプロパティ ALLOWED_EMAILS に対象メールを追加します。</p>' +
+    '</div></body></html>';
+}
+
 // ===== エントリポイント（閲覧専用。doPostは実装しない）=====
 function doGet(e) {
+  var viewer = "";
+  try { viewer = String(Session.getActiveUser().getEmail() || "").toLowerCase(); } catch (x) { viewer = ""; }
+  if (!isViewerAllowed_(viewer)) {
+    return HtmlService.createHtmlOutput(buildDeniedHtml_(viewer))
+      .setTitle("プリーツ問い合わせ 閲覧 - アクセス不可")
+      .addMetaTag("viewport", "width=device-width, initial-scale=1");
+  }
   try {
     const html = buildAdminHtml_();
     return HtmlService.createHtmlOutput(html)
