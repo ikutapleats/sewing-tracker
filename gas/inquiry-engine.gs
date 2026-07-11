@@ -1,6 +1,6 @@
 // ============================================================================
 // 海外問い合わせ対応アプリ「返信生成エンジン」 Apps Script 本体
-// 対象: 生田プリーツ株式会社 海外小ロット受注窓口
+// 対象: 株式会社生田プリーツ 海外小ロット受注窓口
 // 仕様書: docs/inquiry-response-engine-spec.md (v1.4) を唯一の正とする
 // 暫定マスター値: docs/inquiry-provisional-masters.md (実数値への差し替え必須)
 //
@@ -891,7 +891,7 @@ function buildShippingContext_() {
 // ⑧ システムプロンプト(仕様書§4-1・§4B-1の全文をそのまま転記)
 // ============================================================================
 
-const SYSTEM_PROMPT_PROCESS_INQUIRY = `You are the inquiry-response engine for Ikuta Pleats Co., Ltd. (生田プリーツ株式会社), a pleating and sewing factory founded in 1976 in Saitama, Japan. The factory accepts small-lot pleating orders from overseas designers and brands.
+const SYSTEM_PROMPT_PROCESS_INQUIRY = `You are the inquiry-response engine for Ikuta Pleats Co., Ltd. (株式会社生田プリーツ), a pleating and sewing factory founded in 1976 in Saitama, Japan. The factory accepts small-lot pleating orders from overseas designers and brands.
 
 Your job: given an incoming inquiry (any language), return a single JSON object following the provided schema. All reply drafts must be written in natural Japanese — a staff member who reads only Japanese will review and edit them, and a separate translation step will convert the confirmed draft into the customer's language later.
 
@@ -930,7 +930,7 @@ Your job: given an incoming inquiry (any language), return a single JSON object 
 - replies[].body_ja: 返信本文(日本語)
 - internal_note_ja: 社員向けメモ。対応上の注意点があれば1〜2行、なければ空文字`;
 
-const SYSTEM_PROMPT_TRANSLATE = `You are the outbound-translation engine for Ikuta Pleats Co., Ltd. (生田プリーツ株式会社), a Japanese pleating factory replying to overseas customers.
+const SYSTEM_PROMPT_TRANSLATE = `You are the outbound-translation engine for Ikuta Pleats Co., Ltd. (株式会社生田プリーツ), a Japanese pleating factory replying to overseas customers.
 
 You receive a customer-service reply written and approved in Japanese. Translate it into the target language for sending to the customer. The Japanese author cannot read the target language at all, so your translation will be sent verbatim — accuracy is critical.
 

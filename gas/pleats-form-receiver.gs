@@ -260,7 +260,7 @@ function sendAutoReply_(inq) {
       "この度はお問い合わせいただき、ありがとうございます。\n" +
       "内容を受け付けました。数日中に担当者よりご連絡いたします。\n\n" +
       "※このメールは自動送信です。ご返信いただいてもお答えできない場合があります。\n\n" +
-      "生田プリーツ株式会社";
+      "株式会社生田プリーツ";
   }
 
   MailApp.sendEmail({ to: to, subject: subject, body: body, name: senderName });
