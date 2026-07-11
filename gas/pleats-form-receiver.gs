@@ -117,12 +117,20 @@ function doPost(e) {
       reply,
     ]);
 
-    // 4. 受付通知メール（失敗しても問い合わせ自体の記録は成立させる。エラーはログに残す）
+    // 4. 受付通知メール（社員向け。失敗しても問い合わせ自体の記録は成立させる）
     try {
       notifyNewInquiry_(inq, s);
       Logger.log("通知メール送信成功: " + NOTIFY_EMAIL);
     } catch (mailErr) {
       Logger.log("通知メール送信エラー: " + mailErr);
+    }
+
+    // 5. お問い合わせ者への自動返信（お礼＋数日中に連絡）。失敗しても記録は成立させる
+    try {
+      sendAutoReply_(inq);
+      Logger.log("自動返信メール送信: " + (inq.sender_email || "(宛先なし)"));
+    } catch (arErr) {
+      Logger.log("自動返信メール送信エラー: " + arErr);
     }
 
     return json_({ ok: true });
@@ -223,6 +231,39 @@ function notifyNewInquiry_(inq, s) {
       "希望納期: " + (s.deadline || "") + "\n\n" +
       links,
   });
+}
+
+// ===== お問い合わせ者への自動返信 =====
+// フォーム送信者本人へ、受付のお礼と「数日中に担当者から連絡」を自動返信する。
+// 英語フォーム(channel = web_form_en)には英語、それ以外は日本語で送る。
+function sendAutoReply_(inq) {
+  const to = String((inq && inq.sender_email) || "").trim();
+  if (!to || to.indexOf("@") === -1) return; // 宛先が無ければ送らない
+  const isEn = (inq.channel || "") === "web_form_en";
+  const name = String((inq && inq.sender_name) || "").trim();
+
+  let subject, body, senderName;
+  if (isEn) {
+    senderName = "IQUTA PLEATS";
+    subject = "[IQUTA PLEATS] We have received your inquiry";
+    body =
+      (name ? "Dear " + name + ",\n\n" : "Hello,\n\n") +
+      "Thank you for your inquiry. We have received it, and a member of our team " +
+      "will contact you within a few days.\n\n" +
+      "* This is an automated confirmation. Please do not reply to this message.\n\n" +
+      "IQUTA PLEATS (Ikuta Pleats Co., Ltd.)";
+  } else {
+    senderName = "生田プリーツ";
+    subject = "【生田プリーツ】お問い合わせを受け付けました";
+    body =
+      (name ? name + " 様\n\n" : "") +
+      "この度はお問い合わせいただき、ありがとうございます。\n" +
+      "内容を受け付けました。数日中に担当者よりご連絡いたします。\n\n" +
+      "※このメールは自動送信です。ご返信いただいてもお答えできない場合があります。\n\n" +
+      "生田プリーツ株式会社";
+  }
+
+  MailApp.sendEmail({ to: to, subject: subject, body: body, name: senderName });
 }
 
 // ===== メール送信の権限承認用 =====
