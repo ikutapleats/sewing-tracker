@@ -1,4 +1,4 @@
-const { useState, useMemo } = React;
+const { useState, useMemo, useRef, useEffect } = React;
 
 /*
   IKUTA PLEATS | Pleating Inquiry Form (English)
@@ -355,6 +355,16 @@ function App() {
 
   const t = f.type;
 
+  // When a type is selected, auto-scroll to its detail inputs (dimensions, etc.)
+  const detailRef = useRef(null);
+  useEffect(() => {
+    if (!t) return;
+    const id = setTimeout(() => {
+      if (detailRef.current) detailRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+    return () => clearTimeout(id);
+  }, [t]);
+
   const missing = useMemo(() => {
     const m = [];
     if (!f.name.trim()) m.push("Name");
@@ -531,6 +541,9 @@ function App() {
             })}
           </div>
         </Section>
+
+        {/* auto-scroll target after a type is chosen (top of the detail inputs) */}
+        <div ref={detailRef} style={{ scrollMarginTop: 12 }} />
 
         {/* dimensions */}
         {t && t !== "multiple" && t !== "other" && (

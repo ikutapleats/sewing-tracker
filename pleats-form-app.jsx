@@ -1,4 +1,4 @@
-const { useState, useMemo } = React;
+const { useState, useMemo, useRef, useEffect } = React;
 
 /*
   生田プリーツ｜プリーツ加工 問い合わせフォーム
@@ -340,6 +340,16 @@ function App() {
 
   const t = f.type;
 
+  // 種類を選んだら、種類に応じた入力欄（寸法など）へ自動スクロールする
+  const detailRef = useRef(null);
+  useEffect(() => {
+    if (!t) return;
+    const id = setTimeout(() => {
+      if (detailRef.current) detailRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+    return () => clearTimeout(id);
+  }, [t]);
+
   const missing = useMemo(() => {
     const m = [];
     if (!f.name.trim()) m.push("氏名");
@@ -515,6 +525,9 @@ function App() {
             })}
           </div>
         </Section>
+
+        {/* 種類選択後、ここへ自動スクロールする(寸法/ご希望の入力の先頭) */}
+        <div ref={detailRef} style={{ scrollMarginTop: 12 }} />
 
         {/* 寸法（条件分岐） */}
         {t && t !== "multiple" && t !== "other" && (
