@@ -164,8 +164,8 @@ const needsFlareWidth = (t) => t === "sunray";
 const needsCrystal = (t) => t === "crystal";
 const needsFlow = (t) => t === "one_way";
 const needsPattern = (t) => ["one_way", "box", "accordion", "sunray"].includes(t);
-const imageRequired = (t) => ["wrinkle", "multiple", "other"].includes(t);
-const deadlineRequired = (t) => !!t && t !== "multiple" && t !== "other";
+const imageRequired = () => false;    // images are optional for every type
+const deadlineRequired = () => false; // deadline is optional for every type
 
 // ---- option lists: shown in English, submitted in Japanese ----
 const FLOW_OPTS = [
@@ -371,8 +371,6 @@ function App() {
     if (!f.name.trim()) m.push("Name");
     if (!f.email.trim()) m.push("Email address");
     if (!t) m.push("Pleat type");
-    if (t && imageRequired(t) && f.imageFiles.length === 0) m.push("Reference photo");
-    if (deadlineRequired(t) && !f.deadline.trim()) m.push("Desired deadline");
     return m;
   }, [f, t]);
 
@@ -633,8 +631,8 @@ function App() {
               <textarea value={f.multiDetail} onChange={(e) => set("multiDetail", e.target.value)}
                 rows={4} style={{ ...inputStyle, resize: "vertical" }} />
             </Field>
-            <Field label="Reference photos / design sketches" required>
-              <FileInput files={f.imageFiles} onChange={(v) => set("imageFiles", v)} required />
+            <Field label="Reference photos / design sketches">
+              <FileInput files={f.imageFiles} onChange={(v) => set("imageFiles", v)} />
             </Field>
           </Section>
         )}
@@ -646,8 +644,8 @@ function App() {
               <textarea value={f.otherDetail} onChange={(e) => set("otherDetail", e.target.value)}
                 rows={4} style={{ ...inputStyle, resize: "vertical" }} />
             </Field>
-            <Field label="Reference photos / design sketches" required>
-              <FileInput files={f.imageFiles} onChange={(v) => set("imageFiles", v)} required />
+            <Field label="Reference photos / design sketches">
+              <FileInput files={f.imageFiles} onChange={(v) => set("imageFiles", v)} />
             </Field>
           </Section>
         )}
@@ -671,7 +669,7 @@ function App() {
               <TextInput value={f.hemFinishOther} onChange={(e) => set("hemFinishOther", e.target.value)}
                 placeholder="Other, or if it differs per type" />
             </Field>
-            <Field label="Desired deadline" required={deadlineRequired(t)} hint="Pick a date, or choose “No specific deadline” if the timing is undecided.">
+            <Field label="Desired deadline" hint="Pick a date, or choose “No specific deadline” if the timing is undecided.">
               <TextInput type="date"
                 value={f.deadline === NO_DEADLINE ? "" : f.deadline}
                 disabled={f.deadline === NO_DEADLINE}
