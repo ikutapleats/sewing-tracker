@@ -99,7 +99,7 @@ function doPost(e) {
       inq.sender_name || "",
       inq.sender_email || "",
       inq.phone || "",
-      inq.organization || "",
+      [inq.organization, s.country ? "国:" + s.country : ""].filter(Boolean).join(" / "),
       s.pleat_type_label || s.pleat_type || "",
       dimText,
       s.flow_direction || "",
@@ -218,6 +218,7 @@ function notifyNewInquiry_(inq, s) {
       "メール: " + (inq.sender_email || "") + "\n" +
       "電話: " + (inq.phone || "") + "\n" +
       "所属: " + (inq.organization || "") + "\n" +
+      (s.country ? "国: " + s.country + "\n" : "") +
       "希望内容: " + (s.pleat_type_label || s.pleat_type || "") + "\n" +
       "希望納期: " + (s.deadline || "") + "\n\n" +
       links,

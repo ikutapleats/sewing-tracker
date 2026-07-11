@@ -191,6 +191,19 @@ const HEM_OPTS = [
 ];
 const NO_DEADLINE = "特になし"; // stored/sent value; shown as English below
 
+// Country / region list for the English form (submitted as-is; last option = Other).
+const COUNTRIES = [
+  "United States", "United Kingdom", "France", "Italy", "Germany", "Spain",
+  "Netherlands", "Belgium", "Switzerland", "Austria", "Denmark", "Sweden",
+  "Norway", "Finland", "Ireland", "Portugal", "Poland", "Czech Republic",
+  "Greece", "Hungary", "Romania", "Russia", "Ukraine", "Canada", "Mexico",
+  "Brazil", "Argentina", "Chile", "Colombia", "Peru", "Australia",
+  "New Zealand", "South Korea", "China", "Hong Kong", "Taiwan", "Japan",
+  "Singapore", "Thailand", "Malaysia", "Indonesia", "Philippines", "Vietnam",
+  "India", "United Arab Emirates", "Saudi Arabia", "Qatar", "Israel", "Turkey",
+  "Egypt", "South Africa", "Morocco", "Nigeria", "Kenya", "Other",
+];
+
 // ---- small UI parts ----
 function Field({ label, required, hint, children }) {
   return (
@@ -322,7 +335,7 @@ function PairWidth({ label, value, onChange }) {
 
 function App() {
   const [f, setF] = useState({
-    name: "", email: "", phone: "", org: "",
+    name: "", email: "", phone: "", org: "", country: "",
     type: "",
     waistPair: {}, hemPair: {}, waistSingle: "", hemSingle: "", length: "",
     crystalPitch: "", crystalFade: "",
@@ -367,6 +380,7 @@ function App() {
         phone: f.phone,
         organization: f.org,
         structured: {
+          country: f.country || null,
           pleat_type: t,
           pleat_type_label: jaLabel(t), // Japanese label for the staff ledger
           dimensions: {
@@ -484,6 +498,13 @@ function App() {
           </Field>
           <Field label="Phone number">
             <TextInput type="tel" value={f.phone} onChange={(e) => set("phone", e.target.value)} />
+          </Field>
+          <Field label="Country / Region" hint="Where the order will be shipped.">
+            <select value={f.country} onChange={(e) => set("country", e.target.value)}
+              style={{ ...inputStyle, appearance: "auto" }}>
+              <option value="">Please select…</option>
+              {COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
           </Field>
           <Field label="Affiliation (school, brand, or company)" hint="Leave blank if you are an individual.">
             <TextInput value={f.org} onChange={(e) => set("org", e.target.value)} />
