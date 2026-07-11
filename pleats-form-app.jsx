@@ -474,7 +474,7 @@ function App() {
       <div style={{ borderBottom: `1px solid ${C.line}`, background: C.card }}>
         <div style={{ maxWidth: 640, margin: "0 auto", padding: "28px 20px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-            <div style={{ fontFamily: '"Georgia","Times New Roman",serif', fontStyle: "italic", fontSize: 34, color: C.ai, lineHeight: 1 }}>iquta</div>
+            <img src="iquta-logo.png" alt="iquta" style={{ height: 42, width: "auto", display: "block" }} />
             <a href="pleats-form-en.html" style={{ fontSize: 13, fontWeight: 700, color: "#fff", background: C.ai, textDecoration: "none", borderRadius: 999, padding: "5px 16px", whiteSpace: "nowrap", letterSpacing: 0.3 }}>English</a>
           </div>
           <h1 style={{ fontFamily: gothic, fontSize: 22, color: C.ai, margin: "0 0 12px", fontWeight: 600, letterSpacing: 3 }}>
