@@ -4184,10 +4184,10 @@ function KoteiEditor(props) {
       '.qtywrap{display:flex;gap:4mm;align-items:flex-start;margin-bottom:0}' +
       '.hnote{flex:1;border:1px solid #ccc;border-radius:1mm;padding:2mm 3mm;font-size:8.5pt;line-height:1.4;min-width:0;font-weight:700;color:#c0271d}.hnote .ht{font-size:8pt;color:#888;margin-bottom:1mm;font-weight:700}' +
       '.footer{margin-top:4mm;border-top:1px solid #ddd;padding-top:1.5mm;font-size:8pt;color:#888;display:flex;justify-content:space-between}' +
-      '.sumwrap{margin-top:3mm;border-top:1px solid #ddd;padding-top:1.5mm}' +
+      '.sumwrap{margin-top:3mm;border-top:1px solid #ddd;padding-top:1.5mm;break-inside:avoid;page-break-inside:avoid}' +
       '.sumhead{font-size:8.5pt;font-weight:700;color:#0f3d4a;margin-bottom:1mm}.sumhead b{color:#1558d6}' +
       '.sumcols{display:flex;gap:4mm;align-items:flex-start;flex-wrap:wrap}' +
-      'table.sum1,table.sum2{border-collapse:collapse;font-size:7.5pt}' +
+      'table.sum1,table.sum2{border-collapse:collapse;font-size:7.5pt;break-inside:avoid;page-break-inside:avoid}' +
       'table.sum1 td,table.sum2 th,table.sum2 td{border:1px solid #bbb;padding:0.5mm 2mm;text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums}' +
       'table.sum1 td.pp{font-weight:700;background:#f5f4f0}' +
       'table.sum2 th{background:#e4ecef;color:#0f3d4a}table.sum2 td.pn{text-align:left}' +
