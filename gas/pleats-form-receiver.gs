@@ -99,7 +99,7 @@ function doPost(e) {
       inq.sender_name || "",
       inq.sender_email || "",
       inq.phone || "",
-      [inq.organization, s.country ? "国:" + s.country : ""].filter(Boolean).join(" / "),
+      inq.organization || "",
       s.pleat_type_label || s.pleat_type || "",
       dimText,
       s.flow_direction || "",

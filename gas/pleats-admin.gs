@@ -169,6 +169,16 @@ function buildCardHtml_(headers, row) {
   const needsCheck = textOf_(r["要確認"]);
   const note = textOf_(r["その他"]);
 
+  // 国は原文JSON(structured.country)から読む。台帳の列構成を変えずに表示できる。
+  var country = "";
+  try {
+    var rawJson = textOf_(r["原文JSON"]);
+    if (rawJson) {
+      var pj = JSON.parse(rawJson);
+      country = textOf_((pj && pj.inquiry && pj.inquiry.structured && pj.inquiry.structured.country) || "");
+    }
+  } catch (e) { country = ""; }
+
   // 行全体が空（区切りだけの空行など）ならスキップ
   if (!receivedAt && !senderName && !pleatType && !imageCol && !designCol && !note) {
     return "";
@@ -192,6 +202,7 @@ function buildCardHtml_(headers, row) {
   if (email) contactRows.push(fieldRow_("メール", escapeHtml_(email)));
   if (phone) contactRows.push(fieldRow_("電話", escapeHtml_(phone)));
   if (org) contactRows.push(fieldRow_("所属", escapeHtml_(org)));
+  if (country) contactRows.push(fieldRow_("国", escapeHtml_(country)));
   if (handler) contactRows.push(fieldRow_("対応者", escapeHtml_(handler)));
   const contactHtml = contactRows.length
     ? '<div class="section"><div class="section-title">連絡先</div>' + contactRows.join("") + "</div>"
