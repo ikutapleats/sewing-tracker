@@ -54,9 +54,16 @@ function getAllowedEmails_() {
   var fromCode = ALLOWED_EMAILS_DEFAULT.map(function (x) { return String(x).trim().toLowerCase(); }).filter(Boolean);
   return fromCode.concat(fromProp);
 }
+// 許可ドメイン（このドメインのアカウントは全員許可）
+var ALLOWED_DOMAIN = "@iquta.com";
 function isViewerAllowed_(email) {
   if (!email) return false;
-  if (email.slice(-11) === "@iquta.com") return true;
+  email = String(email).trim().toLowerCase();
+  // 末尾がドメインと一致すれば許可（slice の桁ずれを避け、末尾一致で厳密に判定）
+  if (email.length >= ALLOWED_DOMAIN.length &&
+      email.lastIndexOf(ALLOWED_DOMAIN) === email.length - ALLOWED_DOMAIN.length) {
+    return true;
+  }
   return getAllowedEmails_().indexOf(email) !== -1;
 }
 function buildDeniedHtml_(email) {
