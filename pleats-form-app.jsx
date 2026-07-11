@@ -14,18 +14,18 @@ const { useState, useMemo, useRef, useEffect } = React;
     共通の「生地・仕上げ・納期」セクション自体を表示しない(ご希望内容+画像のみ)。
 */
 
-// ---- ブランドトークン（インラインstyleで指定。藍＝textile heritage の一点差し色）----
+// ---- ブランドトークン（iqutapleats.com に合わせた白地×ブルーのミニマル配色）----
 const C = {
-  paper: "#FBF9F5",
+  paper: "#FFFFFF",   // サイト同様の白背景
   card: "#FFFFFF",
-  ink: "#26221C",
-  sub: "#6E675B",
-  line: "#E2DCD0",
-  lineStrong: "#CFC7B7",
-  ai: "#2C3E63",      // 藍
-  aiSoft: "#EAEEF5",
-  fold: "#B8B0A2",    // 線画の影
-  warn: "#8A5A2B",
+  ink: "#3D5BC4",     // 本文・見出し（サイトのブルー）
+  sub: "#8093D0",     // 補足テキスト（淡いブルー）
+  line: "#DCE3F5",
+  lineStrong: "#B7C4EA",
+  ai: "#3D5BC4",      // ブランドブルー
+  aiSoft: "#EEF2FC",
+  fold: "#B7C4EA",
+  warn: "#C05621",    // 必須・警告（ブルーと区別できる暖色）
 };
 const serif = '"Hiragino Mincho ProN","Yu Mincho",serif';
 const gothic = '"Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",sans-serif';
@@ -473,14 +473,14 @@ function App() {
       {/* ヘッダー */}
       <div style={{ borderBottom: `1px solid ${C.line}`, background: C.card }}>
         <div style={{ maxWidth: 640, margin: "0 auto", padding: "28px 20px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-            <div style={{ fontSize: 12, letterSpacing: 3, color: C.ai }}>IQUTA PLEATS</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <div style={{ fontFamily: '"Georgia","Times New Roman",serif', fontStyle: "italic", fontSize: 34, color: C.ai, lineHeight: 1 }}>iquta</div>
             <a href="pleats-form-en.html" style={{ fontSize: 13, fontWeight: 700, color: "#fff", background: C.ai, textDecoration: "none", borderRadius: 999, padding: "5px 16px", whiteSpace: "nowrap", letterSpacing: 0.3 }}>English</a>
           </div>
-          <h1 style={{ fontFamily: serif, fontSize: 26, color: C.ink, margin: "0 0 10px", fontWeight: 600 }}>
+          <h1 style={{ fontFamily: gothic, fontSize: 22, color: C.ai, margin: "0 0 12px", fontWeight: 600, letterSpacing: 3 }}>
             プリーツ加工 お問い合わせ
           </h1>
-          <p style={{ fontSize: 13.5, color: C.sub, lineHeight: 1.85, margin: 0 }}>
+          <p style={{ fontSize: 13, color: C.sub, lineHeight: 2, letterSpacing: 1, margin: 0 }}>
             決まっていない項目は空欄で構いません。分かる範囲でご記入ください。<br />
             種類を選ぶと、その加工に必要な項目だけを表示します。
           </p>
@@ -719,9 +719,9 @@ function Section({ title, required, note, children }) {
   return (
     <section style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 10, padding: 24, marginBottom: 18 }}>
       <div style={{ marginBottom: note ? 6 : 18 }}>
-        <h2 style={{ fontFamily: serif, fontSize: 17, color: C.ink, margin: 0, fontWeight: 600 }}>
+        <h2 style={{ fontFamily: gothic, fontSize: 16, color: C.ai, margin: 0, fontWeight: 600, letterSpacing: 2 }}>
           {title}
-          {required && <span style={{ color: C.warn, marginLeft: 8, fontSize: 11, fontFamily: gothic }}>必須</span>}
+          {required && <span style={{ color: C.warn, marginLeft: 8, fontSize: 11, fontFamily: gothic, letterSpacing: 0 }}>必須</span>}
         </h2>
       </div>
       {note && <p style={{ fontSize: 12.5, color: C.sub, lineHeight: 1.7, margin: "0 0 18px" }}>{note}</p>}

@@ -11,17 +11,18 @@ const { useState, useMemo, useRef, useEffect } = React;
   Same backend endpoint, same spreadsheet, same illustrations.
 */
 
+// Brand tokens matched to iqutapleats.com (white ground, all-blue typography).
 const C = {
-  paper: "#FBF9F5",
+  paper: "#FFFFFF",
   card: "#FFFFFF",
-  ink: "#26221C",
-  sub: "#6E675B",
-  line: "#E2DCD0",
-  lineStrong: "#CFC7B7",
-  ai: "#2C3E63",
-  aiSoft: "#EAEEF5",
-  fold: "#B8B0A2",
-  warn: "#8A5A2B",
+  ink: "#3D5BC4",
+  sub: "#8093D0",
+  line: "#DCE3F5",
+  lineStrong: "#B7C4EA",
+  ai: "#3D5BC4",
+  aiSoft: "#EEF2FC",
+  fold: "#B7C4EA",
+  warn: "#C05621",
 };
 const serif = '"Hiragino Mincho ProN","Yu Mincho",Georgia,serif';
 const gothic = '"Helvetica Neue",Arial,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif';
@@ -483,14 +484,14 @@ function App() {
     <div style={{ background: C.paper, minHeight: "100vh", fontFamily: gothic }}>
       <div style={{ borderBottom: `1px solid ${C.line}`, background: C.card }}>
         <div style={{ maxWidth: 640, margin: "0 auto", padding: "28px 20px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-            <div style={{ fontSize: 12, letterSpacing: 3, color: C.ai }}>IQUTA PLEATS</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <div style={{ fontFamily: '"Georgia","Times New Roman",serif', fontStyle: "italic", fontSize: 34, color: C.ai, lineHeight: 1 }}>iquta</div>
             <a href="pleats-form.html" style={{ fontSize: 13, fontWeight: 700, color: "#fff", background: C.ai, textDecoration: "none", borderRadius: 999, padding: "5px 16px", whiteSpace: "nowrap", letterSpacing: 0.3 }}>日本語</a>
           </div>
-          <h1 style={{ fontFamily: serif, fontSize: 26, color: C.ink, margin: "0 0 10px", fontWeight: 600 }}>
+          <h1 style={{ fontFamily: gothic, fontSize: 20, color: C.ai, margin: "0 0 12px", fontWeight: 600, letterSpacing: 4, textTransform: "uppercase" }}>
             Pleating Inquiry
           </h1>
-          <p style={{ fontSize: 13.5, color: C.sub, lineHeight: 1.85, margin: 0 }}>
+          <p style={{ fontSize: 13, color: C.sub, lineHeight: 2, letterSpacing: 0.4, margin: 0 }}>
             Leave anything undecided blank — fill in what you can. Choosing a type shows only the fields needed for that process. Measurements are in cm/mm.
           </p>
         </div>
@@ -737,9 +738,9 @@ function Section({ title, required, note, children }) {
   return (
     <section style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 10, padding: 24, marginBottom: 18 }}>
       <div style={{ marginBottom: note ? 6 : 18 }}>
-        <h2 style={{ fontFamily: serif, fontSize: 17, color: C.ink, margin: 0, fontWeight: 600 }}>
+        <h2 style={{ fontFamily: gothic, fontSize: 14, color: C.ai, margin: 0, fontWeight: 600, letterSpacing: 2.5, textTransform: "uppercase" }}>
           {title}
-          {required && <span style={{ color: C.warn, marginLeft: 8, fontSize: 11, fontFamily: gothic }}>Required</span>}
+          {required && <span style={{ color: C.warn, marginLeft: 8, fontSize: 11, fontFamily: gothic, letterSpacing: 0, textTransform: "none" }}>Required</span>}
         </h2>
       </div>
       {note && <p style={{ fontSize: 12.5, color: C.sub, lineHeight: 1.7, margin: "0 0 18px" }}>{note}</p>}
