@@ -183,7 +183,7 @@ const FADE_OPTS = [
   { en: "Undecided / want to discuss", ja: "未定・相談したい" },
 ];
 const HEM_OPTS = [
-  { en: "Rolled hem (three-fold)", ja: "三つ巻き" },
+  { en: "Double-fold hem", ja: "三つ巻き" },
   { en: "Overlocked and blind-stitched hem", ja: "ロックルイス" },
   { en: "Rolled hem", ja: "メロー始末" },
   { en: "No hemming (raw cut)", ja: "裾上げなし（裁ちきり）" },
@@ -650,7 +650,7 @@ function App() {
             <Field label="Quantity" hint="Answer in number of pieces or in meters.">
               <TextInput value={f.quantity} onChange={(e) => set("quantity", e.target.value)} placeholder="e.g. 30 m / 20 pcs" />
             </Field>
-            <Field label="Hemming" hint="We can do a three-fold rolled hem, an overlocked and blind-stitched hem, or a rolled hem.">
+            <Field label="Hemming" hint="We can do a double-fold hem, an overlocked and blind-stitched hem, or a rolled hem.">
               {HEM_OPTS.map((o) => (
                 <CheckItem key={o.ja} checked={f.hemFinish.includes(o.ja)} onClick={() => toggleHem(o.ja)}>{o.en}</CheckItem>
               ))}
