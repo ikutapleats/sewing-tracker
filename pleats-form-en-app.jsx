@@ -460,8 +460,8 @@ function App() {
       <div style={{ borderBottom: `1px solid ${C.line}`, background: C.card }}>
         <div style={{ maxWidth: 640, margin: "0 auto", padding: "28px 20px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-            <div style={{ fontSize: 12, letterSpacing: 3, color: C.ai }}>IKUTA PLEATS</div>
-            <a href="pleats-form.html" style={{ fontSize: 12, color: C.sub, textDecoration: "none" }}>日本語</a>
+            <div style={{ fontSize: 12, letterSpacing: 3, color: C.ai }}>IQUTA PLEATS</div>
+            <a href="pleats-form.html" style={{ fontSize: 13, fontWeight: 700, color: "#fff", background: C.ai, textDecoration: "none", borderRadius: 999, padding: "5px 16px", whiteSpace: "nowrap", letterSpacing: 0.3 }}>日本語</a>
           </div>
           <h1 style={{ fontFamily: serif, fontSize: 26, color: C.ink, margin: "0 0 10px", fontWeight: 600 }}>
             Pleating Inquiry

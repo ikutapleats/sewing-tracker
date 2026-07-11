@@ -464,14 +464,14 @@ function App() {
       <div style={{ borderBottom: `1px solid ${C.line}`, background: C.card }}>
         <div style={{ maxWidth: 640, margin: "0 auto", padding: "28px 20px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-            <div style={{ fontSize: 12, letterSpacing: 3, color: C.ai }}>IKUTA PLEATS</div>
-            <a href="pleats-form-en.html" style={{ fontSize: 12, color: C.sub, textDecoration: "none" }}>English</a>
+            <div style={{ fontSize: 12, letterSpacing: 3, color: C.ai }}>IQUTA PLEATS</div>
+            <a href="pleats-form-en.html" style={{ fontSize: 13, fontWeight: 700, color: "#fff", background: C.ai, textDecoration: "none", borderRadius: 999, padding: "5px 16px", whiteSpace: "nowrap", letterSpacing: 0.3 }}>English</a>
           </div>
           <h1 style={{ fontFamily: serif, fontSize: 26, color: C.ink, margin: "0 0 10px", fontWeight: 600 }}>
             プリーツ加工 お問い合わせ
           </h1>
           <p style={{ fontSize: 13.5, color: C.sub, lineHeight: 1.85, margin: 0 }}>
-            決まっていない項目は空欄で構いません。分かる範囲でご記入ください。
+            決まっていない項目は空欄で構いません。分かる範囲でご記入ください。<br />
             種類を選ぶと、その加工に必要な項目だけを表示します。
           </p>
         </div>
@@ -632,7 +632,7 @@ function App() {
             <Field label="数量" hint="枚数、または m 数でお答えください。">
               <TextInput value={f.quantity} onChange={(e) => set("quantity", e.target.value)} placeholder="例 30m ／ 20枚" />
             </Field>
-            <Field label="裾上げの有無" hint="三つ巻き・ロックルイス（手まつり風）・メロー始末に対応可能です。">
+            <Field label="裾上げの有無" hint="三つ巻き・ロックルイス・メロー始末に対応可能です。">
               {["三つ巻き", "ロックルイス", "メロー始末", "裾上げなし（裁ちきり）", "未定・わからない"].map((o) => (
                 <CheckItem key={o} checked={f.hemFinish.includes(o)} onClick={() => toggleHem(o)}>{o}</CheckItem>
               ))}
