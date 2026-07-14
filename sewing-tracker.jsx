@@ -1568,6 +1568,37 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const dayRate = daySheetHours > 0 ? dayValue / daySheetHours : 0;
     const myMemberName = (data.members.find((m) => m.id === f.memberId) || {}).name || "";
 
+    // ── 前向きになれる一言（表示のみ）──
+    // 優先: 週ベスト → 昨日超え → 日替わりの励まし（日付×人で固定なので、その日は同じ言葉が出続ける）
+    const rateOn = (ds) => {
+      const v = (data.koteiRecords || []).reduce((a, r) => a + (r.memberId === f.memberId && r.date === ds ? koteiValue(r, data.parts) : 0), 0);
+      const h = data.records.reduce((a, r) => a + (r.memberId === f.memberId && r.date === ds && hasSheetMap[r.partId] ? (r.hours || 0) : 0), 0);
+      return h > 0 ? v / h : 0;
+    };
+    const dsAt = (off) => { const d = new Date((f.date || today()) + "T00:00:00"); d.setDate(d.getDate() - off); return d.toISOString().slice(0, 10); };
+    // 大事にする順: 無理をなくす → 効率の伸びを認める → 無理なく・無駄なく・効率よくの日替わり
+    const cheer = (() => {
+      if (dayValue <= 0) return "";
+      if (dayHours >= 8) return "今日は十分がんばりました。無理は禁物です";
+      const prevRates = [1, 2, 3, 4, 5, 6].map((o) => rateOn(dsAt(o)));
+      const prevBest = Math.max.apply(null, prevRates.concat([0]));
+      if (dayRate > 0 && prevBest > 0 && dayRate > prevBest) return "この1週間でいちばん効率よく動けています";
+      if (dayRate > 0 && prevRates[0] > 0 && dayRate > prevRates[0]) return "昨日より効率よく動けています";
+      const msgs = [
+        "無理なく、無駄なく、その調子",
+        "焦らず確実に。それがいちばん速い",
+        "急がば回れ。段取りが効率をつくります",
+        "いいペース。休憩も仕事のうち",
+        "小さな無駄とりが、大きな効率になります",
+        "今日の積み重ねが、明日の段取りを楽にします",
+        "動きやすい工夫をひとつ。明日がもう一歩楽になります",
+      ];
+      const s = (f.date || today()) + f.memberId;
+      let seed = 0;
+      for (let i = 0; i < s.length; i++) seed = (seed + s.charCodeAt(i)) % 997;
+      return msgs[seed % msgs.length];
+    })();
+
     return React.createElement(Shell, null,
       // ヘッダーの「記録」は最下部の記録するボタンと同じsaveEntryを呼ぶ（入口2つ・処理1つ）
       React.createElement(Header, { title: ui.selectedTeam + "　作業記録", back: () => set({ screen: "home" }), actions: [{ label: "記録", onClick: saveEntry, primary: true, disabled: !ready }] }),
@@ -1655,7 +1686,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             React.createElement("div", { style: { fontSize: 10, color: "var(--faint)", letterSpacing: ".2em", marginTop: 14 } }, "今日の1時間あたり"),
             React.createElement("div", { style: { fontSize: 46, fontWeight: 800, color: "var(--iquta)", letterSpacing: "-.02em", lineHeight: 1.05, marginTop: 4, fontVariantNumeric: "tabular-nums" } }, React.createElement(CountUpYen, { value: dayRate })),
             React.createElement("div", { style: { fontSize: 13, color: "var(--soft)", marginTop: 10, letterSpacing: ".02em" } }, "生産価値 ¥" + Math.round(dayValue).toLocaleString() + " ・ " + myKotei.reduce(function (a, r) { return a + (r.qty || 0); }, 0) + "枚 ・ " + dayHours.toFixed(1) + "時間"),
-            dayValue > 0 && React.createElement("div", { style: { display: "inline-block", marginTop: 14, fontSize: 13, fontWeight: 700, color: "var(--iquta)", background: "var(--iquta-bg)", borderRadius: 20, padding: "7px 16px", letterSpacing: ".03em" } }, "その調子！")
+            cheer && React.createElement("div", { style: { display: "inline-block", marginTop: 14, fontSize: 13, fontWeight: 700, color: "var(--iquta)", background: "var(--iquta-bg)", borderRadius: 20, padding: "7px 16px", letterSpacing: ".03em" } }, cheer)
           ),
           // ── 襞グラフ（直近1週間・1時間あたり/金額/枚数トグル）──
           (function () {
