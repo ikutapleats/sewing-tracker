@@ -2392,7 +2392,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
               )
             ),
         React.createElement("div", { style: { fontSize: 10.5, color: "var(--faint)", marginTop: 10, lineHeight: 1.7 } },
-          "1時間あたり＝生産価値÷工程表がある品番の時間。「工程表なし」はその期間に工程表未登録の品番へ使った時間（生産価値に反映されない時間）。数字は判断材料のひとつです。")
+          "1時間あたり＝生産価値÷工程表がある品番の時間。「工程表なし」はその期間に工程表未登録の品番へ使った時間（生産価値に反映されない時間）。")
       ),
       React.createElement(SI)
     );
