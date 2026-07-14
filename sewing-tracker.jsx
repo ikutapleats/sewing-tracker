@@ -1748,6 +1748,11 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     kers.forEach((r) => { dayTotals[r.date] = (dayTotals[r.date] || 0) + koteiValue(r, data.parts); });
     const recDaysAll = Object.keys(dayTotals).filter((d) => dayTotals[d] > 0).length;
 
+    // 「1時間あたり」の分母は工程表がある品番の時間だけ（青カード・人ごとグラフ共通）
+    const hasSheet = {};
+    (data.koteiSheets || []).forEach((s) => { hasSheet[s.partId] = true; });
+    const sheetHoursAll = recs.reduce((a, r) => a + (hasSheet[r.partId] ? (r.hours || 0) : 0), 0);
+
     // ── 人ごとの日別棒グラフ（金額のみ・表示専用）──
     // 記録がない日も高さ0の棒として必ず並べ、休み・記録漏れ・生産の谷が見えるようにする。
     // 92日を超える期間（過去1年など）は月別に集計する。
@@ -1792,8 +1797,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       const avg = workedDays > 0 ? total / workedDays : 0;
       // この人の期間内の作業時間。工程表がない品番の時間は入れない
       // （生産価値が計算されない時間で割ると「1時間あたり」が実際より低く出るため）
-      const hasSheet = {};
-      (data.koteiSheets || []).forEach((s) => { hasSheet[s.partId] = true; });
       const hoursSum = recs.reduce((a, r) => a + (r.memberId === pk && hasSheet[r.partId] ? (r.hours || 0) : 0), 0);
       const maxV = Math.max.apply(null, bars.map((b) => b.v).concat([1]));
       const few = bars.length <= 10;
@@ -1866,7 +1869,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             React.createElement("div", { style: { fontSize: 11, opacity: 0.55, marginBottom: 2 } }, "この期間の合計"),
             React.createElement("div", { style: { fontSize: 24, fontWeight: 700 } }, yen(totValue)),
             ui.vvPeriod !== "day" && recDaysAll > 0 && React.createElement("div", { style: { fontSize: 11, opacity: 0.75, marginTop: 3 } }, "日平均 " + yen(totValue / recDaysAll) + "（記録" + recDaysAll + "日）"),
-            totHours > 0 && React.createElement("div", { style: { fontSize: 11, opacity: 0.75, marginTop: 2 } }, "1時間あたり " + yen(totValue / totHours))
+            sheetHoursAll > 0 && React.createElement("div", { style: { fontSize: 11, opacity: 0.75, marginTop: 2 } }, "1時間あたり " + yen(totValue / sheetHoursAll) + "（工程表あり " + sheetHoursAll.toFixed(1) + "h）")
           ),
           React.createElement("div", { style: { fontSize: 13, opacity: 0.8 } }, totHours.toFixed(1) + "h")
         ),
