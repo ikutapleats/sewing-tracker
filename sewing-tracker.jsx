@@ -1561,6 +1561,11 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const myKotei = f.memberId ? (data.koteiRecords || []).filter((r) => r.memberId === f.memberId && r.date === f.date) : [];
     const dayHours = myRecs.reduce((a, r) => a + (r.hours || 0), 0);
     const dayValue = myKotei.reduce((a, r) => a + koteiValue(r, data.parts), 0);
+    // 1時間あたり = 生産価値 ÷ 工程表がある品番の時間（生産価値が付かない時間は分母に入れない）
+    const hasSheetMap = {};
+    (data.koteiSheets || []).forEach((s) => { hasSheetMap[s.partId] = true; });
+    const daySheetHours = myRecs.reduce((a, r) => a + (hasSheetMap[r.partId] ? (r.hours || 0) : 0), 0);
+    const dayRate = daySheetHours > 0 ? dayValue / daySheetHours : 0;
     const myMemberName = (data.members.find((m) => m.id === f.memberId) || {}).name || "";
 
     return React.createElement(Shell, null,
@@ -1647,40 +1652,45 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           // ── 作業記録ヒーロー（iqutaモック）: 今日の生産価値を青の大きな数字で主役に ──
           React.createElement("div", { id: "entry-hero", style: { textAlign: "center", padding: "24px 8px 4px", scrollMarginTop: 64 } },
             myMemberName && React.createElement("div", { style: { fontSize: 13, color: "var(--soft)", letterSpacing: ".04em" } }, myMemberName + "さん"),
-            React.createElement("div", { style: { fontSize: 10, color: "var(--faint)", letterSpacing: ".2em", marginTop: 14 } }, "今日の生産価値"),
-            React.createElement("div", { style: { fontSize: 46, fontWeight: 800, color: "var(--iquta)", letterSpacing: "-.02em", lineHeight: 1.05, marginTop: 4, fontVariantNumeric: "tabular-nums" } }, React.createElement(CountUpYen, { value: dayValue })),
-            React.createElement("div", { style: { fontSize: 13, color: "var(--soft)", marginTop: 10, letterSpacing: ".02em" } }, myKotei.reduce(function (a, r) { return a + (r.qty || 0); }, 0) + "枚 ・ " + dayHours.toFixed(1) + "時間"),
+            React.createElement("div", { style: { fontSize: 10, color: "var(--faint)", letterSpacing: ".2em", marginTop: 14 } }, "今日の1時間あたり"),
+            React.createElement("div", { style: { fontSize: 46, fontWeight: 800, color: "var(--iquta)", letterSpacing: "-.02em", lineHeight: 1.05, marginTop: 4, fontVariantNumeric: "tabular-nums" } }, React.createElement(CountUpYen, { value: dayRate })),
+            React.createElement("div", { style: { fontSize: 13, color: "var(--soft)", marginTop: 10, letterSpacing: ".02em" } }, "生産価値 ¥" + Math.round(dayValue).toLocaleString() + " ・ " + myKotei.reduce(function (a, r) { return a + (r.qty || 0); }, 0) + "枚 ・ " + dayHours.toFixed(1) + "時間"),
             dayValue > 0 && React.createElement("div", { style: { display: "inline-block", marginTop: 14, fontSize: 13, fontWeight: 700, color: "var(--iquta)", background: "var(--iquta-bg)", borderRadius: 20, padding: "7px 16px", letterSpacing: ".03em" } }, "その調子！")
           ),
-          // ── 襞グラフ（直近1週間・金額/枚数トグル）──
+          // ── 襞グラフ（直近1週間・1時間あたり/金額/枚数トグル）──
           (function () {
-            const mode = ui.heroMode === "qty" ? "qty" : "yen";
+            const mode = ui.heroMode === "qty" ? "qty" : ui.heroMode === "yen" ? "yen" : "rate";
             const week = [];
             for (let i = 6; i >= 0; i--) {
               const d = new Date((f.date || today()) + "T00:00:00");
               d.setDate(d.getDate() - i);
               const ds = d.toISOString().slice(0, 10);
               const recs = (data.koteiRecords || []).filter(function (r) { return r.memberId === f.memberId && r.date === ds; });
+              const yenSum = recs.reduce(function (a, r) { return a + koteiValue(r, data.parts); }, 0);
+              const hSum = data.records.reduce(function (a, r) { return a + (r.memberId === f.memberId && r.date === ds && hasSheetMap[r.partId] ? (r.hours || 0) : 0); }, 0);
               week.push({ ds: ds, label: i === 0 ? (ds === today() ? "今日" : ds.slice(5).replace("-", "/")) : "日月火水木金土"[d.getDay()],
-                yen: recs.reduce(function (a, r) { return a + koteiValue(r, data.parts); }, 0),
+                yen: yenSum,
+                rate: hSum > 0 ? yenSum / hSum : 0,
                 qty: recs.reduce(function (a, r) { return a + (r.qty || 0); }, 0) });
             }
-            const maxV = Math.max.apply(null, week.map(function (w) { return mode === "yen" ? w.yen : w.qty; }).concat([1]));
-            const togBtn = function (on) { return { border: "none", background: on ? "#fff" : "none", color: on ? "var(--iquta)" : "var(--soft)", fontSize: 12, fontWeight: 700, padding: "5px 13px", borderRadius: 7, cursor: "pointer", boxShadow: on ? "0 1px 3px rgba(43,92,230,.12)" : "none" }; };
+            const val = function (w) { return mode === "yen" ? w.yen : mode === "qty" ? w.qty : w.rate; };
+            const maxV = Math.max.apply(null, week.map(val).concat([1]));
+            const togBtn = function (on) { return { border: "none", background: on ? "#fff" : "none", color: on ? "var(--iquta)" : "var(--soft)", fontSize: 12, fontWeight: 700, padding: "5px 10px", borderRadius: 7, cursor: "pointer", boxShadow: on ? "0 1px 3px rgba(43,92,230,.12)" : "none", whiteSpace: "nowrap" }; };
             return React.createElement("div", { style: { padding: "8px 4px 6px", marginBottom: 10 } },
-              React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 } },
+              React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, gap: 8, flexWrap: "wrap" } },
                 React.createElement("div", { style: { fontSize: 10, color: "var(--faint)", letterSpacing: ".2em" } }, "直近1週間"),
                 React.createElement("div", { style: { display: "inline-flex", background: "var(--iquta-bg)", borderRadius: 9, padding: 2 } },
+                  React.createElement("button", { style: togBtn(mode === "rate"), onClick: function () { set({ heroMode: "rate" }); } }, "1時間あたり"),
                   React.createElement("button", { style: togBtn(mode === "yen"), onClick: function () { set({ heroMode: "yen" }); } }, "金額"),
                   React.createElement("button", { style: togBtn(mode === "qty"), onClick: function () { set({ heroMode: "qty" }); } }, "枚数")
                 )
               ),
               React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 6, height: 116 } },
                 week.map(function (w, i) {
-                  const v = mode === "yen" ? w.yen : w.qty;
+                  const v = val(w);
                   const isToday = i === 6;
                   const h = Math.max(2, Math.round(92 * v / maxV));
-                  const vLabel = mode === "yen" ? (v >= 1000 ? "¥" + (Math.round(v / 100) / 10) + "k" : (v ? "¥" + Math.round(v) : "")) : (v || "");
+                  const vLabel = mode !== "qty" ? (v >= 1000 ? "¥" + (Math.round(v / 100) / 10) + "k" : (v ? "¥" + Math.round(v) : "")) : (v || "");
                   return React.createElement("div", { key: w.ds, style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" } },
                     React.createElement("div", { style: { fontSize: 9, color: isToday ? "var(--iquta)" : "var(--faint)", fontWeight: isToday ? 700 : 400, marginBottom: 4, whiteSpace: "nowrap" } }, vLabel),
                     React.createElement("div", { style: { width: "100%", maxWidth: 15, height: h, borderRadius: "4px 4px 0 0", background: isToday ? "linear-gradient(180deg,#4f7ef0,var(--iquta))" : "#dbe4fb" } }),
@@ -1778,21 +1788,26 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       if (ui.vvAxis !== "member" || ui.vvPeriod === "day") return null;
       const days = periodDays();
       if (days.length < 2) return null;
+      const gmode = ui.vvGraphMode === "yen" ? "yen" : "rate"; // 棒の値: 1時間あたり（既定） or 金額
       const byDay = {};
       kers.forEach((r) => { if (r.memberId === pk) byDay[r.date] = (byDay[r.date] || 0) + koteiValue(r, data.parts); });
+      const hByDay = {}; // その日の工程表あり品番の時間（1時間あたりの分母）
+      recs.forEach((r) => { if (r.memberId === pk && hasSheet[r.partId]) hByDay[r.date] = (hByDay[r.date] || 0) + (r.hours || 0); });
+      const rate = (v, h) => h > 0 ? v / h : 0;
       const monthly = days.length > 92;
       let bars;
       if (monthly) {
         const m = {}; const order = [];
-        days.forEach((ds) => { const k = ds.slice(0, 7); if (!(k in m)) { m[k] = 0; order.push(k); } m[k] += (byDay[ds] || 0); });
-        bars = order.map((k) => ({ label: String(+k.slice(5, 7)) + "月", v: m[k], weekend: false }));
+        days.forEach((ds) => { const k = ds.slice(0, 7); if (!(k in m)) { m[k] = { v: 0, h: 0 }; order.push(k); } m[k].v += (byDay[ds] || 0); m[k].h += (hByDay[ds] || 0); });
+        bars = order.map((k) => ({ label: String(+k.slice(5, 7)) + "月", v: gmode === "rate" ? rate(m[k].v, m[k].h) : m[k].v, yen: m[k].v, weekend: false }));
       } else {
         bars = days.map((ds) => {
           const dt = new Date(ds + "T00:00:00");
-          return { label: String(+ds.slice(8, 10)), youbi: "日月火水木金土"[dt.getDay()], v: byDay[ds] || 0, weekend: dt.getDay() === 0 || dt.getDay() === 6 };
+          const v = gmode === "rate" ? rate(byDay[ds] || 0, hByDay[ds] || 0) : (byDay[ds] || 0);
+          return { label: String(+ds.slice(8, 10)), youbi: "日月火水木金土"[dt.getDay()], v: v, yen: byDay[ds] || 0, weekend: dt.getDay() === 0 || dt.getDay() === 6 };
         });
       }
-      const total = bars.reduce((a, b) => a + b.v, 0);
+      const total = bars.reduce((a, b) => a + b.yen, 0);
       const workedDays = Object.keys(byDay).filter((ds) => byDay[ds] > 0).length;
       const avg = workedDays > 0 ? total / workedDays : 0;
       // この人の期間内の作業時間。工程表がない品番の時間は入れない
@@ -1802,9 +1817,16 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       const few = bars.length <= 10;
       const scroll = bars.length > 40;
       const compact = (v) => v <= 0 ? "0" : v < 10000 ? Math.round(v / 1000) + "千" : (Math.round(v / 1000) / 10) + "万";
+      const gtogBtn = (on) => ({ border: "none", background: on ? "#fff" : "none", color: on ? "var(--iquta)" : "var(--soft)", fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 7, cursor: "pointer", boxShadow: on ? "0 1px 3px rgba(43,92,230,.12)" : "none", whiteSpace: "nowrap" });
       return React.createElement("div", { style: { padding: "12px 0 4px" } },
+        React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8, flexWrap: "wrap" } },
+          React.createElement("div", { style: { fontSize: 10, color: "var(--faint)", letterSpacing: ".14em", fontWeight: 600 } }, (monthly ? "月別" : "日別") + "の" + (gmode === "rate" ? "1時間あたり" : "生産価値")),
+          React.createElement("div", { style: { display: "inline-flex", background: "var(--iquta-bg)", borderRadius: 9, padding: 2 } },
+            React.createElement("button", { style: gtogBtn(gmode === "rate"), onClick: () => set({ vvGraphMode: "rate" }) }, "1時間あたり"),
+            React.createElement("button", { style: gtogBtn(gmode === "yen"), onClick: () => set({ vvGraphMode: "yen" }) }, "金額")
+          )
+        ),
         React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: 12, marginBottom: 10, flexWrap: "wrap" } },
-          React.createElement("div", { style: { fontSize: 10, color: "var(--faint)", letterSpacing: ".14em", fontWeight: 600 } }, monthly ? "月別の生産価値" : "日別の生産価値"),
           React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, "合計 ", React.createElement("b", { style: { color: "var(--iquta)" } }, yen(total))),
           React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, "日平均 ", React.createElement("b", { style: { color: "var(--iquta)" } }, yen(avg)), "（記録" + workedDays + "日）"),
           hoursSum > 0 && React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, "1時間あたり ", React.createElement("b", { style: { color: "var(--iquta)" } }, yen(total / hoursSum)), "（工程表あり " + hoursSum.toFixed(1) + "h）")
