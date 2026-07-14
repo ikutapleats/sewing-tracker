@@ -233,6 +233,25 @@ function koteiValue(rec, parts) {
   return (rec.stepSec || 0) * (rec.qty || 0) * rate;
 }
 
+// 1時間あたりの共通計算。（人×日）単位で「生産価値」と「工程表あり品番の時間」の両方が
+// 入っている日だけを対象にする。時間だけで工程枚数が入っていない日（工程表が間に合わなかった
+// 等）は、数字を不当に下げないよう分母からも分子からも外す。
+function rateOf(recsArr, kersArr, parts, hasSheet) {
+  const cell = {}; // key: memberId|date
+  (recsArr || []).forEach(function (r) {
+    if (!hasSheet[r.partId]) return;
+    const k = r.memberId + "|" + r.date;
+    (cell[k] = cell[k] || { h: 0, v: 0 }).h += (r.hours || 0);
+  });
+  (kersArr || []).forEach(function (r) {
+    const k = r.memberId + "|" + r.date;
+    (cell[k] = cell[k] || { h: 0, v: 0 }).v += koteiValue(r, parts);
+  });
+  let h = 0, v = 0;
+  Object.keys(cell).forEach(function (k) { if (cell[k].h > 0 && cell[k].v > 0) { h += cell[k].h; v += cell[k].v; } });
+  return { hours: h, value: v, rate: h > 0 ? v / h : 0 };
+}
+
 // 金額のカウントアップ演出（表示のみ）。値が変わったら前の値からスーッと伸びる。
 function CountUpYen(p) {
   const [disp, setDisp] = useState(p.value);
@@ -1702,7 +1721,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
               const hSum = data.records.reduce(function (a, r) { return a + (r.memberId === f.memberId && r.date === ds && hasSheetMap[r.partId] ? (r.hours || 0) : 0); }, 0);
               week.push({ ds: ds, label: i === 0 ? (ds === today() ? "今日" : ds.slice(5).replace("-", "/")) : "日月火水木金土"[d.getDay()],
                 yen: yenSum,
-                rate: hSum > 0 ? yenSum / hSum : 0,
+                // 時間だけで工程枚数が入っていない日は1時間あたりの計算対象外（0本にする）
+                rate: (hSum > 0 && yenSum > 0) ? yenSum / hSum : 0,
                 qty: recs.reduce(function (a, r) { return a + (r.qty || 0); }, 0) });
             }
             const val = function (w) { return mode === "yen" ? w.yen : mode === "qty" ? w.qty : w.rate; };
@@ -1790,10 +1810,10 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     kers.forEach((r) => { dayTotals[r.date] = (dayTotals[r.date] || 0) + koteiValue(r, data.parts); });
     const recDaysAll = Object.keys(dayTotals).filter((d) => dayTotals[d] > 0).length;
 
-    // 「1時間あたり」の分母は工程表がある品番の時間だけ（青カード・人ごとグラフ共通）
+    // 「1時間あたり」は共通計算rateOf: 工程表あり品番の時間のみ・工程枚数が入っていない日は除外
     const hasSheet = {};
     (data.koteiSheets || []).forEach((s) => { hasSheet[s.partId] = true; });
-    const sheetHoursAll = recs.reduce((a, r) => a + (hasSheet[r.partId] ? (r.hours || 0) : 0), 0);
+    const rateAll = rateOf(recs, kers, data.parts, hasSheet);
 
     // ── 人ごとの日別棒グラフ（金額のみ・表示専用）──
     // 記録がない日も高さ0の棒として必ず並べ、休み・記録漏れ・生産の谷が見えるようにする。
@@ -1825,26 +1845,31 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       kers.forEach((r) => { if (r.memberId === pk) byDay[r.date] = (byDay[r.date] || 0) + koteiValue(r, data.parts); });
       const hByDay = {}; // その日の工程表あり品番の時間（1時間あたりの分母）
       recs.forEach((r) => { if (r.memberId === pk && hasSheet[r.partId]) hByDay[r.date] = (hByDay[r.date] || 0) + (r.hours || 0); });
-      const rate = (v, h) => h > 0 ? v / h : 0;
+      // 1時間あたりは「生産価値と時間の両方がある日」だけで計算（時間のみの日は0本＝対象外）
+      const dayRateOf = (ds) => (byDay[ds] > 0 && hByDay[ds] > 0) ? byDay[ds] / hByDay[ds] : 0;
       const monthly = days.length > 92;
       let bars;
       if (monthly) {
         const m = {}; const order = [];
-        days.forEach((ds) => { const k = ds.slice(0, 7); if (!(k in m)) { m[k] = { v: 0, h: 0 }; order.push(k); } m[k].v += (byDay[ds] || 0); m[k].h += (hByDay[ds] || 0); });
-        bars = order.map((k) => ({ label: String(+k.slice(5, 7)) + "月", v: gmode === "rate" ? rate(m[k].v, m[k].h) : m[k].v, yen: m[k].v, weekend: false }));
+        days.forEach((ds) => {
+          const k = ds.slice(0, 7);
+          if (!(k in m)) { m[k] = { v: 0, qv: 0, qh: 0 }; order.push(k); }
+          m[k].v += (byDay[ds] || 0);
+          if (byDay[ds] > 0 && hByDay[ds] > 0) { m[k].qv += byDay[ds]; m[k].qh += hByDay[ds]; }
+        });
+        bars = order.map((k) => ({ label: String(+k.slice(5, 7)) + "月", v: gmode === "rate" ? (m[k].qh > 0 ? m[k].qv / m[k].qh : 0) : m[k].v, yen: m[k].v, weekend: false }));
       } else {
         bars = days.map((ds) => {
           const dt = new Date(ds + "T00:00:00");
-          const v = gmode === "rate" ? rate(byDay[ds] || 0, hByDay[ds] || 0) : (byDay[ds] || 0);
+          const v = gmode === "rate" ? dayRateOf(ds) : (byDay[ds] || 0);
           return { label: String(+ds.slice(8, 10)), youbi: "日月火水木金土"[dt.getDay()], v: v, yen: byDay[ds] || 0, weekend: dt.getDay() === 0 || dt.getDay() === 6 };
         });
       }
       const total = bars.reduce((a, b) => a + b.yen, 0);
       const workedDays = Object.keys(byDay).filter((ds) => byDay[ds] > 0).length;
       const avg = workedDays > 0 ? total / workedDays : 0;
-      // この人の期間内の作業時間。工程表がない品番の時間は入れない
-      // （生産価値が計算されない時間で割ると「1時間あたり」が実際より低く出るため）
-      const hoursSum = recs.reduce((a, r) => a + (r.memberId === pk && hasSheet[r.partId] ? (r.hours || 0) : 0), 0);
+      // この人の1時間あたり（共通計算: 工程表あり時間のみ・工程枚数が入っていない日は除外）
+      const mrate = rateOf(recs.filter((r) => r.memberId === pk), kers.filter((r) => r.memberId === pk), data.parts, hasSheet);
       const maxV = Math.max.apply(null, bars.map((b) => b.v).concat([1]));
       const few = bars.length <= 10;
       const scroll = bars.length > 40;
@@ -1861,7 +1886,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: 12, marginBottom: 10, flexWrap: "wrap" } },
           React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, "合計 ", React.createElement("b", { style: { color: "var(--iquta)" } }, yen(total))),
           React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, "日平均 ", React.createElement("b", { style: { color: "var(--iquta)" } }, yen(avg)), "（記録" + workedDays + "日）"),
-          hoursSum > 0 && React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, "1時間あたり ", React.createElement("b", { style: { color: "var(--iquta)" } }, yen(total / hoursSum)), "（工程表あり " + hoursSum.toFixed(1) + "h）")
+          mrate.hours > 0 && React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, "1時間あたり ", React.createElement("b", { style: { color: "var(--iquta)" } }, yen(mrate.rate)), "（対象 " + mrate.hours.toFixed(1) + "h）")
         ),
         React.createElement("div", { style: { overflowX: scroll ? "auto" : "visible", WebkitOverflowScrolling: "touch" } },
           React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: bars.length > 16 ? 2 : 5, height: 106, minWidth: scroll ? bars.length * 9 : 0 } },
@@ -1923,7 +1948,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             React.createElement("div", { style: { fontSize: 11, opacity: 0.55, marginBottom: 2 } }, "この期間の合計"),
             React.createElement("div", { style: { fontSize: 24, fontWeight: 700 } }, yen(totValue)),
             ui.vvPeriod !== "day" && recDaysAll > 0 && React.createElement("div", { style: { fontSize: 11, opacity: 0.75, marginTop: 3 } }, "日平均 " + yen(totValue / recDaysAll) + "（記録" + recDaysAll + "日）"),
-            sheetHoursAll > 0 && React.createElement("div", { style: { fontSize: 11, opacity: 0.75, marginTop: 2 } }, "1時間あたり " + yen(totValue / sheetHoursAll) + "（工程表あり " + sheetHoursAll.toFixed(1) + "h）")
+            rateAll.hours > 0 && React.createElement("div", { style: { fontSize: 11, opacity: 0.75, marginTop: 2 } }, "1時間あたり " + yen(rateAll.rate) + "（対象 " + rateAll.hours.toFixed(1) + "h）")
           ),
           React.createElement("div", { style: { fontSize: 13, opacity: 0.8 } }, totHours.toFixed(1) + "h")
         ),
@@ -2334,7 +2359,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       const dset = {};
       rs.forEach((r) => { if (r.date) dset[r.date] = 1; });
       ks.forEach((r) => { if (r.date) dset[r.date] = 1; });
-      return { hoursAll: hoursAll, noSheetH: hoursAll - sheetH, value: value, qty: qty, days: Object.keys(dset).length, rate: sheetH > 0 ? value / sheetH : 0 };
+      // 1時間あたりは共通計算（工程表あり時間のみ・工程枚数が入っていない日は除外）
+      return { hoursAll: hoursAll, noSheetH: hoursAll - sheetH, value: value, qty: qty, days: Object.keys(dset).length, rate: rateOf(rs, ks, data.parts, hasSheet).rate };
     };
     const rows = data.members.map((m) => {
       const cur = calc(m.id, inR), prev = calc(m.id, inP);
@@ -2392,7 +2418,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
               )
             ),
         React.createElement("div", { style: { fontSize: 10.5, color: "var(--faint)", marginTop: 10, lineHeight: 1.7 } },
-          "1時間あたり＝生産価値÷工程表がある品番の時間。「工程表なし」はその期間に工程表未登録の品番へ使った時間（生産価値に反映されない時間）。")
+          "1時間あたり＝生産価値÷工程表がある品番の時間。作業時間だけで工程枚数が入っていない日は計算から除外。「工程表なし」はその期間に工程表未登録の品番へ使った時間（生産価値に反映されない時間）。")
       ),
       React.createElement(SI)
     );
