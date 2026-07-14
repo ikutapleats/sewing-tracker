@@ -1790,6 +1790,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       const total = bars.reduce((a, b) => a + b.v, 0);
       const workedDays = Object.keys(byDay).filter((ds) => byDay[ds] > 0).length;
       const avg = workedDays > 0 ? total / workedDays : 0;
+      const hoursSum = recs.reduce((a, r) => a + (r.memberId === pk ? (r.hours || 0) : 0), 0); // この人の期間内の作業時間
       const maxV = Math.max.apply(null, bars.map((b) => b.v).concat([1]));
       const few = bars.length <= 10;
       const scroll = bars.length > 40;
@@ -1798,7 +1799,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: 12, marginBottom: 10, flexWrap: "wrap" } },
           React.createElement("div", { style: { fontSize: 10, color: "var(--faint)", letterSpacing: ".14em", fontWeight: 600 } }, monthly ? "月別の生産価値" : "日別の生産価値"),
           React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, "合計 ", React.createElement("b", { style: { color: "var(--iquta)" } }, yen(total))),
-          React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, "日平均 ", React.createElement("b", { style: { color: "var(--iquta)" } }, yen(avg)), "（記録" + workedDays + "日）")
+          React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, "日平均 ", React.createElement("b", { style: { color: "var(--iquta)" } }, yen(avg)), "（記録" + workedDays + "日）"),
+          hoursSum > 0 && React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, "1時間あたり ", React.createElement("b", { style: { color: "var(--iquta)" } }, yen(total / hoursSum)), "（" + hoursSum.toFixed(1) + "h）")
         ),
         React.createElement("div", { style: { overflowX: scroll ? "auto" : "visible", WebkitOverflowScrolling: "touch" } },
           React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: bars.length > 16 ? 2 : 5, height: 106, minWidth: scroll ? bars.length * 9 : 0 } },
@@ -1859,7 +1861,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement("div", null,
             React.createElement("div", { style: { fontSize: 11, opacity: 0.55, marginBottom: 2 } }, "この期間の合計"),
             React.createElement("div", { style: { fontSize: 24, fontWeight: 700 } }, yen(totValue)),
-            ui.vvPeriod !== "day" && recDaysAll > 0 && React.createElement("div", { style: { fontSize: 11, opacity: 0.75, marginTop: 3 } }, "日平均 " + yen(totValue / recDaysAll) + "（記録" + recDaysAll + "日）")
+            ui.vvPeriod !== "day" && recDaysAll > 0 && React.createElement("div", { style: { fontSize: 11, opacity: 0.75, marginTop: 3 } }, "日平均 " + yen(totValue / recDaysAll) + "（記録" + recDaysAll + "日）"),
+            totHours > 0 && React.createElement("div", { style: { fontSize: 11, opacity: 0.75, marginTop: 2 } }, "1時間あたり " + yen(totValue / totHours))
           ),
           React.createElement("div", { style: { fontSize: 13, opacity: 0.8 } }, totHours.toFixed(1) + "h")
         ),
