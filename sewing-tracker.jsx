@@ -1790,7 +1790,11 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       const total = bars.reduce((a, b) => a + b.v, 0);
       const workedDays = Object.keys(byDay).filter((ds) => byDay[ds] > 0).length;
       const avg = workedDays > 0 ? total / workedDays : 0;
-      const hoursSum = recs.reduce((a, r) => a + (r.memberId === pk ? (r.hours || 0) : 0), 0); // この人の期間内の作業時間
+      // この人の期間内の作業時間。工程表がない品番の時間は入れない
+      // （生産価値が計算されない時間で割ると「1時間あたり」が実際より低く出るため）
+      const hasSheet = {};
+      (data.koteiSheets || []).forEach((s) => { hasSheet[s.partId] = true; });
+      const hoursSum = recs.reduce((a, r) => a + (r.memberId === pk && hasSheet[r.partId] ? (r.hours || 0) : 0), 0);
       const maxV = Math.max.apply(null, bars.map((b) => b.v).concat([1]));
       const few = bars.length <= 10;
       const scroll = bars.length > 40;
@@ -1800,7 +1804,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement("div", { style: { fontSize: 10, color: "var(--faint)", letterSpacing: ".14em", fontWeight: 600 } }, monthly ? "月別の生産価値" : "日別の生産価値"),
           React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, "合計 ", React.createElement("b", { style: { color: "var(--iquta)" } }, yen(total))),
           React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, "日平均 ", React.createElement("b", { style: { color: "var(--iquta)" } }, yen(avg)), "（記録" + workedDays + "日）"),
-          hoursSum > 0 && React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, "1時間あたり ", React.createElement("b", { style: { color: "var(--iquta)" } }, yen(total / hoursSum)), "（" + hoursSum.toFixed(1) + "h）")
+          hoursSum > 0 && React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, "1時間あたり ", React.createElement("b", { style: { color: "var(--iquta)" } }, yen(total / hoursSum)), "（工程表あり " + hoursSum.toFixed(1) + "h）")
         ),
         React.createElement("div", { style: { overflowX: scroll ? "auto" : "visible", WebkitOverflowScrolling: "touch" } },
           React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: bars.length > 16 ? 2 : 5, height: 106, minWidth: scroll ? bars.length * 9 : 0 } },
