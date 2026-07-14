@@ -28,7 +28,7 @@ const INIT_UI = {
   screen: "home", selectedTeam: null, userRole: null,
   addPartForm: { partNo: "", partName: "", unitPrice: "", qty: "", estMinPerUnit: "", deadline: "", status: "未着手", note: "", assignee: "未割当", assigneeType: "team", vendorId: "", sellPrice: "", vendorPrice: "", brandId: "", workMonth: today().slice(0, 7) },
   editPartForm: null,
-  memberForm: { memberId: "", partId: "", hours: "", date: today() },
+  memberForm: { memberId: "", partId: "", hours: "", other: "", otherOn: false, date: today() },
   qtyForm: { partId: "", qty: "", date: today() },
   addMemberForm: { name: "" }, addVendorForm: { name: "" },
   targetForm: { month: today().slice(0, 7), team: TEAMS[0], sales: "", members: "", workDays: "", hoursPerDay: "" },
@@ -241,7 +241,8 @@ function rateOf(recsArr, kersArr, parts, hasSheet) {
   (recsArr || []).forEach(function (r) {
     if (!hasSheet[r.partId]) return;
     const k = r.memberId + "|" + r.date;
-    (cell[k] = cell[k] || { h: 0, v: 0 }).h += (r.hours || 0);
+    // 工程外の作業時間（otherHours・内数）は分母に入れない
+    (cell[k] = cell[k] || { h: 0, v: 0 }).h += Math.max(0, (r.hours || 0) - (r.otherHours || 0));
   });
   (kersArr || []).forEach(function (r) {
     const k = r.memberId + "|" + r.date;
@@ -638,9 +639,10 @@ function App() {
     const date = f.date || today();
     let newRecord = null;
     const koteiRecs = [];
-    // 時間
+    // 時間（工程外＝芯貼り・裁断・サポートなど工程表に載らない作業の時間を内数で持つ）
     if (f.hours && parseFloat(f.hours) > 0) {
-      newRecord = { id: genId(), partId: f.partId, memberId: f.memberId, memberName: member.name, hours: parseFloat(f.hours), date: date };
+      const oh = f.otherOn ? Math.min(Math.max(parseFloat(f.other) || 0, 0), parseFloat(f.hours)) : 0;
+      newRecord = { id: genId(), partId: f.partId, memberId: f.memberId, memberName: member.name, hours: parseFloat(f.hours), otherHours: oh, date: date };
     }
     // 工程の枚数（工程表がある品番のみ）
     const sheet = (data.koteiSheets || []).find((s) => s.partId === f.partId);
@@ -666,7 +668,7 @@ function App() {
     if (newRecord) nd = Object.assign({}, nd, { records: nd.records.concat([newRecord]) });
     if (koteiRecs.length) nd = Object.assign({}, nd, { koteiRecords: (nd.koteiRecords || []).concat(koteiRecs) });
     setData(nd);
-    setMF({ hours: "", partId: "" });
+    setMF({ hours: "", partId: "", other: "", otherOn: false });
     set({ kEntryQty: {} });
     setSaving(true); setSaveError(false);
     const ps = [];
@@ -1116,7 +1118,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             ),
             React.createElement("div", { style: { display: "flex", gap: 8 } },
               React.createElement(RoleBtn, { label: "リーダー", onClick: () => set({ selectedTeam: team, userRole: "leader", screen: "team_leader" }) }),
-              React.createElement(RoleBtn, { label: "メンバー", onClick: () => set({ selectedTeam: team, userRole: "member", screen: "member_entry", memberForm: { memberId: "", partId: "", hours: "", date: today() } }) })
+              React.createElement(RoleBtn, { label: "メンバー", onClick: () => set({ selectedTeam: team, userRole: "member", screen: "member_entry", memberForm: { memberId: "", partId: "", hours: "", other: "", otherOn: false, date: today() } }) })
             )
           );
         }),
@@ -1584,16 +1586,17 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     // 1時間あたり = 生産価値 ÷ 工程表がある品番の時間（生産価値が付かない時間は分母に入れない）
     const hasSheetMap = {};
     (data.koteiSheets || []).forEach((s) => { hasSheetMap[s.partId] = true; });
-    const daySheetHours = myRecs.reduce((a, r) => a + (hasSheetMap[r.partId] ? (r.hours || 0) : 0), 0);
+    const daySheetHours = myRecs.reduce((a, r) => a + (hasSheetMap[r.partId] ? Math.max(0, (r.hours || 0) - (r.otherHours || 0)) : 0), 0);
     const dayRate = daySheetHours > 0 ? dayValue / daySheetHours : 0;
+    const dayOther = myRecs.reduce((a, r) => a + (r.otherHours || 0), 0); // 工程外（芯貼り・裁断・サポート等）の内数
     const myMemberName = (data.members.find((m) => m.id === f.memberId) || {}).name || "";
 
     // ── 前向きになれる一言（表示のみ）──
     // 優先: 週ベスト → 昨日超え → 日替わりの励まし（日付×人で固定なので、その日は同じ言葉が出続ける）
     const rateOn = (ds) => {
       const v = (data.koteiRecords || []).reduce((a, r) => a + (r.memberId === f.memberId && r.date === ds ? koteiValue(r, data.parts) : 0), 0);
-      const h = data.records.reduce((a, r) => a + (r.memberId === f.memberId && r.date === ds && hasSheetMap[r.partId] ? (r.hours || 0) : 0), 0);
-      return h > 0 ? v / h : 0;
+      const h = data.records.reduce((a, r) => a + (r.memberId === f.memberId && r.date === ds && hasSheetMap[r.partId] ? Math.max(0, (r.hours || 0) - (r.otherHours || 0)) : 0), 0);
+      return (h > 0 && v > 0) ? v / h : 0;
     };
     const dsAt = (off) => { const d = new Date((f.date || today()) + "T00:00:00"); d.setDate(d.getDate() - off); return d.toISOString().slice(0, 10); };
     // 大事にする順: 無理をなくす → 効率の伸びを認める → 無理なく・無駄なく・効率よくの日替わり
@@ -1644,6 +1647,18 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                       )
                 ),
                 f.partId && React.createElement(FormRow, { label: "作業時間（h）＊必須" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3.5", min: "0", step: "0.5", value: f.hours, onChange: (e) => setMF({ hours: e.target.value }) })),
+                // 工程外の作業（芯貼り・裁断・サポートなど）は内数で申告 → 1時間あたりの分母から除外される
+                f.partId && hoursOk && React.createElement("div", { style: { margin: "2px 0 10px" } },
+                  React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--ink)", cursor: "pointer" } },
+                    React.createElement("input", { type: "checkbox", checked: !!f.otherOn, onChange: (e) => setMF({ otherOn: e.target.checked, other: e.target.checked ? (f.other || "") : "" }) }),
+                    "工程以外の作業があった（芯貼り・裁断・サポートなど）"
+                  ),
+                  f.otherOn && React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 8, paddingLeft: 26 } },
+                    React.createElement("span", { style: { fontSize: 13, color: "var(--soft)" } }, (parseFloat(f.hours) || 0) + "時間のうち"),
+                    React.createElement("input", { style: Object.assign({}, st.input, { width: 90 }), type: "number", min: "0", step: "0.5", placeholder: "例: 1", value: f.other || "", onChange: (e) => setMF({ other: e.target.value }) }),
+                    React.createElement("span", { style: { fontSize: 13, color: "var(--soft)" } }, "時間")
+                  )
+                ),
                 // 作業時間を入れるまで工程枚数の入力は出さない（必須項目の入力忘れ防止・案内文は出さない）
                 f.partId && selSheet && hoursOk && React.createElement("div", null,
                   usualSteps.length > 0 && React.createElement("div", { style: { background: "var(--iquta-bg)", borderRadius: 10, padding: "10px 12px", marginBottom: 10, border: "1px solid var(--line)" } },
@@ -1705,7 +1720,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             myMemberName && React.createElement("div", { style: { fontSize: 13, color: "var(--soft)", letterSpacing: ".04em" } }, myMemberName + "さん"),
             React.createElement("div", { style: { fontSize: 10, color: "var(--faint)", letterSpacing: ".2em", marginTop: 14 } }, "今日の1時間あたり"),
             React.createElement("div", { style: { fontSize: 46, fontWeight: 800, color: "var(--iquta)", letterSpacing: "-.02em", lineHeight: 1.05, marginTop: 4, fontVariantNumeric: "tabular-nums" } }, React.createElement(CountUpYen, { value: dayRate })),
-            React.createElement("div", { style: { fontSize: 13, color: "var(--soft)", marginTop: 10, letterSpacing: ".02em" } }, "生産価値 ¥" + Math.round(dayValue).toLocaleString() + " ・ " + myKotei.reduce(function (a, r) { return a + (r.qty || 0); }, 0) + "枚 ・ " + dayHours.toFixed(1) + "時間"),
+            React.createElement("div", { style: { fontSize: 13, color: "var(--soft)", marginTop: 10, letterSpacing: ".02em" } }, "生産価値 ¥" + Math.round(dayValue).toLocaleString() + " ・ " + myKotei.reduce(function (a, r) { return a + (r.qty || 0); }, 0) + "枚 ・ " + dayHours.toFixed(1) + "時間" + (dayOther > 0 ? "（うち工程外 " + dayOther.toFixed(1) + "h）" : "")),
             cheer && React.createElement("div", { style: { display: "inline-block", marginTop: 14, fontSize: 13, fontWeight: 700, color: "var(--iquta)", background: "var(--iquta-bg)", borderRadius: 20, padding: "7px 16px", letterSpacing: ".03em" } }, cheer)
           ),
           // ── 襞グラフ（直近1週間・1時間あたり/金額/枚数トグル）──
@@ -1718,7 +1733,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
               const ds = d.toISOString().slice(0, 10);
               const recs = (data.koteiRecords || []).filter(function (r) { return r.memberId === f.memberId && r.date === ds; });
               const yenSum = recs.reduce(function (a, r) { return a + koteiValue(r, data.parts); }, 0);
-              const hSum = data.records.reduce(function (a, r) { return a + (r.memberId === f.memberId && r.date === ds && hasSheetMap[r.partId] ? (r.hours || 0) : 0); }, 0);
+              const hSum = data.records.reduce(function (a, r) { return a + (r.memberId === f.memberId && r.date === ds && hasSheetMap[r.partId] ? Math.max(0, (r.hours || 0) - (r.otherHours || 0)) : 0); }, 0);
               week.push({ ds: ds, label: i === 0 ? (ds === today() ? "今日" : ds.slice(5).replace("-", "/")) : "日月火水木金土"[d.getDay()],
                 yen: yenSum,
                 // 時間だけで工程枚数が入っていない日は1時間あたりの計算対象外（0本にする）
@@ -1843,8 +1858,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       const gmode = ui.vvGraphMode === "yen" ? "yen" : "rate"; // 棒の値: 1時間あたり（既定） or 金額
       const byDay = {};
       kers.forEach((r) => { if (r.memberId === pk) byDay[r.date] = (byDay[r.date] || 0) + koteiValue(r, data.parts); });
-      const hByDay = {}; // その日の工程表あり品番の時間（1時間あたりの分母）
-      recs.forEach((r) => { if (r.memberId === pk && hasSheet[r.partId]) hByDay[r.date] = (hByDay[r.date] || 0) + (r.hours || 0); });
+      const hByDay = {}; // その日の工程表あり品番の時間（1時間あたりの分母。工程外の内数は除く）
+      recs.forEach((r) => { if (r.memberId === pk && hasSheet[r.partId]) hByDay[r.date] = (hByDay[r.date] || 0) + Math.max(0, (r.hours || 0) - (r.otherHours || 0)); });
       // 1時間あたりは「生産価値と時間の両方がある日」だけで計算（時間のみの日は0本＝対象外）
       const dayRateOf = (ds) => (byDay[ds] > 0 && hByDay[ds] > 0) ? byDay[ds] / hByDay[ds] : 0;
       const monthly = days.length > 92;
@@ -2359,8 +2374,9 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       const dset = {};
       rs.forEach((r) => { if (r.date) dset[r.date] = 1; });
       ks.forEach((r) => { if (r.date) dset[r.date] = 1; });
-      // 1時間あたりは共通計算（工程表あり時間のみ・工程枚数が入っていない日は除外）
-      return { hoursAll: hoursAll, noSheetH: hoursAll - sheetH, value: value, qty: qty, days: Object.keys(dset).length, rate: rateOf(rs, ks, data.parts, hasSheet).rate };
+      const otherH = rs.reduce((a, r) => a + (r.otherHours || 0), 0); // 工程外（芯貼り・裁断・サポート等）
+      // 1時間あたりは共通計算（工程表あり時間のみ・工程外の内数と工程枚数が入っていない日は除外）
+      return { hoursAll: hoursAll, noSheetH: hoursAll - sheetH, otherH: otherH, value: value, qty: qty, days: Object.keys(dset).length, rate: rateOf(rs, ks, data.parts, hasSheet).rate };
     };
     const rows = data.members.map((m) => {
       const cur = calc(m.id, inR), prev = calc(m.id, inP);
@@ -2392,7 +2408,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         data.members.length === 0
           ? React.createElement(Empty, null, "メンバーがいません")
           : React.createElement("div", { style: { overflowX: "auto", WebkitOverflowScrolling: "touch", background: "#fff", border: "1px solid var(--line-soft)", borderRadius: 12 } },
-              React.createElement("table", { style: { borderCollapse: "collapse", width: "100%", minWidth: 560 } },
+              React.createElement("table", { style: { borderCollapse: "collapse", width: "100%", minWidth: 620 } },
                 React.createElement("thead", null, React.createElement("tr", null,
                   th(null, "", "center"),
                   th(null, "名前", "left"),
@@ -2402,6 +2418,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                   th("hoursAll", "時間"),
                   th("days", "稼働日"),
                   th("qty", "枚数"),
+                  th("otherH", "工程外"),
                   th("noSheetH", "工程表なし")
                 )),
                 React.createElement("tbody", null, rows.map((r, i) => React.createElement("tr", { key: r.id },
@@ -2413,12 +2430,13 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                   React.createElement("td", { style: tdBase }, r.hoursAll > 0 ? r.hoursAll.toFixed(1) + "h" : "—"),
                   React.createElement("td", { style: tdBase }, r.days > 0 ? r.days + "日" : "—"),
                   React.createElement("td", { style: tdBase }, r.qty > 0 ? r.qty + "枚" : "—"),
+                  React.createElement("td", { style: Object.assign({}, tdBase, { color: r.otherH > 0 ? "var(--ink)" : "var(--faint)" }) }, r.otherH > 0 ? r.otherH.toFixed(1) + "h" : "—"),
                   React.createElement("td", { style: Object.assign({}, tdBase, { color: r.noSheetH > 0 ? "var(--ink)" : "var(--faint)" }) }, r.noSheetH > 0 ? r.noSheetH.toFixed(1) + "h" : "—")
                 )))
               )
             ),
         React.createElement("div", { style: { fontSize: 10.5, color: "var(--faint)", marginTop: 10, lineHeight: 1.7 } },
-          "1時間あたり＝生産価値÷工程表がある品番の時間。作業時間だけで工程枚数が入っていない日は計算から除外。「工程表なし」はその期間に工程表未登録の品番へ使った時間（生産価値に反映されない時間）。")
+          "1時間あたり＝生産価値÷工程表がある品番の時間。作業時間だけで工程枚数が入っていない日は計算から除外。「工程外」は芯貼り・裁断・サポートなど工程表に載らない作業の時間（内数。1時間あたりの分母に入れない）。「工程表なし」はその期間に工程表未登録の品番へ使った時間。")
       ),
       React.createElement(SI)
     );
