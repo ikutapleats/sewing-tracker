@@ -2287,7 +2287,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             )
           )
         ),
-        React.createElement("button", { style: Object.assign({}, st.filterBtn, { width: "100%", padding: "11px", fontWeight: 700, marginBottom: 12 }), onClick: () => set({ screen: "member_stats" }) }, "成績表を見る（管理者向け）"),
+        React.createElement("button", { style: Object.assign({}, st.filterBtn, { width: "100%", padding: "11px", fontWeight: 700, marginBottom: 12 }), onClick: () => set({ screen: "member_stats" }) }, "数字を見る（管理者向け）"),
         React.createElement(SectionLabel, null, "メンバー一覧（" + data.members.length + "人）　タップで作業履歴を確認"),
         data.members.length === 0 && React.createElement(Empty, null, "メンバーがいません"),
         data.members.map((m) => {
@@ -2352,7 +2352,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     }, label + (key && sortKey === key ? " ▼" : ""));
     const tdBase = { padding: "9px 10px", fontSize: 12.5, whiteSpace: "nowrap", borderBottom: "1px solid var(--line-soft)", textAlign: "right", fontVariantNumeric: "tabular-nums" };
     return React.createElement(Shell, null,
-      React.createElement(Header, { title: "成績表", back: () => set({ screen: "member_mgmt" }) }),
+      React.createElement(Header, { title: "数字を見る（管理者向け）", back: () => set({ screen: "member_mgmt" }) }),
       React.createElement(Body, null,
         React.createElement("div", { style: { display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" } },
           preset("過去1週間", 6), preset("過去1ヶ月", 29), preset("過去3ヶ月", 89)
