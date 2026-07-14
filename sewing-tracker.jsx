@@ -1576,20 +1576,22 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       return h > 0 ? v / h : 0;
     };
     const dsAt = (off) => { const d = new Date((f.date || today()) + "T00:00:00"); d.setDate(d.getDate() - off); return d.toISOString().slice(0, 10); };
+    // 大事にする順: 無理をなくす → 効率の伸びを認める → 無理なく・無駄なく・効率よくの日替わり
     const cheer = (() => {
       if (dayValue <= 0) return "";
+      if (dayHours >= 8) return "今日は十分がんばりました。無理は禁物です";
       const prevRates = [1, 2, 3, 4, 5, 6].map((o) => rateOn(dsAt(o)));
       const prevBest = Math.max.apply(null, prevRates.concat([0]));
-      if (dayRate > 0 && prevBest > 0 && dayRate > prevBest) return "この1週間でいちばんのペースです";
-      if (dayRate > 0 && prevRates[0] > 0 && dayRate > prevRates[0]) return "昨日の自分を超えています";
+      if (dayRate > 0 && prevBest > 0 && dayRate > prevBest) return "この1週間でいちばん効率よく動けています";
+      if (dayRate > 0 && prevRates[0] > 0 && dayRate > prevRates[0]) return "昨日より効率よく動けています";
       const msgs = [
-        "その調子！明日はもう一歩",
-        "今日の一針が、明日の力になります",
-        "積み重ねが、ちゃんと形になっています",
-        "いいペース。無理せず着実に",
-        "確かな一歩を刻めています",
-        "昨日より一歩前へ",
-        "コツコツが、いちばん強い",
+        "無理なく、無駄なく、その調子",
+        "焦らず確実に。それがいちばん速い",
+        "急がば回れ。段取りが効率をつくります",
+        "いいペース。休憩も仕事のうち",
+        "小さな無駄とりが、大きな効率になります",
+        "今日の積み重ねが、明日の段取りを楽にします",
+        "動きやすい工夫をひとつ。明日がもう一歩楽になります",
       ];
       const s = (f.date || today()) + f.memberId;
       let seed = 0;
