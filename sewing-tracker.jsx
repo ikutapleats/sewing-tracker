@@ -74,6 +74,7 @@ const INIT_UI = {
   vvFrom: daysAgo(6), // 期間で見るの初期値: 過去1週間
   vvTo: today(),
   vvExpanded: {},
+  msFrom: daysAgo(6), msTo: today(), msSort: "rate", // 成績表（管理者向け）
 };
 
 async function gasSave(data) {
@@ -2286,6 +2287,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             )
           )
         ),
+        React.createElement("button", { style: Object.assign({}, st.filterBtn, { width: "100%", padding: "11px", fontWeight: 700, marginBottom: 12 }), onClick: () => set({ screen: "member_stats" }) }, "成績表を見る（管理者向け）"),
         React.createElement(SectionLabel, null, "メンバー一覧（" + data.members.length + "人）　タップで作業履歴を確認"),
         data.members.length === 0 && React.createElement(Empty, null, "メンバーがいません"),
         data.members.map((m) => {
@@ -2308,6 +2310,89 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                 )
           );
         })
+      ),
+      React.createElement(SI)
+    );
+  }
+
+  if (ui.screen === "member_stats") {
+    // ── 成績表（管理者向け）: 期間内の人ごとの数字を1つの表で冷静に比較する ──
+    const hasSheet = {};
+    (data.koteiSheets || []).forEach((s) => { hasSheet[s.partId] = true; });
+    const shift = (ds, n) => { const d = new Date(ds + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+    const spanDays = Math.max(1, Math.round((new Date(ui.msTo + "T00:00:00") - new Date(ui.msFrom + "T00:00:00")) / 86400000) + 1);
+    const pFrom = shift(ui.msFrom, -spanDays), pTo = shift(ui.msFrom, -1); // 直前の同じ長さの期間（前期比の物差し）
+    const inR = (d) => (d || "") >= ui.msFrom && (d || "") <= ui.msTo;
+    const inP = (d) => (d || "") >= pFrom && (d || "") <= pTo;
+    const calc = (mid, filt) => {
+      const rs = data.records.filter((r) => r.memberId === mid && filt(r.date));
+      const ks = (data.koteiRecords || []).filter((r) => r.memberId === mid && filt(r.date));
+      const hoursAll = rs.reduce((a, r) => a + (r.hours || 0), 0);
+      const sheetH = rs.reduce((a, r) => a + (hasSheet[r.partId] ? (r.hours || 0) : 0), 0);
+      const value = ks.reduce((a, r) => a + koteiValue(r, data.parts), 0);
+      const qty = ks.reduce((a, r) => a + (r.qty || 0), 0);
+      const dset = {};
+      rs.forEach((r) => { if (r.date) dset[r.date] = 1; });
+      ks.forEach((r) => { if (r.date) dset[r.date] = 1; });
+      return { hoursAll: hoursAll, noSheetH: hoursAll - sheetH, value: value, qty: qty, days: Object.keys(dset).length, rate: sheetH > 0 ? value / sheetH : 0 };
+    };
+    const rows = data.members.map((m) => {
+      const cur = calc(m.id, inR), prev = calc(m.id, inP);
+      return Object.assign({ id: m.id, name: m.name, trend: (cur.rate > 0 && prev.rate > 0) ? (cur.rate / prev.rate - 1) * 100 : null }, cur);
+    });
+    const sortKey = ui.msSort || "rate";
+    rows.sort((a, b) => (b[sortKey] || 0) - (a[sortKey] || 0));
+    const yen = (v) => "¥" + Math.round(v).toLocaleString();
+    const preset = (label, days) => React.createElement("button", { key: label, style: st.filterBtn, onClick: () => set({ msFrom: daysAgo(days), msTo: today() }) }, label);
+    const thBase = { padding: "8px 10px", fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap", borderBottom: "1px solid var(--line)", background: "var(--paper)", textAlign: "right" };
+    const th = (key, label, align) => React.createElement("th", {
+      key: label,
+      style: Object.assign({}, thBase, { textAlign: align || "right", cursor: key ? "pointer" : "default", color: key && sortKey === key ? "var(--iquta)" : "var(--soft)" }),
+      onClick: key ? () => set({ msSort: key }) : undefined,
+    }, label + (key && sortKey === key ? " ▼" : ""));
+    const tdBase = { padding: "9px 10px", fontSize: 12.5, whiteSpace: "nowrap", borderBottom: "1px solid var(--line-soft)", textAlign: "right", fontVariantNumeric: "tabular-nums" };
+    return React.createElement(Shell, null,
+      React.createElement(Header, { title: "成績表", back: () => set({ screen: "member_mgmt" }) }),
+      React.createElement(Body, null,
+        React.createElement("div", { style: { display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" } },
+          preset("過去1週間", 6), preset("過去1ヶ月", 29), preset("過去3ヶ月", 89)
+        ),
+        React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", marginBottom: 12 } },
+          React.createElement("input", { style: Object.assign({}, st.input, { flex: 1, minWidth: 0 }), type: "date", value: ui.msFrom, onChange: (e) => set({ msFrom: e.target.value }) }),
+          React.createElement("span", { style: { color: "var(--soft)", flex: "none" } }, "〜"),
+          React.createElement("input", { style: Object.assign({}, st.input, { flex: 1, minWidth: 0 }), type: "date", value: ui.msTo, onChange: (e) => set({ msTo: e.target.value }) })
+        ),
+        React.createElement("div", { style: { fontSize: 11, color: "var(--soft)", marginBottom: 8 } }, "前期比は直前の同じ長さの期間（" + pFrom.slice(5).replace("-", "/") + "〜" + pTo.slice(5).replace("-", "/") + "）の1時間あたりとの比較。見出しタップで並び替え"),
+        data.members.length === 0
+          ? React.createElement(Empty, null, "メンバーがいません")
+          : React.createElement("div", { style: { overflowX: "auto", WebkitOverflowScrolling: "touch", background: "#fff", border: "1px solid var(--line-soft)", borderRadius: 12 } },
+              React.createElement("table", { style: { borderCollapse: "collapse", width: "100%", minWidth: 560 } },
+                React.createElement("thead", null, React.createElement("tr", null,
+                  th(null, "", "center"),
+                  th(null, "名前", "left"),
+                  th("rate", "1時間あたり"),
+                  th("trend", "前期比"),
+                  th("value", "生産価値"),
+                  th("hoursAll", "時間"),
+                  th("days", "稼働日"),
+                  th("qty", "枚数"),
+                  th("noSheetH", "工程表なし")
+                )),
+                React.createElement("tbody", null, rows.map((r, i) => React.createElement("tr", { key: r.id },
+                  React.createElement("td", { style: Object.assign({}, tdBase, { textAlign: "center", color: "var(--faint)", fontSize: 11 }) }, i + 1),
+                  React.createElement("td", { style: Object.assign({}, tdBase, { textAlign: "left", fontWeight: 700 }) }, r.name),
+                  React.createElement("td", { style: Object.assign({}, tdBase, { fontWeight: 700, color: r.rate > 0 ? "var(--iquta)" : "var(--faint)" }) }, r.rate > 0 ? yen(r.rate) : "—"),
+                  React.createElement("td", { style: Object.assign({}, tdBase, { fontWeight: 700, color: r.trend == null ? "var(--faint)" : r.trend >= 0 ? "var(--iquta)" : "var(--aka)" }) }, r.trend == null ? "—" : (r.trend >= 0 ? "+" : "−") + Math.abs(Math.round(r.trend)) + "%"),
+                  React.createElement("td", { style: tdBase }, r.value > 0 ? yen(r.value) : "—"),
+                  React.createElement("td", { style: tdBase }, r.hoursAll > 0 ? r.hoursAll.toFixed(1) + "h" : "—"),
+                  React.createElement("td", { style: tdBase }, r.days > 0 ? r.days + "日" : "—"),
+                  React.createElement("td", { style: tdBase }, r.qty > 0 ? r.qty + "枚" : "—"),
+                  React.createElement("td", { style: Object.assign({}, tdBase, { color: r.noSheetH > 0 ? "var(--ink)" : "var(--faint)" }) }, r.noSheetH > 0 ? r.noSheetH.toFixed(1) + "h" : "—")
+                )))
+              )
+            ),
+        React.createElement("div", { style: { fontSize: 10.5, color: "var(--faint)", marginTop: 10, lineHeight: 1.7 } },
+          "1時間あたり＝生産価値÷工程表がある品番の時間。「工程表なし」はその期間に工程表未登録の品番へ使った時間（生産価値に反映されない時間）。数字は判断材料のひとつです。")
       ),
       React.createElement(SI)
     );
