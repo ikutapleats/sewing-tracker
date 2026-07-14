@@ -12,6 +12,7 @@ const TEAM_COLORS = {
 const STATUSES = ["未着手", "裁断済み", "仕掛り中", "完了"];
 
 function today() { return new Date().toISOString().slice(0, 10); }
+function daysAgo(n) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); }
 function genId() { return Math.random().toString(36).slice(2, 9); }
 function fmt(d) { return d ? d.slice(5).replace("-", "/") : "—"; }
 function diffDays(a, b) {
@@ -70,6 +71,8 @@ const INIT_UI = {
   vvPeriod: "month",
   vvMonth: today().slice(0, 7),
   vvDay: today(),
+  vvFrom: daysAgo(6), // 期間で見るの初期値: 過去1週間
+  vvTo: today(),
   vvExpanded: {},
 };
 
@@ -1712,7 +1715,9 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
   }
 
   if (ui.screen === "value_view") {
-    const inPeriod = (d) => ui.vvPeriod === "day" ? d === ui.vvDay : (d || "").slice(0, 7) === ui.vvMonth;
+    const inPeriod = (d) => ui.vvPeriod === "day" ? d === ui.vvDay
+      : ui.vvPeriod === "range" ? ((d || "") >= ui.vvFrom && (d || "") <= ui.vvTo)
+      : (d || "").slice(0, 7) === ui.vvMonth;
     const recs = data.records.filter((r) => inPeriod(r.date));
     const kers = (data.koteiRecords || []).filter((r) => inPeriod(r.date));
     const yen = (v) => "¥" + Math.round(v).toLocaleString();
@@ -1738,6 +1743,81 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const totHours = primKeys.reduce((a, k) => a + prim[k].hours, 0);
     const totValue = primKeys.reduce((a, k) => a + prim[k].value, 0);
 
+    // 期間全体の日平均（記録がある日で割る。休みの日を混ぜて平均を薄めない）
+    const dayTotals = {};
+    kers.forEach((r) => { dayTotals[r.date] = (dayTotals[r.date] || 0) + koteiValue(r, data.parts); });
+    const recDaysAll = Object.keys(dayTotals).filter((d) => dayTotals[d] > 0).length;
+
+    // ── 人ごとの日別棒グラフ（金額のみ・表示専用）──
+    // 記録がない日も高さ0の棒として必ず並べ、休み・記録漏れ・生産の谷が見えるようにする。
+    // 92日を超える期間（過去1年など）は月別に集計する。
+    const dstr = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    const periodDays = () => {
+      let from, to;
+      if (ui.vvPeriod === "month") {
+        from = ui.vvMonth + "-01";
+        to = ui.vvMonth + "-" + String(new Date(+ui.vvMonth.slice(0, 4), +ui.vvMonth.slice(5, 7), 0).getDate()).padStart(2, "0");
+      } else { from = ui.vvFrom; to = ui.vvTo; }
+      if (!from || !to || from > to) return [];
+      const out = [];
+      const d = new Date(from + "T00:00:00");
+      for (let i = 0; i < 400; i++) {
+        const ds = dstr(d);
+        if (ds > to) break;
+        out.push(ds);
+        d.setDate(d.getDate() + 1);
+      }
+      return out;
+    };
+    const memberGraph = (pk) => {
+      if (ui.vvAxis !== "member" || ui.vvPeriod === "day") return null;
+      const days = periodDays();
+      if (days.length < 2) return null;
+      const byDay = {};
+      kers.forEach((r) => { if (r.memberId === pk) byDay[r.date] = (byDay[r.date] || 0) + koteiValue(r, data.parts); });
+      const monthly = days.length > 92;
+      let bars;
+      if (monthly) {
+        const m = {}; const order = [];
+        days.forEach((ds) => { const k = ds.slice(0, 7); if (!(k in m)) { m[k] = 0; order.push(k); } m[k] += (byDay[ds] || 0); });
+        bars = order.map((k) => ({ label: String(+k.slice(5, 7)) + "月", v: m[k], weekend: false }));
+      } else {
+        bars = days.map((ds) => {
+          const dt = new Date(ds + "T00:00:00");
+          return { label: String(+ds.slice(8, 10)), youbi: "日月火水木金土"[dt.getDay()], v: byDay[ds] || 0, weekend: dt.getDay() === 0 || dt.getDay() === 6 };
+        });
+      }
+      const total = bars.reduce((a, b) => a + b.v, 0);
+      const workedDays = Object.keys(byDay).filter((ds) => byDay[ds] > 0).length;
+      const avg = workedDays > 0 ? total / workedDays : 0;
+      const hoursSum = recs.reduce((a, r) => a + (r.memberId === pk ? (r.hours || 0) : 0), 0); // この人の期間内の作業時間
+      const maxV = Math.max.apply(null, bars.map((b) => b.v).concat([1]));
+      const few = bars.length <= 10;
+      const scroll = bars.length > 40;
+      const compact = (v) => v <= 0 ? "0" : v < 10000 ? Math.round(v / 1000) + "千" : (Math.round(v / 1000) / 10) + "万";
+      return React.createElement("div", { style: { padding: "12px 0 4px" } },
+        React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: 12, marginBottom: 10, flexWrap: "wrap" } },
+          React.createElement("div", { style: { fontSize: 10, color: "var(--faint)", letterSpacing: ".14em", fontWeight: 600 } }, monthly ? "月別の生産価値" : "日別の生産価値"),
+          React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, "合計 ", React.createElement("b", { style: { color: "var(--iquta)" } }, yen(total))),
+          React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, "日平均 ", React.createElement("b", { style: { color: "var(--iquta)" } }, yen(avg)), "（記録" + workedDays + "日）"),
+          hoursSum > 0 && React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, "1時間あたり ", React.createElement("b", { style: { color: "var(--iquta)" } }, yen(total / hoursSum)), "（" + hoursSum.toFixed(1) + "h）")
+        ),
+        React.createElement("div", { style: { overflowX: scroll ? "auto" : "visible", WebkitOverflowScrolling: "touch" } },
+          React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: bars.length > 16 ? 2 : 5, height: 106, minWidth: scroll ? bars.length * 9 : 0 } },
+            bars.map((b, i) => {
+              const h = b.v > 0 ? Math.max(3, Math.round(72 * b.v / maxV)) : 2;
+              const showLabel = bars.length <= 16 || i % 5 === 0 || i === bars.length - 1;
+              return React.createElement("div", { key: i, style: { flex: scroll ? "none" : 1, width: scroll ? 7 : "auto", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 3, minWidth: 0 } },
+                few && React.createElement("div", { style: { fontSize: 9, color: b.v > 0 ? "var(--iquta)" : "transparent", fontWeight: 700, whiteSpace: "nowrap" } }, compact(b.v)),
+                React.createElement("div", { style: { width: "100%", maxWidth: 26, height: h, borderRadius: "3px 3px 0 0", background: b.v > 0 ? (b.weekend ? "var(--faint)" : "var(--iquta)") : "var(--line)" } }),
+                React.createElement("div", { style: { fontSize: 8.5, color: b.weekend ? "var(--faint)" : "var(--soft)", whiteSpace: "nowrap", visibility: showLabel ? "visible" : "hidden" } }, b.label + (few && b.youbi ? "(" + b.youbi + ")" : ""))
+              );
+            })
+          )
+        )
+      );
+    };
+
     const axisBtn = (key, label) => React.createElement("button", { key: key, style: Object.assign({}, st.filterBtn, ui.vvAxis === key ? st.filterBtnActive : {}), onClick: () => set({ vvAxis: key, vvExpanded: {} }) }, label);
 
     const headRow = React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "0 16px 6px", fontSize: 10, color: "#aaa" } },
@@ -1753,11 +1833,25 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
 
         React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 10 } },
           React.createElement("button", { style: Object.assign({}, st.filterBtn, { flex: 1, padding: "9px", fontWeight: 700 }, ui.vvPeriod === "month" ? st.filterBtnActive : {}), onClick: () => set({ vvPeriod: "month", vvExpanded: {} }) }, "月で見る"),
-          React.createElement("button", { style: Object.assign({}, st.filterBtn, { flex: 1, padding: "9px", fontWeight: 700 }, ui.vvPeriod === "day" ? st.filterBtnActive : {}), onClick: () => set({ vvPeriod: "day", vvExpanded: {} }) }, "日で見る")
+          React.createElement("button", { style: Object.assign({}, st.filterBtn, { flex: 1, padding: "9px", fontWeight: 700 }, ui.vvPeriod === "day" ? st.filterBtnActive : {}), onClick: () => set({ vvPeriod: "day", vvExpanded: {} }) }, "日で見る"),
+          React.createElement("button", { style: Object.assign({}, st.filterBtn, { flex: 1, padding: "9px", fontWeight: 700 }, ui.vvPeriod === "range" ? st.filterBtnActive : {}), onClick: () => set({ vvPeriod: "range", vvExpanded: {} }) }, "期間で見る")
         ),
         ui.vvPeriod === "month"
           ? React.createElement("input", { style: Object.assign({}, st.input, { marginBottom: 10 }), type: "month", value: ui.vvMonth, onChange: (e) => set({ vvMonth: e.target.value, vvExpanded: {} }) })
-          : React.createElement("input", { style: Object.assign({}, st.input, { marginBottom: 10 }), type: "date", value: ui.vvDay, onChange: (e) => set({ vvDay: e.target.value, vvExpanded: {} }) }),
+          : ui.vvPeriod === "day"
+          ? React.createElement("input", { style: Object.assign({}, st.input, { marginBottom: 10 }), type: "date", value: ui.vvDay, onChange: (e) => set({ vvDay: e.target.value, vvExpanded: {} }) })
+          : React.createElement("div", { style: { marginBottom: 10 } },
+              React.createElement("div", { style: { display: "flex", gap: 6, marginBottom: 8 } },
+                React.createElement("button", { style: st.filterBtn, onClick: () => set({ vvFrom: daysAgo(6), vvTo: today(), vvExpanded: {} }) }, "過去1週間"),
+                React.createElement("button", { style: st.filterBtn, onClick: () => set({ vvFrom: daysAgo(29), vvTo: today(), vvExpanded: {} }) }, "過去1ヶ月"),
+                React.createElement("button", { style: st.filterBtn, onClick: () => set({ vvFrom: daysAgo(364), vvTo: today(), vvExpanded: {} }) }, "過去1年")
+              ),
+              React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center" } },
+                React.createElement("input", { style: Object.assign({}, st.input, { flex: 1, minWidth: 0 }), type: "date", value: ui.vvFrom, onChange: (e) => set({ vvFrom: e.target.value, vvExpanded: {} }) }),
+                React.createElement("span", { style: { color: "var(--soft)", flex: "none" } }, "〜"),
+                React.createElement("input", { style: Object.assign({}, st.input, { flex: 1, minWidth: 0 }), type: "date", value: ui.vvTo, onChange: (e) => set({ vvTo: e.target.value, vvExpanded: {} }) })
+              )
+            ),
 
         React.createElement("div", { style: { display: "flex", gap: 6, marginBottom: 12 } },
           axisBtn("member", "人ごと"), axisBtn("date", "日ごと"), axisBtn("part", "品番ごと")
@@ -1766,7 +1860,9 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         React.createElement("div", { style: { background: "var(--iquta)", color: "#fff", borderRadius: 12, padding: "14px 18px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" } },
           React.createElement("div", null,
             React.createElement("div", { style: { fontSize: 11, opacity: 0.55, marginBottom: 2 } }, "この期間の合計"),
-            React.createElement("div", { style: { fontSize: 24, fontWeight: 700 } }, yen(totValue))
+            React.createElement("div", { style: { fontSize: 24, fontWeight: 700 } }, yen(totValue)),
+            ui.vvPeriod !== "day" && recDaysAll > 0 && React.createElement("div", { style: { fontSize: 11, opacity: 0.75, marginTop: 3 } }, "日平均 " + yen(totValue / recDaysAll) + "（記録" + recDaysAll + "日）"),
+            totHours > 0 && React.createElement("div", { style: { fontSize: 11, opacity: 0.75, marginTop: 2 } }, "1時間あたり " + yen(totValue / totHours))
           ),
           React.createElement("div", { style: { fontSize: 13, opacity: 0.8 } }, totHours.toFixed(1) + "h")
         ),
@@ -1789,6 +1885,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                     )
                   ),
                   exp && React.createElement("div", { style: { background: "#fff", borderRadius: "0 0 12px 12px", margin: "0 0 10px", padding: "2px 14px 10px", border: "1px solid var(--line-soft)", borderTop: "none" } },
+                    memberGraph(pk),
                     subKeys.map((sk) => {
                       // ── 3階層目（工程明細）: 品番行をタップで開閉。既存koteiRecordsを絞るだけ・金額はkoteiValue流用 ──
                       const dkey = pk + "|" + sk;
