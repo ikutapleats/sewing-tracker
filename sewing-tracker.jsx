@@ -1648,13 +1648,13 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                 ),
                 f.partId && React.createElement(FormRow, { label: "作業時間（h）＊必須" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3.5", min: "0", step: "0.5", value: f.hours, onChange: (e) => setMF({ hours: e.target.value }) })),
                 // 工程外の作業（芯貼り・裁断・サポートなど）は内数で申告 → 1時間あたりの分母から除外される
-                f.partId && hoursOk && React.createElement("div", { style: { margin: "2px 0 10px" } },
+                f.partId && React.createElement("div", { style: { margin: "2px 0 10px" } },
                   React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--ink)", cursor: "pointer" } },
                     React.createElement("input", { type: "checkbox", checked: !!f.otherOn, onChange: (e) => setMF({ otherOn: e.target.checked, other: e.target.checked ? (f.other || "") : "" }) }),
                     "工程以外の作業があった（芯貼り・裁断・サポートなど）"
                   ),
                   f.otherOn && React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 8, paddingLeft: 26 } },
-                    React.createElement("span", { style: { fontSize: 13, color: "var(--soft)" } }, (parseFloat(f.hours) || 0) + "時間のうち"),
+                    React.createElement("span", { style: { fontSize: 13, color: "var(--soft)" } }, parseFloat(f.hours) > 0 ? parseFloat(f.hours) + "時間のうち" : "作業時間のうち"),
                     React.createElement("input", { style: Object.assign({}, st.input, { width: 90 }), type: "number", min: "0", step: "0.5", placeholder: "例: 1", value: f.other || "", onChange: (e) => setMF({ other: e.target.value }) }),
                     React.createElement("span", { style: { fontSize: 13, color: "var(--soft)" } }, "時間")
                   )
