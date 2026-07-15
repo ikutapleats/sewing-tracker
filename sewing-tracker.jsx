@@ -1720,7 +1720,12 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             myMemberName && React.createElement("div", { style: { fontSize: 13, color: "var(--soft)", letterSpacing: ".04em" } }, myMemberName + "さん"),
             React.createElement("div", { style: { fontSize: 10, color: "var(--faint)", letterSpacing: ".2em", marginTop: 14 } }, "今日の1時間あたり"),
             React.createElement("div", { style: { fontSize: 46, fontWeight: 800, color: "var(--iquta)", letterSpacing: "-.02em", lineHeight: 1.05, marginTop: 4, fontVariantNumeric: "tabular-nums" } }, React.createElement(CountUpYen, { value: dayRate })),
-            React.createElement("div", { style: { fontSize: 13, color: "var(--soft)", marginTop: 10, letterSpacing: ".02em" } }, "生産価値 ¥" + Math.round(dayValue).toLocaleString() + " ・ " + myKotei.reduce(function (a, r) { return a + (r.qty || 0); }, 0) + "枚 ・ " + dayHours.toFixed(1) + "時間" + (dayOther > 0 ? "（うち工程外 " + dayOther.toFixed(1) + "h）" : "")),
+            // 1日の合計も準主役として大きめに（主役の1時間あたりの下に並べる）
+            React.createElement("div", { style: { marginTop: 12, display: "flex", alignItems: "baseline", justifyContent: "center", gap: 8 } },
+              React.createElement("span", { style: { fontSize: 10, color: "var(--faint)", letterSpacing: ".14em" } }, "今日の生産価値"),
+              React.createElement("span", { style: { fontSize: 25, fontWeight: 800, color: "var(--iquta)", letterSpacing: "-.01em", fontVariantNumeric: "tabular-nums" } }, React.createElement(CountUpYen, { value: dayValue }))
+            ),
+            React.createElement("div", { style: { fontSize: 13, color: "var(--soft)", marginTop: 8, letterSpacing: ".02em" } }, myKotei.reduce(function (a, r) { return a + (r.qty || 0); }, 0) + "枚 ・ " + dayHours.toFixed(1) + "時間" + (dayOther > 0 ? "（うち工程外 " + dayOther.toFixed(1) + "h）" : "")),
             cheer && React.createElement("div", { style: { display: "inline-block", marginTop: 14, fontSize: 13, fontWeight: 700, color: "var(--iquta)", background: "var(--iquta-bg)", borderRadius: 20, padding: "7px 16px", letterSpacing: ".03em" } }, cheer)
           ),
           // ── 襞グラフ（直近1週間・1時間あたり/金額/枚数トグル）──
