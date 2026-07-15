@@ -26,7 +26,7 @@ const EMPTY_DATA = {
 
 const INIT_UI = {
   screen: "home", selectedTeam: null, userRole: null,
-  addPartForm: { partNo: "", partName: "", unitPrice: "", qty: "", estMinPerUnit: "", deadline: "", status: "未着手", note: "", assignee: "未割当", assigneeType: "team", vendorId: "", sellPrice: "", vendorPrice: "", brandId: "", workMonth: today().slice(0, 7) },
+  addPartForm: { partNo: "", partName: "", unitPrice: "", pleatsPrice: "", qty: "", estMinPerUnit: "", deadline: "", status: "未着手", note: "", assignee: "未割当", assigneeType: "team", vendorId: "", sellPrice: "", vendorPrice: "", brandId: "", workMonth: today().slice(0, 7) },
   editPartForm: null,
   memberForm: { memberId: "", partId: "", hours: "", other: "", otherOn: false, date: today() },
   qtyForm: { partId: "", qty: "", date: today() },
@@ -223,11 +223,15 @@ async function gasLoad() {
 }
 
 // 生産価値 = 工程の実測秒数 × 枚数 × レート
-// レート = 受注単価 ÷ 1着総工数（秒）。単価が無い品番は暫定レート 1秒=1円。
-// 単価は品番（live）優先。総工数・単価は日報レコードにも写してあり、工程表が消えても壊れない。
+// レート = 縫製工賃 ÷ 1着総工数（秒）。単価が無い品番は暫定レート 1秒=1円。
+// 縫製工賃 = 受注単価 − プリーツ加工賃（加工賃込みの単価の品番は、加工分を除いて
+// 縫製の時間単価を出す。プリーツ品の1時間あたりが不当に高く出ないように）。
+// 単価は品番（live）優先。総工数・単価・加工賃は日報レコードにも写してあり、工程表が消えても壊れない。
 function koteiValue(rec, parts) {
   const part = (parts || []).find(function (p) { return p.id === rec.partId; });
-  const unit = part ? (part.unitPrice || 0) : (rec.unitPrice || 0);
+  const gross = part ? (part.unitPrice || 0) : (rec.unitPrice || 0);
+  const pleats = part ? (part.pleatsPrice || 0) : (rec.pleatsPrice || 0);
+  const unit = Math.max(0, gross - pleats);
   const total = rec.totalSec || 0;
   const rate = (unit > 0 && total > 0) ? unit / total : 1; // 暫定1秒1円
   return (rec.stepSec || 0) * (rec.qty || 0) * rate;
@@ -484,7 +488,7 @@ function App() {
     const isOut = f.assigneeType === "outsource";
     const np = {
       id: genId(), partNo: f.partNo.trim(), partName: f.partName.trim(),
-      unitPrice: parseFloat(f.unitPrice) || 0, qty: parseFloat(f.qty) || 0,
+      unitPrice: parseFloat(f.unitPrice) || 0, pleatsPrice: parseFloat(f.pleatsPrice) || 0, qty: parseFloat(f.qty) || 0,
       estMinPerUnit: isOut ? 0 : (parseFloat(f.estMinPerUnit) || 0),
       deadline: f.deadline || null, status: f.status || "未着手", note: f.note.trim(),
       assignee: isOut ? f.vendorId : (f.assignee || "未割当"),
@@ -497,7 +501,7 @@ function App() {
     };
     const nd = Object.assign({}, data, { parts: data.parts.concat([np]) });
     setData(nd);
-    set({ addPartForm: { partNo: "", partName: "", unitPrice: "", qty: "", estMinPerUnit: "", deadline: "", status: "未着手", note: "", assignee: "未割当", assigneeType: "team", vendorId: "", sellPrice: "", vendorPrice: "", brandId: "", workMonth: today().slice(0, 7) }, screen: "master" });
+    set({ addPartForm: { partNo: "", partName: "", unitPrice: "", pleatsPrice: "", qty: "", estMinPerUnit: "", deadline: "", status: "未着手", note: "", assignee: "未割当", assigneeType: "team", vendorId: "", sellPrice: "", vendorPrice: "", brandId: "", workMonth: today().slice(0, 7) }, screen: "master" });
     setSaving(true); setSaveError(false);
     gasAddPart(np).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
   }
@@ -508,6 +512,7 @@ function App() {
     const isOut = f.assigneeType === "outsource";
     const updatedPart = Object.assign({}, data.parts.find((p) => p.id === f.id), {
       partName: f.partName.trim(), unitPrice: parseFloat(f.unitPrice) || 0,
+      pleatsPrice: parseFloat(f.pleatsPrice) || 0,
       qty: parseFloat(f.qty) || 0, estMinPerUnit: isOut ? 0 : (parseFloat(f.estMinPerUnit) || 0),
       deadline: f.deadline || null, status: f.status || "未着手", note: f.note.trim(),
       sellPrice: isOut ? (parseFloat(f.sellPrice) || 0) : 0,
@@ -557,7 +562,7 @@ function App() {
   }
 
   function startEdit(part) {
-    set({ editPartForm: { id: part.id, partName: part.partName || "", unitPrice: part.unitPrice || "", qty: part.qty || "", estMinPerUnit: part.estMinPerUnit || "", deadline: part.deadline || "", status: part.status || "未着手", note: part.note || "", sellPrice: part.sellPrice || "", vendorPrice: part.vendorPrice || "", assigneeType: part.assigneeType || "team", workMonth: part.workMonth || "", brandId: part.brandId || "" }, screen: "edit_part" });
+    set({ editPartForm: { id: part.id, partName: part.partName || "", unitPrice: part.unitPrice || "", pleatsPrice: part.pleatsPrice || "", qty: part.qty || "", estMinPerUnit: part.estMinPerUnit || "", deadline: part.deadline || "", status: part.status || "未着手", note: part.note || "", sellPrice: part.sellPrice || "", vendorPrice: part.vendorPrice || "", assigneeType: part.assigneeType || "team", workMonth: part.workMonth || "", brandId: part.brandId || "" }, screen: "edit_part" });
   }
 
   function addRecord() {
@@ -613,7 +618,7 @@ function App() {
         id: genId(), date: date, memberId: member.id, memberName: member.name,
         partId: partId, stepId: b.id, stepPart: curPart, stepAct: b.act || "",
         stepSec: parseKoteiTime(b.time), qty: q,
-        totalSec: totalSec, unitPrice: part.unitPrice || 0,
+        totalSec: totalSec, unitPrice: part.unitPrice || 0, pleatsPrice: part.pleatsPrice || 0,
       });
     });
     if (newRecs.length === 0) return;
@@ -659,7 +664,7 @@ function App() {
           id: genId(), date: date, memberId: member.id, memberName: member.name,
           partId: f.partId, stepId: b.id, stepPart: curPart, stepAct: b.act || "",
           stepSec: parseKoteiTime(b.time), qty: q,
-          totalSec: totalSec, unitPrice: part.unitPrice || 0,
+          totalSec: totalSec, unitPrice: part.unitPrice || 0, pleatsPrice: part.pleatsPrice || 0,
         });
       });
     }
@@ -1222,6 +1227,10 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           ),
           !isOut && React.createElement("div", null,
             React.createElement(FormRow, { label: "製品単価（円）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3000", value: f.unitPrice, onChange: (e) => setAP({ unitPrice: e.target.value }) })),
+            React.createElement(FormRow, { label: "うちプリーツ加工賃（円・任意）" },
+              React.createElement("input", { style: st.input, type: "number", placeholder: "例: 1500", value: f.pleatsPrice, onChange: (e) => setAP({ pleatsPrice: e.target.value }) }),
+              React.createElement("div", { style: { fontSize: 11, color: "var(--soft)", marginTop: 4, lineHeight: 1.5 } }, "単価にプリーツ加工賃が含まれる場合に入力。生産価値（1時間あたり）は加工賃を除いた縫製工賃で計算されます")
+            ),
             React.createElement(FormRow, { label: "1着あたりの見積もり時間（分）" },
               React.createElement("input", { style: st.input, type: "number", placeholder: "例: 45", min: "0", step: "1", value: f.estMinPerUnit, onChange: (e) => setAP({ estMinPerUnit: e.target.value }) }),
               f.estMinPerUnit && React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginTop: 4 } }, "→ " + estHoursPerUnit.toFixed(2) + "h/着")
@@ -1273,6 +1282,10 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement(FormRow, { label: "納期" }, React.createElement("input", { style: st.input, type: "date", value: f.deadline || "", onChange: (e) => setEP({ deadline: e.target.value }) })),
           !isOut && React.createElement("div", null,
             React.createElement(FormRow, { label: "製品単価（円）" }, React.createElement("input", { style: st.input, type: "number", value: f.unitPrice, onChange: (e) => setEP({ unitPrice: e.target.value }) })),
+            React.createElement(FormRow, { label: "うちプリーツ加工賃（円・任意）" },
+              React.createElement("input", { style: st.input, type: "number", placeholder: "例: 1500", value: f.pleatsPrice, onChange: (e) => setEP({ pleatsPrice: e.target.value }) }),
+              React.createElement("div", { style: { fontSize: 11, color: "var(--soft)", marginTop: 4, lineHeight: 1.5 } }, "単価にプリーツ加工賃が含まれる場合に入力。生産価値（1時間あたり）は加工賃を除いた縫製工賃で計算されます")
+            ),
             React.createElement(FormRow, { label: "1着あたりの見積もり時間（分）" },
               React.createElement("input", { style: st.input, type: "number", min: "0", step: "1", value: f.estMinPerUnit, onChange: (e) => setEP({ estMinPerUnit: e.target.value }) }),
               f.estMinPerUnit && React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginTop: 4 } }, "→ " + estHoursPerUnit.toFixed(2) + "h/着")
