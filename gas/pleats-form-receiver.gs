@@ -1,11 +1,12 @@
 /**
  * 生田プリーツ｜プリーツ加工 問い合わせ受信 バックエンド
  * ------------------------------------------------------------
- * フォーム(React/GitHub Pages)からの POST を受け、
+ * フォーム(React/Vercel)からの POST を受け、
  *   1. 添付画像を Drive フォルダへ保存
  *   2. スプレッドシート「案件台帳」に1行追記
- *   3. 受付通知メールを送信
- *   4.（任意・後付け）Anthropic API で返信案を生成
+ *   3. 社内向け受付通知メールを送信（NOTIFY_EMAIL宛）
+ *   4. お客様向け自動返信メールを送信（sender_email宛・必須）
+ *   5.（任意・後付け）Anthropic API で返信案を生成
  * を行う。
  *
  * ■ 初期設定
@@ -25,23 +26,13 @@
  *   no-cors の「投げっぱなし」送信で応答を読まない設計のため、
  *   認証トークンは付与しない（既存方針どおり）。
  *
- * ※ メール通知(notifyNewInquiry_)は MailApp の権限が必要。
- *   下記 doPost 冒頭の「一時的なテスト用」の行を使い、
- *   このファイルをエディタで開いた状態で doPost を手動実行すると
- *   権限承認ダイアログが出る。許可した後、その1行は必ず削除すること。
+ * ※ メール送信(MailApp)は権限承認済み（authorizeMailApp_ で承認済み）。
  */
 
 // ===== 設定 =====
 const SHEET_NAME = "案件台帳";
 const ENABLE_AI_REPLY = false; // true にすると doPost 内で返信案生成を試みる（下部参照）
-const NOTIFY_EMAIL = "ikuta@iquta.com, ishii.hinata.iquta@gmail.com"; // 受付通知の送信先（カンマ区切りで複数可）
-// スタッフ閲覧ページ(pleats-admin)のウェブアプリURL。通知メールに載せる。
-// スクリプトプロパティ ADMIN_VIEW_URL があればそちらを優先し、無ければこの既定値を使う。
-// ※ iquta.com ドメイン限定(Googleログイン保護)のため、URL単体では社外からは開けない。
-// ※ 閲覧ページを「Googleアカウントを持つ全員」に開いたため、ドメイン限定形
-//   (/a/macros/iquta.com/…) ではなく汎用形 (/macros/s/…) を使う。こちらは
-//   iquta.com・Gmail どちらのアカウントからも開ける。
-const ADMIN_VIEW_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbyx59XeUZiaEMWy04cFY2bw3hTFAVWjR1Z0qv1zzP1Rmk7Ei-HhAM75dQhQ2ImD_V1S/exec";
+const NOTIFY_EMAIL = "ikuta@iquta.com"; // 社内向け受付通知の送信先
 
 // 台帳のヘッダー（spec 6章に対応）
 const HEADERS = [
@@ -61,9 +52,6 @@ function getConfig_() {
 }
 
 function doPost(e) {
-  // ↓↓↓ 一時的なテスト用（権限承認が終わったら、この1行は必ず削除する）↓↓↓
-  // ↑↑↑ 一時的なテスト用 ↑↑↑
-
   // postData が無い呼び出し（ブラウザからの直接アクセス等）を明示的に弾く
   if (!e || !e.postData || !e.postData.contents) {
     return json_({ ok: false, error: "empty" });
@@ -73,6 +61,17 @@ function doPost(e) {
     const payload = JSON.parse(e.postData.contents);
     const inq = payload.inquiry || {};
     const s = inq.structured || {};
+
+    // 0. メールアドレスは必須。空なら記録だけ残して弾く
+    if (!inq.sender_email) {
+      getSheet_().appendRow([
+        Utilities.formatDate(new Date(), "Asia/Tokyo", "yyyy-MM-dd HH:mm"),
+        "", "ERROR", inq.sender_name || "", "", inq.phone || "", inq.organization || "",
+        "", "", "", "", "", "", "", "", "", "", "", "要確認",
+        "メールアドレス未入力のため自動返信不可", JSON.stringify(payload), "",
+      ]);
+      return json_({ ok: false, error: "sender_email required" });
+    }
 
     // 1. 添付を Drive へ保存 → URL配列
     const folder = getSubfolder_(inq.sender_name || "unknown");
@@ -117,7 +116,7 @@ function doPost(e) {
       reply,
     ]);
 
-    // 4. 受付通知メール（社員向け。失敗しても問い合わせ自体の記録は成立させる）
+    // 4. 社内向け受付通知メール（失敗しても問い合わせ自体の記録は成立させる）
     try {
       notifyNewInquiry_(inq, s);
       Logger.log("通知メール送信成功: " + NOTIFY_EMAIL);
@@ -125,12 +124,12 @@ function doPost(e) {
       Logger.log("通知メール送信エラー: " + mailErr);
     }
 
-    // 5. お問い合わせ者への自動返信（お礼＋数日中に連絡）。失敗しても記録は成立させる
+    // 5. お客様向け自動返信メール（失敗しても記録・通知には影響しない）
     try {
-      sendAutoReply_(inq);
-      Logger.log("自動返信メール送信: " + (inq.sender_email || "(宛先なし)"));
-    } catch (arErr) {
-      Logger.log("自動返信メール送信エラー: " + arErr);
+      sendConfirmationToSender_(inq);
+      Logger.log("自動返信送信成功: " + inq.sender_email);
+    } catch (confirmErr) {
+      Logger.log("自動返信エラー: " + confirmErr);
     }
 
     return json_({ ok: true });
@@ -188,9 +187,6 @@ function summarizeDimensions_(s) {
   };
   pair("ウエスト", d.waist);
   pair("裾", d.hem);
-  if (d.pleat_size) parts.push("ひだ(山〜谷) " + d.pleat_size);
-  if (s.sunray_angle) parts.push("扇形角度:" + s.sunray_angle);
-  if (s.crystal_fade) parts.push("途中消し:" + s.crystal_fade);
   if (d.length) parts.push("丈 " + d.length);
   if (s.multi_types && s.multi_types.length) parts.push("希望:" + s.multi_types.join("・"));
   if (s.multi_detail) parts.push(s.multi_detail);
@@ -206,17 +202,9 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-// ===== 受付通知メール =====
+// ===== 社内向け 受付通知メール =====
 function notifyNewInquiry_(inq, s) {
   const sheetUrl = "https://docs.google.com/spreadsheets/d/" + getConfig_().sheetId + "/edit";
-  // スタッフ閲覧ページ(pleats-admin)のURL。スクリプトプロパティ ADMIN_VIEW_URL に
-  // 設定されていれば通知メールに載せる(任意)。未設定なら台帳リンクのみ。
-  const viewUrl = PropertiesService.getScriptProperties().getProperty("ADMIN_VIEW_URL") || ADMIN_VIEW_URL_DEFAULT;
-  let links = "";
-  if (viewUrl) {
-    links += "スタッフ閲覧ページ（画像も同じ画面で確認できます）:\n" + viewUrl + "\n\n";
-  }
-  links += "台帳（スプレッドシート）で詳細を確認:\n" + sheetUrl;
   MailApp.sendEmail({
     to: NOTIFY_EMAIL,
     subject: "【プリーツ問い合わせ】新規受付: " + (inq.sender_name || "名前未入力"),
@@ -226,47 +214,32 @@ function notifyNewInquiry_(inq, s) {
       "メール: " + (inq.sender_email || "") + "\n" +
       "電話: " + (inq.phone || "") + "\n" +
       "所属: " + (inq.organization || "") + "\n" +
-      (s.country ? "国: " + s.country + "\n" : "") +
       "希望内容: " + (s.pleat_type_label || s.pleat_type || "") + "\n" +
       "希望納期: " + (s.deadline || "") + "\n\n" +
-      links,
+      "台帳で詳細を確認してください:\n" + sheetUrl,
   });
 }
 
-// ===== お問い合わせ者への自動返信 =====
-// フォーム送信者本人へ、受付のお礼と「数日中に担当者から連絡」を自動返信する。
-// 英語フォーム(channel = web_form_en)には英語、それ以外は日本語で送る。
-function sendAutoReply_(inq) {
-  const to = String((inq && inq.sender_email) || "").trim();
-  if (!to || to.indexOf("@") === -1) return; // 宛先が無ければ送らない
-  const isEn = (inq.channel || "") === "web_form_en";
-  const name = String((inq && inq.sender_name) || "").trim();
-
-  let subject, body, senderName;
-  if (isEn) {
-    senderName = "IQUTA PLEATS";
-    subject = "[IQUTA PLEATS] We have received your inquiry";
-    body =
-      (name ? "Dear " + name + ",\n\n" : "Hello,\n\n") +
-      "Thank you for your inquiry. We have received it, and a member of our team " +
-      "will contact you within a few days.\n\n" +
-      "* This is an automated confirmation. Please do not reply to this message.\n\n" +
-      "IQUTA PLEATS (Ikuta Pleats Co., Ltd.)";
-  } else {
-    senderName = "生田プリーツ";
-    subject = "【生田プリーツ】お問い合わせを受け付けました";
-    body =
-      (name ? name + " 様\n\n" : "") +
-      "この度はお問い合わせいただき、ありがとうございます。\n" +
-      "内容を受け付けました。数日中に担当者よりご連絡いたします。\n\n" +
-      "※このメールは自動送信です。ご返信いただいてもお答えできない場合があります。\n\n" +
-      "株式会社生田プリーツ";
-  }
-
-  MailApp.sendEmail({ to: to, subject: subject, body: body, name: senderName });
+// ===== お客様向け 自動返信メール =====
+function sendConfirmationToSender_(inq) {
+  MailApp.sendEmail({
+    to: inq.sender_email,
+    subject: "【生田プリーツ】お問い合わせを受け付けました",
+    body:
+      (inq.sender_name ? inq.sender_name + " 様\n\n" : "") +
+      "この度はお問い合わせいただき、誠にありがとうございます。\n" +
+      "お問い合わせ内容を受け付けました。\n\n" +
+      "内容を確認のうえ、担当者よりあらためてご連絡いたします。\n" +
+      "確認や見積もりのため、追加でお伺いすることがございます。\n" +
+      "今しばらくお待ちくださいますようお願いいたします。\n\n" +
+      "※このメールは自動送信です。心当たりのない場合は破棄してください。\n\n" +
+      "-----\n" +
+      "生田プリーツ株式会社\n" +
+      "https://iquta.com\n",
+  });
 }
 
-// ===== メール送信の権限承認用 =====
+// ===== メール送信の権限承認用（手動実行専用）=====
 function authorizeMailApp_() {
   MailApp.sendEmail({
     to: NOTIFY_EMAIL,
