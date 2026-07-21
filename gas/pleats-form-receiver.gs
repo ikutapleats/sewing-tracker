@@ -34,6 +34,12 @@ const SHEET_NAME = "案件台帳";
 const ENABLE_AI_REPLY = false; // true にすると doPost 内で返信案生成を試みる（下部参照）
 const NOTIFY_EMAIL = "ikuta@iquta.com"; // 社内向け受付通知の送信先
 
+// 社内向け 問い合わせ閲覧ページ（通知メールに記載する）
+const INQUIRY_VIEWER_URL = "https://script.google.com/a/macros/iquta.com/s/AKfycbyx59XeUZiaEMWy04cFY2bw3hTFAVWjR1Z0qv1zzP1Rmk7Ei-HhAM75dQhQ2ImD_V1S/exec";
+
+// お客様向け 自動返信の署名に載せる会社サイトURL
+const COMPANY_SITE_URL = "https://www.iqutapleats.com/";
+
 // 台帳のヘッダー（spec 6章に対応）
 const HEADERS = [
   "受付日時", "対応者", "チャネル", "送信者名", "メール", "電話", "所属",
@@ -216,7 +222,8 @@ function notifyNewInquiry_(inq, s) {
       "所属: " + (inq.organization || "") + "\n" +
       "希望内容: " + (s.pleat_type_label || s.pleat_type || "") + "\n" +
       "希望納期: " + (s.deadline || "") + "\n\n" +
-      "台帳で詳細を確認してください:\n" + sheetUrl,
+      "▼ 問い合わせ対応ページで確認:\n" + INQUIRY_VIEWER_URL + "\n\n" +
+      "▼ 台帳(スプレッドシート)で確認:\n" + sheetUrl,
   });
 }
 
@@ -235,7 +242,7 @@ function sendConfirmationToSender_(inq) {
       "※このメールは自動送信です。心当たりのない場合は破棄してください。\n\n" +
       "-----\n" +
       "生田プリーツ株式会社\n" +
-      "https://iquta.com\n",
+      COMPANY_SITE_URL + "\n",
   });
 }
 
