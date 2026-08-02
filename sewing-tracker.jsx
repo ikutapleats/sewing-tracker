@@ -848,6 +848,21 @@ function App() {
     set({ koteiPartId: partId, koteiReturn: "part_detail", screen: "kotei_edit", koteiNewPartId: null });
   }
 
+  // 過去の品番の工程表をコピーして、別の品番の工程表を新規作成する：
+  // 全工程・図・数量などをまるごと複製し、新しいIDを振る（コピー元の工程表は変えない）。
+  // 図のimgId／designImgIdはGASの共有ファイルIDなので、そのまま参照する（再アップロード不要）。
+  function copySheetFromPart(srcSheet, destPartId) {
+    const rec = Object.assign({}, srcSheet, {
+      id: genId(),
+      partId: destPartId,
+      blocks: (srcSheet.blocks || []).map(function (b) { return Object.assign({}, b, { id: genId() }); }),
+      updatedAt: today(),
+    });
+    delete rec.templateName;
+    saveKotei(rec);
+    set({ koteiPartId: destPartId, koteiReturn: "part_detail", screen: "kotei_edit", koteiNewPartId: null });
+  }
+
   // 手書きメモの解析結果から品番の工程表を作る（P2）：行にIDを振ってそのままblocks化。
   // 清書・並べ替えはしない。保存は既存のsaveKotei（=既存upsertItem機構）に乗せる。
   function createSheetFromMemo(rows, partId) {
@@ -3557,6 +3572,12 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const part = data.parts.find((p) => p.id === ui.koteiNewPartId);
     if (!part) { return null; }
     const tpls = koteiTemplates();
+    // 過去の品番からコピー：工程表を持つ品番（自分以外）を新しい順に並べる。
+    const copyable = (data.koteiSheets || [])
+      .filter(function (s) { return s.partId && s.partId !== part.id; })
+      .map(function (s) { const p = data.parts.find(function (x) { return x.id === s.partId; }); return p ? { sheet: s, part: p } : null; })
+      .filter(Boolean)
+      .sort(function (a, b) { return (b.sheet.updatedAt || "").localeCompare(a.sheet.updatedAt || ""); });
     return React.createElement(Shell, null,
       React.createElement(Header, { title: "工程表を作る", back: () => set({ screen: "part_detail", koteiNewPartId: null }) }),
       React.createElement(Body, null,
@@ -3571,7 +3592,18 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         tpls.map((t) => {
           const n = (t.blocks || []).filter((b) => b.type === "step").length;
           return React.createElement("button", { key: t.id, style: { width: "100%", border: "1px solid var(--line)", background: "var(--iquta-bg)", borderRadius: 10, padding: 14, fontSize: 14, fontWeight: 700, color: "var(--iquta)", marginBottom: 8, textAlign: "left" }, onClick: () => createSheetFromTemplate(t, part.id) }, (t.templateName || "無題") + "（" + n + "工程）");
-        })
+        }),
+        copyable.length > 0 && React.createElement(SectionLabel, null, "過去の品番からコピーして作る"),
+        copyable.length > 0 && React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginBottom: 8 } }, "選んだ品番の全工程・図・数量をまるごとコピーします。コピー後にこの品番で自由に修正できます。コピー元の工程表は変わりません。"),
+        copyable.length > 0 && React.createElement("div", { style: { maxHeight: "46vh", overflowY: "auto", margin: "0 -2px", padding: "0 2px" } },
+          copyable.map(function (o) {
+            const n = (o.sheet.blocks || []).filter(function (b) { return b.type === "step"; }).length;
+            return React.createElement("button", { key: o.sheet.id, style: { width: "100%", border: "1px solid var(--line)", background: "#fff", borderRadius: 10, padding: 14, marginBottom: 8, textAlign: "left", display: "block" }, onClick: () => copySheetFromPart(o.sheet, part.id) },
+              React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: "var(--iquta)" } }, o.part.partNo + (o.part.partName ? "　" + o.part.partName : "")),
+              React.createElement("div", { style: { fontSize: 11, color: "#888", marginTop: 3, fontWeight: 400 } }, n + "工程" + (o.sheet.updatedAt ? "　・　" + o.sheet.updatedAt + " 更新" : ""))
+            );
+          })
+        )
       ),
       React.createElement(SI)
     );
