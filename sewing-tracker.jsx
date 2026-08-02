@@ -4306,14 +4306,27 @@ function KoteiMemoImport(props) {
 
 function KoteiEditor(props) {
   const part = props.part, sheet = props.sheet;
+  // 指示数（色×サイズ）は品番マスターを情報源に連動。糸色だけは工程表側の情報として保持する。
+  const plan = normPlan(part.plan);
+  const linked = planHasData(part.plan);
   const [needle, setNeedle] = useState((sheet && sheet.needle) || "");
   const [unten, setUnten] = useState((sheet && sheet.unten) || "");
   const [thread, setThread] = useState((sheet && sheet.thread) || "");
   const [headNote, setHeadNote] = useState((sheet && sheet.headNote) || "");
   const [targetPerDay, setTargetPerDay] = useState((sheet && sheet.targetPerDay) || "");
   const [workMin, setWorkMin] = useState((sheet && sheet.workMin) || 420);
-  const [sizes, setSizes] = useState((sheet && sheet.sizes) || ["XS", "S", "M", "L"]);
-  const [colors, setColors] = useState((sheet && sheet.colors) || [{ name: "", counts: ["", "", "", ""] }]);
+  const [sizes, setSizes] = useState(linked ? plan.sizes.slice() : ((sheet && sheet.sizes) || ["XS", "S", "M", "L"]));
+  const [colors, setColors] = useState(function () {
+    if (linked) {
+      // 品番マスターの色・サイズ・枚数を採用。糸色は既存シートから色名一致→同位置の順で引き継ぐ。
+      const prev = (sheet && Array.isArray(sheet.colors)) ? sheet.colors : [];
+      return plan.colors.map(function (pc, i) {
+        const match = prev.filter(function (x) { return x && x.name && x.name === pc.name; })[0] || prev[i] || {};
+        return { name: pc.name, counts: pc.counts.slice(), thread: match.thread || "" };
+      });
+    }
+    return (sheet && sheet.colors) || [{ name: "", counts: ["", "", "", ""] }];
+  });
   const [blocks, setBlocks] = useState(function () {
     if (sheet && sheet.blocks && sheet.blocks.length) return sheet.blocks;
     return [{ id: genId(), type: "step", part: "準備", act: "", time: "", note: "" }];
@@ -4496,13 +4509,16 @@ function KoteiEditor(props) {
   function renderQtyTable() {
     const cell = { border: "1px solid " + K_LINE, padding: 0, textAlign: "center" };
     const inCell = { width: "100%", border: "none", textAlign: "center", padding: "7px 2px", fontSize: 13, background: "transparent", color: K_INK, boxSizing: "border-box" };
+    const roText = { padding: "7px 6px", fontSize: 13, color: K_INK, fontWeight: 700, whiteSpace: "nowrap" };
     return React.createElement("div", { style: { marginTop: 12 } },
       React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 } },
         React.createElement("span", { style: { fontSize: 10, color: "var(--faint)", letterSpacing: ".1em", fontWeight: 600 } }, "色 × サイズ別 枚数"),
-        React.createElement("div", { style: { display: "flex", gap: 6 } },
-          React.createElement("button", { style: { border: "1px solid var(--line)", background: "#fff", borderRadius: 8, padding: "4px 10px", fontSize: 12, color: "var(--iquta)", fontWeight: 600 }, onClick: addColor }, "＋色"),
-          React.createElement("button", { style: { border: "1px solid var(--line)", background: "#fff", borderRadius: 8, padding: "4px 10px", fontSize: 12, color: "var(--iquta)", fontWeight: 600 }, onClick: addSize }, "＋サイズ")
-        )
+        linked
+          ? React.createElement("span", { style: { fontSize: 10, color: K_PART, background: K_PARTBG, borderRadius: 8, padding: "3px 8px", fontWeight: 700 } }, "品番マスター連動")
+          : React.createElement("div", { style: { display: "flex", gap: 6 } },
+              React.createElement("button", { style: { border: "1px solid var(--line)", background: "#fff", borderRadius: 8, padding: "4px 10px", fontSize: 12, color: "var(--iquta)", fontWeight: 600 }, onClick: addColor }, "＋色"),
+              React.createElement("button", { style: { border: "1px solid var(--line)", background: "#fff", borderRadius: 8, padding: "4px 10px", fontSize: 12, color: "var(--iquta)", fontWeight: 600 }, onClick: addSize }, "＋サイズ")
+            )
       ),
       React.createElement("div", { style: { overflowX: "auto" } },
         React.createElement("table", { style: { borderCollapse: "collapse", fontSize: 13, minWidth: "100%" } },
@@ -4512,25 +4528,31 @@ function KoteiEditor(props) {
               React.createElement("th", { style: Object.assign({}, cell, { background: K_PARTBG, color: K_PART, padding: "6px 8px", minWidth: 64 }) }, "糸色"),
               sizes.map(function (s, i) {
                 return React.createElement("th", { key: i, style: Object.assign({}, cell, { background: K_PARTBG, minWidth: 54 }) },
-                  React.createElement("input", { style: Object.assign({}, inCell, { color: K_PART, fontWeight: 700 }), value: s, onChange: function (e) { setSizeAt(i, e.target.value); } }),
-                  sizes.length > 1 && React.createElement("button", { style: { border: "none", background: "none", color: "#c99", fontSize: 10, cursor: "pointer", padding: 0 }, onClick: function () { removeSize(i); } }, "削除")
+                  linked
+                    ? React.createElement("div", { style: Object.assign({}, roText, { color: K_PART, textAlign: "center" }) }, s || "—")
+                    : React.createElement("input", { style: Object.assign({}, inCell, { color: K_PART, fontWeight: 700 }), value: s, onChange: function (e) { setSizeAt(i, e.target.value); } }),
+                  !linked && sizes.length > 1 && React.createElement("button", { style: { border: "none", background: "none", color: "#c99", fontSize: 10, cursor: "pointer", padding: 0 }, onClick: function () { removeSize(i); } }, "削除")
                 );
               }),
               React.createElement("th", { style: Object.assign({}, cell, { background: "var(--paper)", color: "var(--iquta)", padding: "6px 8px" }) }, "計"),
-              React.createElement("th", { style: Object.assign({}, cell, { background: K_PARTBG, width: 30 }) }, "")
+              !linked && React.createElement("th", { style: Object.assign({}, cell, { background: K_PARTBG, width: 30 }) }, "")
             )
           ),
           React.createElement("tbody", null,
             colors.map(function (c, ci) {
               const rowTotal = (c.counts || []).reduce(function (a, v) { return a + numK(v); }, 0);
               return React.createElement("tr", { key: ci },
-                React.createElement("td", { style: cell }, React.createElement("input", { style: Object.assign({}, inCell, { fontWeight: 700, minWidth: 56 }), placeholder: "色名", value: c.name, onChange: function (e) { setColorName(ci, e.target.value); } })),
+                React.createElement("td", { style: cell }, linked
+                  ? React.createElement("div", { style: Object.assign({}, roText, { minWidth: 56 }) }, c.name || "—")
+                  : React.createElement("input", { style: Object.assign({}, inCell, { fontWeight: 700, minWidth: 56 }), placeholder: "色名", value: c.name, onChange: function (e) { setColorName(ci, e.target.value); } })),
                 React.createElement("td", { style: cell }, React.createElement("input", { style: Object.assign({}, inCell, { minWidth: 56 }), placeholder: "糸色", value: c.thread || "", onChange: function (e) { setColorThread(ci, e.target.value); } })),
                 sizes.map(function (_, si) {
-                  return React.createElement("td", { key: si, style: cell }, React.createElement("input", { style: inCell, type: "number", inputMode: "numeric", value: (c.counts || [])[si] || "", onChange: function (e) { setCount(ci, si, e.target.value); } }));
+                  return React.createElement("td", { key: si, style: cell }, linked
+                    ? React.createElement("div", { style: Object.assign({}, roText, { textAlign: "center", fontWeight: 400, fontVariantNumeric: "tabular-nums" }) }, numK((c.counts || [])[si]) || "")
+                    : React.createElement("input", { style: inCell, type: "number", inputMode: "numeric", value: (c.counts || [])[si] || "", onChange: function (e) { setCount(ci, si, e.target.value); } }));
                 }),
                 React.createElement("td", { style: Object.assign({}, cell, { background: "var(--paper)", fontWeight: 700, padding: "0 8px", fontVariantNumeric: "tabular-nums" }) }, rowTotal || ""),
-                React.createElement("td", { style: cell }, colors.length > 1 && React.createElement("button", { style: { border: "none", background: "none", color: K_NOTE, fontSize: 14, cursor: "pointer", padding: "0 4px" }, onClick: function () { removeColor(ci); } }, "✕"))
+                !linked && React.createElement("td", { style: cell }, colors.length > 1 && React.createElement("button", { style: { border: "none", background: "none", color: K_NOTE, fontSize: 14, cursor: "pointer", padding: "0 4px" }, onClick: function () { removeColor(ci); } }, "✕"))
               );
             }),
             React.createElement("tr", null,
@@ -4538,11 +4560,12 @@ function KoteiEditor(props) {
               React.createElement("td", { style: Object.assign({}, cell, { background: "var(--iquta-bg)" }) }, ""),
               colTotals.map(function (n, i) { return React.createElement("td", { key: i, style: Object.assign({}, cell, { background: "var(--iquta-bg)", color: "var(--iquta)", fontWeight: 700, fontVariantNumeric: "tabular-nums" }) }, n || ""); }),
               React.createElement("td", { style: Object.assign({}, cell, { background: "var(--iquta)", color: "#fff", fontWeight: 700, padding: "0 8px", fontVariantNumeric: "tabular-nums" }) }, grandQty || ""),
-              React.createElement("td", { style: Object.assign({}, cell, { background: "var(--iquta-bg)" }) }, "")
+              !linked && React.createElement("td", { style: Object.assign({}, cell, { background: "var(--iquta-bg)" }) }, "")
             )
           )
         )
-      )
+      ),
+      linked && React.createElement("div", { style: { fontSize: 10, color: "var(--faint)", marginTop: 6, lineHeight: 1.6 } }, "※ 色・サイズ・枚数（指示数）は品番マスターと連動しています。変更は品番編集から。糸色は工程表ごとに入力できます。")
     );
   }
 
