@@ -4262,6 +4262,8 @@ function KoteiEditor(props) {
   // 最後にカーソルを置いた工程のID（図の差し込み位置に使う）。blurでは消さない：
   // 「入力→ボタンを押す」の間にフォーカスは外れるため、消すと常に末尾追加になってしまう。
   const lastFocusRef = useRef(null);
+  // パーツ移動後に、そのくくりの見出しを画面内へ追従させるための予約（移動先のくくりindex）。
+  const pendingPartScroll = useRef(null);
   function patchBlock(id, patch) { setBlocks(function (bs) { return bs.map(function (b) { return b.id === id ? Object.assign({}, b, patch) : b; }); }); }
   function addStep(afterId) {
     setBlocks(function (bs) {
@@ -4297,6 +4299,38 @@ function KoteiEditor(props) {
   }
   function move(id, dir) { setBlocks(function (bs) { const i = bs.findIndex(function (b) { return b.id === id; }); const j = i + dir; if (j < 0 || j >= bs.length) return bs; const c = bs.slice(); const t = c[i]; c[i] = c[j]; c[j] = t; return c; }); }
   function del(id) { if (!window.confirm("このブロックを削除しますか？")) return; setBlocks(function (bs) { return bs.filter(function (b) { return b.id !== id; }); }); }
+  // パーツ（くくり）単位のブロック範囲を求める。印刷のグループ化と同じ規則：
+  // partを持つ工程が新しいくくりを始め、図・写真やpart未設定の工程は直前のくくりに属する。
+  // 返り値は [{ part, start, end }]（endは排他的index、全ブロックを連続して覆う）。
+  function koteiPartGroups(bs) {
+    const gs = []; let g = null;
+    bs.forEach(function (b, i) {
+      if (b.type === "step" && b.part) {
+        if (!g || g.part !== b.part) { g = { part: b.part, start: i, end: i + 1 }; gs.push(g); }
+        else { g.end = i + 1; }
+      } else {
+        if (!g) { g = { part: "", start: i, end: i + 1 }; gs.push(g); }
+        else { g.end = i + 1; }
+      }
+    });
+    return gs;
+  }
+  // パーツ見出しの▲▼：隣接するくくり（見出し＋配下の全工程＋図参照）をまるごと入れ替える。
+  // 連番(1)(2)…も図番号A,B…も配列順から都度導出されるため、並べ替えるだけで自動的に振り直される。
+  function movePart(gi, dir) {
+    const groups = koteiPartGroups(blocks);
+    const gj = gi + dir;
+    if (gi < 0 || gi >= groups.length || gj < 0 || gj >= groups.length) return;
+    const lo = Math.min(gi, gj), hi = Math.max(gi, gj);
+    setBlocks(function (bs) {
+      const gs = koteiPartGroups(bs);
+      if (hi >= gs.length) return bs;
+      const a = gs[lo], b = gs[hi];
+      // 連続する2つのくくり a,b（a.end === b.start）を入れ替える。
+      return bs.slice(0, a.start).concat(bs.slice(b.start, b.end), bs.slice(a.start, a.end), bs.slice(b.end));
+    });
+    pendingPartScroll.current = gj;
+  }
   function learn(p) { p = ("" + (p || "")).trim(); if (p.length < 2) return; setHistPhrases(function (ps) { return ps.indexOf(p) >= 0 ? ps : [p].concat(ps); }); }
 
   const numK = function (v) { const x = parseInt(v, 10); return isNaN(x) ? 0 : x; };
@@ -4377,6 +4411,15 @@ function KoteiEditor(props) {
       }
     });
     return { tot: tot, map: map };
+  }, [blocks]);
+
+  // パーツ移動後、移動先の見出しが画面に見えるよう簡易にスクロール追従する（movePartのみが予約する）。
+  useEffect(function () {
+    const gi = pendingPartScroll.current;
+    if (gi == null) return;
+    pendingPartScroll.current = null;
+    const el = document.getElementById("kpart-head-" + gi);
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: "nearest" });
   }, [blocks]);
 
   function buildRec() {
@@ -4756,6 +4799,20 @@ function KoteiEditor(props) {
   }
   const mvBtn = { width: 30, height: 30, border: "1px solid var(--line)", background: "#fff", borderRadius: 8, fontSize: 13, color: "var(--faint)" };
 
+  // パーツ（くくり）見出しの▲▼ボタン。iPadで押しやすいよう44px以上のタップ領域。
+  const kPartMvBtn = { width: 44, height: 44, border: "1px solid var(--iquta)", background: "#fff", color: "var(--iquta)", borderRadius: 10, fontSize: 16, fontWeight: 700, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center", flex: "none", cursor: "pointer" };
+  // 先頭/末尾は非表示にせずグレーアウト（ボタン位置が動くと誤タップを生むため）。
+  const kPartMvBtnOff = Object.assign({}, kPartMvBtn, { border: "1px solid var(--line)", background: "var(--paper)", color: "var(--faint)", cursor: "default" });
+  // パーツの見出し行。品名を左に、右端に▲▼を置き、くくりごと上下に入れ替える。
+  function renderPartHead(grp, gi, total) {
+    const first = gi === 0, last = gi === total - 1;
+    return React.createElement("div", { id: "kpart-head-" + gi, className: "kPartHead", style: { display: "flex", alignItems: "center", gap: 8, margin: "20px 0 2px", padding: "8px 8px 8px 12px", background: "var(--iquta-bg)", border: "1px solid var(--line)", borderRadius: 10 } },
+      React.createElement("span", { style: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: 700, color: "var(--iquta)", letterSpacing: ".05em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, grp.part || "パーツ未設定"),
+      React.createElement("button", { style: first ? kPartMvBtnOff : kPartMvBtn, disabled: first, "aria-label": "このパーツを上へ移動", title: "このパーツを上へ", onClick: first ? undefined : function () { movePart(gi, -1); } }, "▲"),
+      React.createElement("button", { style: last ? kPartMvBtnOff : kPartMvBtn, disabled: last, "aria-label": "このパーツを下へ移動", title: "このパーツを下へ", onClick: last ? undefined : function () { movePart(gi, 1); } }, "▼")
+    );
+  }
+
   function renderSummary() {
     const tot = summary.tot, map = summary.map;
     const rows = Object.keys(map).map(function (p) { const o = map[p]; const pct = tot ? Math.round(o.s / tot * 100) : 0; return { p: p, n: o.n, s: o.s, pct: pct }; });
@@ -4880,7 +4937,12 @@ function KoteiEditor(props) {
         React.createElement("div", { style: { fontSize: 11, color: "var(--faint)", letterSpacing: ".04em" } }, blocks.filter(function (b) { return b.type === "step"; }).length + " 工程")
       ),
       React.createElement("div", { style: { padding: "0 2px" } },
-        blocks.map(function (b) { return b.type === "step" ? renderStep(b) : renderSketch(b); })
+        koteiPartGroups(blocks).map(function (grp, gi, arr) {
+          return React.createElement("div", { key: "kg-" + blocks[grp.start].id },
+            renderPartHead(grp, gi, arr.length),
+            blocks.slice(grp.start, grp.end).map(function (b) { return b.type === "step" ? renderStep(b) : renderSketch(b); })
+          );
+        })
       ),
       // 追加ボタンは各行に付けたため末尾の行は撤去（重複排除）。
       // ただしブロック0個の白紙状態だけは行が無く追加できないので、その時のみ残す。
