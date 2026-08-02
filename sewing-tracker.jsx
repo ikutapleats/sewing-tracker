@@ -24,9 +24,32 @@ const EMPTY_DATA = {
   parts: [], records: [], qtyRecords: [], members: [], vendors: [], brands: [], monthlyTargets: {}, saidanReports: [], koteiSheets: [], koteiRecords: [],
 };
 
+// 指示枚数（色 × サイズ）: 品番マスターが唯一の情報源。裁断報告書・工程分析表はここを引く。
+// 形は koteiSheet の colors と揃える（counts は sizes と位置で対応）。
+const PLAN_SIZES_DEFAULT = ["XS", "S", "M", "L"];
+function emptyPlan() { return { sizes: PLAN_SIZES_DEFAULT.slice(), colors: [{ name: "", counts: PLAN_SIZES_DEFAULT.map(function () { return ""; }) }] }; }
+function normPlan(plan) {
+  if (!plan || !Array.isArray(plan.sizes) || !plan.sizes.length || !Array.isArray(plan.colors) || !plan.colors.length) return emptyPlan();
+  const sizes = plan.sizes.map(function (s) { return s == null ? "" : ("" + s); });
+  const colors = plan.colors.map(function (c) {
+    return { name: (c && c.name) || "", counts: sizes.map(function (_, i) { return (c && c.counts && c.counts[i] != null) ? ("" + c.counts[i]) : ""; }) };
+  });
+  return { sizes: sizes, colors: colors };
+}
+function planTotal(plan) {
+  const p = normPlan(plan); let t = 0;
+  p.colors.forEach(function (c) { c.counts.forEach(function (v) { const n = parseInt(v, 10); if (!isNaN(n)) t += n; }); });
+  return t;
+}
+// 意味のある指示が入っているか（色名か枚数のどれかがある）。裁断報告書のグリッド表示可否に使う。
+function planHasData(plan) {
+  if (!plan || !Array.isArray(plan.colors)) return false;
+  return plan.colors.some(function (c) { return (c && c.name) || (c && Array.isArray(c.counts) && c.counts.some(function (v) { return ("" + (v == null ? "" : v)).trim() !== ""; })); });
+}
+
 const INIT_UI = {
   screen: "home", selectedTeam: null, userRole: null,
-  addPartForm: { partNo: "", partName: "", unitPrice: "", pleatsPrice: "", qty: "", estMinPerUnit: "", deadline: "", status: "未着手", note: "", assignee: "未割当", assigneeType: "team", vendorId: "", sellPrice: "", vendorPrice: "", brandId: "", workMonth: today().slice(0, 7) },
+  addPartForm: { partNo: "", partName: "", unitPrice: "", pleatsPrice: "", qty: "", estMinPerUnit: "", deadline: "", status: "未着手", note: "", assignee: "未割当", assigneeType: "team", vendorId: "", sellPrice: "", vendorPrice: "", brandId: "", workMonth: today().slice(0, 7), plan: emptyPlan() },
   editPartForm: null,
   memberForm: { memberId: "", partId: "", hours: "", other: "", otherOn: false, date: today() },
   qtyForm: { partId: "", qty: "", date: today() },
@@ -497,11 +520,12 @@ function App() {
       vendorPrice: isOut ? (parseFloat(f.vendorPrice) || 0) : 0,
       brandId: f.brandId || null,
       workMonth: f.workMonth || null,
+      plan: normPlan(f.plan),
       createdAt: today(), closedAt: null,
     };
     const nd = Object.assign({}, data, { parts: data.parts.concat([np]) });
     setData(nd);
-    set({ addPartForm: { partNo: "", partName: "", unitPrice: "", pleatsPrice: "", qty: "", estMinPerUnit: "", deadline: "", status: "未着手", note: "", assignee: "未割当", assigneeType: "team", vendorId: "", sellPrice: "", vendorPrice: "", brandId: "", workMonth: today().slice(0, 7) }, screen: "master" });
+    set({ addPartForm: { partNo: "", partName: "", unitPrice: "", pleatsPrice: "", qty: "", estMinPerUnit: "", deadline: "", status: "未着手", note: "", assignee: "未割当", assigneeType: "team", vendorId: "", sellPrice: "", vendorPrice: "", brandId: "", workMonth: today().slice(0, 7), plan: emptyPlan() }, screen: "master" });
     setSaving(true); setSaveError(false);
     gasAddPart(np).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
   }
@@ -518,12 +542,65 @@ function App() {
       sellPrice: isOut ? (parseFloat(f.sellPrice) || 0) : 0,
       vendorPrice: isOut ? (parseFloat(f.vendorPrice) || 0) : 0,
       workMonth: f.workMonth || null, brandId: f.brandId || null,
+      plan: normPlan(f.plan),
     });
     const nd = Object.assign({}, data, { parts: data.parts.map((p) => p.id === f.id ? updatedPart : p) });
     setData(nd);
     set({ editPartForm: null, screen: "part_detail" });
     setSaving(true); setSaveError(false);
     gasUpdatePart(updatedPart).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
+  }
+
+  // 指示枚数（色×サイズ）エディタ。品番マスターの登録/編集フォームで共用。onChange には新しい plan を渡す。
+  function renderPlanEditor(rawPlan, onChange) {
+    const p = normPlan(rawPlan);
+    const sizes = p.sizes, colors = p.colors;
+    const emit = (sz, cols) => onChange({ sizes: sz, colors: cols });
+    const setSizeName = (i, v) => { const ns = sizes.slice(); ns[i] = v; emit(ns, colors); };
+    const addSizeCol = () => emit(sizes.concat([""]), colors.map((c) => ({ name: c.name, counts: c.counts.concat([""]) })));
+    const removeSizeCol = (i) => { if (sizes.length <= 1) return; emit(sizes.filter((_, k) => k !== i), colors.map((c) => ({ name: c.name, counts: c.counts.filter((_, k) => k !== i) }))); };
+    const setColorName = (ci, v) => emit(sizes, colors.map((c, k) => k === ci ? { name: v, counts: c.counts } : c));
+    const setCount = (ci, si, v) => emit(sizes, colors.map((c, k) => { if (k !== ci) return c; const nc = c.counts.slice(); nc[si] = v; return { name: c.name, counts: nc }; }));
+    const addColorRow = () => emit(sizes, colors.concat([{ name: "", counts: sizes.map(() => "") }]));
+    const removeColorRow = (ci) => { if (colors.length <= 1) return; emit(sizes, colors.filter((_, k) => k !== ci)); };
+    const total = planTotal(p);
+    const cellW = 54;
+    const hCell = { width: cellW, minWidth: cellW, flex: "none" };
+    const numCell = Object.assign({}, st.input, { textAlign: "center", padding: "8px 2px", width: cellW });
+    const smallX = { border: "none", background: "none", color: "#c00", fontSize: 12, cursor: "pointer", padding: 2, lineHeight: 1 };
+    return React.createElement("div", { style: { border: "1px solid var(--line)", borderRadius: 10, padding: 12, marginBottom: 14, background: "#fafbff" } },
+      React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } },
+        React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--iquta)" } }, "指示枚数（色 × サイズ）"),
+        React.createElement("div", { style: { fontSize: 12, color: "#666" } }, "合計 " + total + "枚")
+      ),
+      React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginBottom: 10, lineHeight: 1.5 } }, "ここに入れた色・サイズ・枚数が、裁断報告書と工程分析表の基準（指示数）になります。"),
+      React.createElement("div", { style: { overflowX: "auto", paddingBottom: 4 } },
+        React.createElement("div", { style: { display: "inline-block", minWidth: "100%" } },
+          React.createElement("div", { style: { display: "flex", gap: 4, marginBottom: 6, alignItems: "flex-end" } },
+            React.createElement("div", { style: { width: 96, minWidth: 96, flex: "none", fontSize: 10, color: "#aaa", alignSelf: "center" } }, "色 ＼ サイズ"),
+            sizes.map((s, i) =>
+              React.createElement("div", { key: i, style: Object.assign({}, hCell, { display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }) },
+                sizes.length > 1 && React.createElement("button", { style: smallX, onClick: () => removeSizeCol(i) }, "✕"),
+                React.createElement("input", { style: Object.assign({}, st.input, { textAlign: "center", padding: "6px 2px", width: cellW, fontSize: 12, fontWeight: 700 }), value: s, placeholder: "size", onChange: (e) => setSizeName(i, e.target.value) })
+              )
+            ),
+            React.createElement("button", { style: Object.assign({}, st.ghostBtn, { flex: "none", padding: "6px 10px", alignSelf: "flex-end" }), onClick: addSizeCol }, "＋列")
+          ),
+          colors.map((c, ci) =>
+            React.createElement("div", { key: ci, style: { display: "flex", gap: 4, marginBottom: 6, alignItems: "center" } },
+              React.createElement("div", { style: { width: 96, minWidth: 96, flex: "none", display: "flex", alignItems: "center", gap: 2 } },
+                colors.length > 1 && React.createElement("button", { style: smallX, onClick: () => removeColorRow(ci) }, "✕"),
+                React.createElement("input", { style: Object.assign({}, st.input, { padding: "8px 8px", fontSize: 13 }), placeholder: "色名", value: c.name, onChange: (e) => setColorName(ci, e.target.value) })
+              ),
+              c.counts.map((v, si) =>
+                React.createElement("input", { key: si, style: numCell, type: "number", min: "0", inputMode: "numeric", placeholder: "0", value: v, onChange: (e) => setCount(ci, si, e.target.value) })
+              )
+            )
+          )
+        )
+      ),
+      React.createElement("button", { style: Object.assign({}, st.ghostBtn, { marginTop: 4 }), onClick: addColorRow }, "＋ 色を追加")
+    );
   }
 
   function updatePartAssignee(id, assignee, assigneeType) {
@@ -562,7 +639,7 @@ function App() {
   }
 
   function startEdit(part) {
-    set({ editPartForm: { id: part.id, partName: part.partName || "", unitPrice: part.unitPrice || "", pleatsPrice: part.pleatsPrice || "", qty: part.qty || "", estMinPerUnit: part.estMinPerUnit || "", deadline: part.deadline || "", status: part.status || "未着手", note: part.note || "", sellPrice: part.sellPrice || "", vendorPrice: part.vendorPrice || "", assigneeType: part.assigneeType || "team", workMonth: part.workMonth || "", brandId: part.brandId || "" }, screen: "edit_part" });
+    set({ editPartForm: { id: part.id, partName: part.partName || "", unitPrice: part.unitPrice || "", pleatsPrice: part.pleatsPrice || "", qty: part.qty || "", estMinPerUnit: part.estMinPerUnit || "", deadline: part.deadline || "", status: part.status || "未着手", note: part.note || "", sellPrice: part.sellPrice || "", vendorPrice: part.vendorPrice || "", assigneeType: part.assigneeType || "team", workMonth: part.workMonth || "", brandId: part.brandId || "", plan: normPlan(part.plan) }, screen: "edit_part" });
   }
 
   function addRecord() {
@@ -742,22 +819,21 @@ function App() {
 
   const SAIDAN_METHODS = ["CAM", "手裁断"];
   const SAIDAN_NEXT = ["Aチーム", "Bチーム", "Cチーム", "サンプルチーム", "外注"];
-  const emptySaidanColors = () => [{ name: "", counts: ["","","","",""], inM: "", useM: "" }];
+  const SAIDAN_FABRIC_PRESETS = ["表地", "表地B", "裏地", "芯地A", "芯地B", "スレキ"];
+  const emptySaidanFabric = (name) => ({ id: genId(), name: name || "", yousaku: "", cut: {} });
 
   function openSaidan(part) {
     const existing = (data.saidanReports || []).find((r) => r.partId === part.id);
     let form;
     if (existing) {
       form = Object.assign({}, existing);
+      // 旧フォーマット（生地グリッド無し）は、生地を1つ用意して移行する（既存フィールドは温存）。
+      if (!Array.isArray(form.fabrics)) form.fabrics = [emptySaidanFabric(form.fabric || "表地")];
     } else {
       form = {
         id: null, partId: part.id,
-        date: today(), cutter: "", method: "CAM",
-        fabric: "", lot: "",
-        planned: part.qty || "", defect: "",
-        ydSpec: "", ydReal: "",
-        sizes: ["XS", "S", "M", "L", "LL"],
-        colors: emptySaidanColors(),
+        date: today(), cutter: "", method: "CAM", lot: "",
+        fabrics: [emptySaidanFabric("表地")],
         nextTeam: part.assignee && part.assigneeType === "team" ? part.assignee : "Aチーム",
         vendorName: "", note: "",
       };
@@ -768,22 +844,15 @@ function App() {
   function saveSaidan() {
     const f = ui.saidanForm;
     if (!f) return;
-    // 使用mを自動計算して保存
-    const fl = (v) => { const x = parseFloat(v); return isNaN(x) ? 0 : x; };
-    const colors = (f.colors || []).map((c) => {
-      const total = (c.counts || []).reduce((a, v) => a + (parseInt(v, 10) || 0), 0);
-      const useM = fl(f.ydReal) * total;
-      return Object.assign({}, c, { useM: useM > 0 ? useM.toFixed(2) : "" });
-    });
     const list = (data.saidanReports || []).slice();
     let rec;
     if (f.id) {
-      rec = Object.assign({}, f, { colors, updatedAt: today() });
+      rec = Object.assign({}, f, { updatedAt: today() });
       const idx = list.findIndex((r) => r.id === f.id);
       if (idx >= 0) list[idx] = rec;
       else list.push(rec);
     } else {
-      rec = Object.assign({}, f, { colors, id: genId(), createdAt: today(), updatedAt: today() });
+      rec = Object.assign({}, f, { id: genId(), createdAt: today(), updatedAt: today() });
       const idx = list.findIndex((r) => r.partId === f.partId);
       if (idx >= 0) { rec = Object.assign(rec, { id: list[idx].id }); list[idx] = rec; }
       else list.push(rec);
@@ -906,28 +975,37 @@ function App() {
     const part = data.parts.find((x) => x.id === f.partId) || {};
     const brandName = ((data.brands || []).find((b) => b.id === part.brandId) || {}).name || "";
     const num = (v) => { const x = parseInt(v, 10); return isNaN(x) ? 0 : x; };
-    const fl = (v) => { const x = parseFloat(v); return isNaN(x) ? 0 : x; };
     const esc = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const sizes = f.sizes || ["", "", "", "", ""];
-    const colTotals = [0,0,0,0,0];
-    let grand = 0, sumIn = 0, sumUse = 0;
-    const rows = (f.colors || []).map((c) => {
-      let rt = 0;
-      (c.counts || []).forEach((v, i) => { const n = num(v); rt += n; colTotals[i] += n; });
-      grand += rt;
-      const inM = fl(c.inM), useM = fl(c.useM), rem = inM - useM;
-      sumIn += inM; sumUse += useM;
-      const cells = (c.counts || []).map((v) => "<td class='c'>" + (num(v) || "") + "</td>").join("");
-      return "<tr><td class='cn'>" + esc(c.name) + "</td>" + cells +
-        "<td class='rt'>" + (rt || "") + "</td>" +
-        "<td class='m'>" + (inM ? inM.toFixed(1) : "") + "</td>" +
-        "<td class='m'>" + (useM ? useM.toFixed(1) : "") + "</td>" +
-        "<td class='m rem'>" + (inM || useM ? rem.toFixed(1) : "") + "</td></tr>";
+    const plan = normPlan(part.plan);
+    const sizes = plan.sizes;
+    const fabrics = Array.isArray(f.fabrics) ? f.fabrics : [];
+    const colKey = (ci) => (plan.colors[ci].name || ("#" + ci));
+    const sizeKey = (si) => (plan.sizes[si] || ("#" + si));
+    const getCell = (fab, ck, sk) => ((fab.cut || {})[ck] || {})[sk] || { n: "", done: false };
+    const isCut = (cell) => !!cell.done || (("" + (cell.n == null ? "" : cell.n)).trim() !== "");
+    const effCount = (cell, ins) => { const s = ("" + (cell.n == null ? "" : cell.n)).trim(); if (s !== "") return num(cell.n); return cell.done ? ins : 0; };
+
+    const fabHtml = fabrics.map((fab) => {
+      const colTotals = sizes.map(() => 0);
+      let grand = 0, insGrand = 0;
+      const rows = plan.colors.map((c, ci) => {
+        let rt = 0;
+        const cells = plan.sizes.map((s, si) => {
+          const ins = num(plan.colors[ci].counts[si]);
+          const cell = getCell(fab, colKey(ci), sizeKey(si));
+          const eff = effCount(cell, ins);
+          rt += eff; colTotals[si] += eff; insGrand += ins;
+          const cut = isCut(cell);
+          return "<td class='c" + (cut ? " done" : "") + "'>" + (eff || (cut ? 0 : "")) + (ins ? "<span class='ins'>/" + ins + "</span>" : "") + "</td>";
+        }).join("");
+        grand += rt;
+        return "<tr><td class='cn'>" + esc(c.name || "—") + "</td>" + cells + "<td class='rt'>" + (rt || "") + "</td></tr>";
+      }).join("");
+      return "<div class='fab'><div class='fabhd'><span class='fabname'>" + esc(fab.name || "—") + "</span>" + (fab.yousaku ? "<span class='you'>用尺 " + esc(fab.yousaku) + "</span>" : "") + "<span class='fabsum'>裁断 " + grand + " / 指示 " + insGrand + "枚</span></div>" +
+        "<table><tr><th class='cnh'>色 ＼ サイズ</th>" + sizes.map((s) => "<th>" + esc(s || "—") + "</th>").join("") + "<th>計</th></tr>" +
+        rows +
+        "<tr class='sum-row'><td>合計</td>" + colTotals.map((n) => "<td>" + (n || "") + "</td>").join("") + "<td>" + (grand || "") + "</td></tr></table></div>";
     }).join("");
-    const sumRem = sumIn - sumUse;
-    const good = Math.max(0, grand - num(f.defect));
-    const diff = grand - num(f.planned);
-    const ydDiff = fl(f.ydReal) - fl(f.ydSpec);
     const nextLabel = f.nextTeam === "外注" ? ("外注" + (f.vendorName ? "（" + f.vendorName + "）" : "")) : (f.nextTeam || "");
     const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">
 <title>裁断報告書 ${esc(part.partNo || "")}</title>
@@ -938,19 +1016,19 @@ h1{font-size:15pt;font-weight:700;margin-bottom:6mm;border-bottom:2px solid #1a1
 .meta{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4mm 8mm;margin-bottom:6mm}
 .meta-item label{font-size:8pt;color:#888;display:block;margin-bottom:1mm}
 .meta-item .val{font-size:11pt;font-weight:600}
-table{width:100%;border-collapse:collapse;margin-bottom:5mm;font-size:10pt}
+.fab{margin-bottom:6mm;break-inside:avoid;page-break-inside:avoid}
+.fabhd{display:flex;align-items:baseline;gap:6mm;margin-bottom:2mm}
+.fabhd .fabname{font-size:12pt;font-weight:700}
+.fabhd .you{font-size:9pt;color:#666}
+.fabhd .fabsum{font-size:9pt;color:#666;margin-left:auto}
+table{width:100%;border-collapse:collapse;font-size:10pt}
 th,td{border:1px solid #ccc;padding:2mm 3mm;text-align:center}
 th{background:#f0eeea;font-weight:700;font-size:9pt}
-td.cn{text-align:left;font-weight:600}
+th.cnh,td.cn{text-align:left;font-weight:600}
 td.rt{font-weight:700;background:#f5f4f0}
-td.m{font-size:9pt}
-td.rem{color:${sumRem < 0 ? "#c00" : "#1a1a1a"}}
+td.c .ins{font-size:7pt;color:#aaa;margin-left:1px}
+td.c.done{background:#eaf6ee}
 .sum-row td{background:#e8e6e0;font-weight:700}
-.totals{display:grid;grid-template-columns:repeat(4,1fr);gap:4mm;margin-bottom:5mm}
-.tbox{background:#f5f4f0;border-radius:6px;padding:3mm 4mm}
-.tbox label{font-size:8pt;color:#888;display:block;margin-bottom:1mm}
-.tbox .val{font-size:13pt;font-weight:700}
-.tbox .val.alert{color:#c00}
 .note{border:1px solid #ccc;border-radius:4px;padding:3mm;min-height:12mm;font-size:10pt}
 .footer{display:flex;justify-content:space-between;font-size:9pt;color:#888;margin-top:6mm;border-top:1px solid #ddd;padding-top:2mm}
 @media print{body{padding:8mm 10mm}button{display:none}}
@@ -963,25 +1041,10 @@ td.rem{color:${sumRem < 0 ? "#c00" : "#1a1a1a"}}
   <div class="meta-item"><label>裁断日</label><div class="val">${esc(f.date || "")}</div></div>
   <div class="meta-item"><label>裁断者</label><div class="val">${esc(f.cutter || "")}</div></div>
   <div class="meta-item"><label>裁断方法</label><div class="val">${esc(f.method || "")}</div></div>
-  <div class="meta-item"><label>生地名</label><div class="val">${esc(f.fabric || "—")}</div></div>
   <div class="meta-item"><label>ロット番号</label><div class="val">${esc(f.lot || "—")}</div></div>
   <div class="meta-item"><label>次工程</label><div class="val">${esc(nextLabel)}</div></div>
 </div>
-<table>
-  <tr><th>カラー</th>${sizes.map((s) => "<th>" + esc(s) + "</th>").join("")}<th>計</th><th>入荷m</th><th>使用m</th><th>残布m</th></tr>
-  ${rows}
-  <tr class="sum-row"><td>合計</td>${colTotals.map((n) => "<td>" + (n || "") + "</td>").join("")}<td>${grand || ""}</td><td>${sumIn ? sumIn.toFixed(1) : ""}</td><td>${sumUse ? sumUse.toFixed(1) : ""}</td><td class="rem">${sumIn || sumUse ? (sumRem).toFixed(1) : ""}</td></tr>
-</table>
-<div class="totals">
-  <div class="tbox"><label>予定枚数</label><div class="val">${num(f.planned) || "—"}枚</div></div>
-  <div class="tbox"><label>裁断合計</label><div class="val">${grand || "—"}枚</div></div>
-  <div class="tbox"><label>不良・ロス</label><div class="val ${num(f.defect) > 0 ? "alert" : ""}">${num(f.defect) || 0}枚</div></div>
-  <div class="tbox"><label>良品数</label><div class="val">${good || "—"}枚${diff !== 0 ? "<span style='font-size:9pt;color:" + (diff > 0 ? "#2a7a2a" : "#c00") + "'>（" + (diff > 0 ? "+" : "") + diff + "）</span>" : ""}</div></div>
-  <div class="tbox"><label>客先指定用尺</label><div class="val">${fl(f.ydSpec) ? fl(f.ydSpec).toFixed(2) + "m" : "—"}</div></div>
-  <div class="tbox"><label>実用尺</label><div class="val">${fl(f.ydReal) ? fl(f.ydReal).toFixed(2) + "m" : "—"}</div></div>
-  <div class="tbox"><label>用尺差</label><div class="val ${ydDiff > 0 ? "alert" : ""}">${fl(f.ydSpec) || fl(f.ydReal) ? (ydDiff > 0 ? "+" : "") + ydDiff.toFixed(2) + "m" : "—"}</div></div>
-  <div class="tbox"><label>残布合計</label><div class="val">${sumIn || sumUse ? sumRem.toFixed(1) + "m" : "—"}</div></div>
-</div>
+${fabHtml}
 ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;margin-bottom:1mm'>特記事項・申し送り</div><div class='note'>" + esc(f.note) + "</div></div>" : ""}
 <div class="footer"><span>株式会社生田プリーツ</span><span>出力: ${today()}</span></div>
 <script>window.onload=function(){setTimeout(function(){window.focus();window.print();},250)}<\/script>
@@ -1226,6 +1289,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           ),
           React.createElement(FormRow, { label: "ステータス" }, React.createElement("select", { style: st.input, value: f.status, onChange: (e) => setAP({ status: e.target.value }) }, STATUSES.map((s) => React.createElement("option", { key: s }, s)))),
           React.createElement(FormRow, { label: "数量（枚）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 50", value: f.qty, onChange: (e) => setAP({ qty: e.target.value }) })),
+          renderPlanEditor(f.plan, (np) => { const patch = { plan: np }; const t = planTotal(np); if (t > 0) patch.qty = "" + t; setAP(patch); }),
           React.createElement(FormRow, { label: "納期（任意）" }, React.createElement("input", { style: st.input, type: "date", value: f.deadline, onChange: (e) => setAP({ deadline: e.target.value }) })),
           React.createElement(FormRow, { label: "担当" },
             React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 } },
@@ -1294,6 +1358,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           ),
           React.createElement(FormRow, { label: "ステータス" }, React.createElement("select", { style: st.input, value: f.status, onChange: (e) => setEP({ status: e.target.value }) }, STATUSES.map((s) => React.createElement("option", { key: s }, s)))),
           React.createElement(FormRow, { label: "数量（枚）" }, React.createElement("input", { style: st.input, type: "number", value: f.qty, onChange: (e) => setEP({ qty: e.target.value }) })),
+          renderPlanEditor(f.plan, (np) => { const patch = { plan: np }; const t = planTotal(np); if (t > 0) patch.qty = "" + t; setEP(patch); }),
           React.createElement(FormRow, { label: "納期" }, React.createElement("input", { style: st.input, type: "date", value: f.deadline || "", onChange: (e) => setEP({ deadline: e.target.value }) })),
           !isOut && React.createElement("div", null,
             React.createElement(FormRow, { label: "製品単価（円）" }, React.createElement("input", { style: st.input, type: "number", value: f.unitPrice, onChange: (e) => setEP({ unitPrice: e.target.value }) })),
@@ -3363,17 +3428,58 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
   if (ui.screen === "saidan_report" && ui.saidanForm) {
     const f = ui.saidanForm;
     const part = data.parts.find((p) => p.id === f.partId) || {};
-    const fl = (v) => { const x = parseFloat(v); return isNaN(x) ? 0 : x; };
+    const plan = normPlan(part.plan);
+    const hasPlan = planHasData(part.plan);
+    const fabrics = Array.isArray(f.fabrics) ? f.fabrics : [];
     const num = (v) => { const x = parseInt(v, 10); return isNaN(x) ? 0 : x; };
-    const grand = (f.colors || []).reduce((a, c) => a + (c.counts || []).reduce((b, v) => b + num(v), 0), 0);
-    const good = Math.max(0, grand - num(f.defect));
+
+    // 品番マスターに指示枚数が無いときは、まず入力を促す（指示数は品番マスターが情報源）。
+    if (!hasPlan) {
+      return React.createElement(Shell, null,
+        React.createElement(Header, { title: "✂️ 裁断報告書", back: () => set({ screen: "part_detail" }) }),
+        React.createElement(Body, null,
+          React.createElement("div", { style: { fontSize: 13, color: "#555", marginBottom: 12 } }, part.partNo + (part.partName ? " " + part.partName : "")),
+          React.createElement("div", { style: st.card },
+            React.createElement("div", { style: { fontSize: 14, fontWeight: 700, marginBottom: 8 } }, "指示枚数が未入力です"),
+            React.createElement("div", { style: { fontSize: 13, color: "#666", lineHeight: 1.6, marginBottom: 14 } }, "この品番の色・サイズ別の指示枚数を品番マスターに入力すると、ここに裁断チェック表（生地 × 色 × サイズ）が表示されます。"),
+            React.createElement("button", { style: st.primaryBtn, onClick: () => startEdit(part) }, "品番マスターで指示枚数を入力する")
+          )
+        ),
+        React.createElement(SI)
+      );
+    }
+
+    // cut は color名/size名でキー付け（色・サイズを入れ替えても対応が崩れにくい）。空名はindexで代替。
+    const colKey = (ci) => (plan.colors[ci].name || ("#" + ci));
+    const sizeKey = (si) => (plan.sizes[si] || ("#" + si));
+    const instructedAt = (ci, si) => num(plan.colors[ci].counts[si]);
+    const getCell = (fab, ck, sk) => ((fab.cut || {})[ck] || {})[sk] || { n: "", done: false };
+    // 裁断済み判定：チェック済み(done) か、実数が入力されていれば済み扱い。
+    const cellDone = (cell) => !!cell.done || (("" + (cell.n == null ? "" : cell.n)).trim() !== "");
+    const effCount = (cell, instructed) => { const s = ("" + (cell.n == null ? "" : cell.n)).trim(); if (s !== "") return num(cell.n); return cell.done ? instructed : 0; };
+
+    const updateFabric = (fid, patch) => setSF({ fabrics: fabrics.map((fb) => fb.id === fid ? Object.assign({}, fb, patch) : fb) });
+    const removeFabric = (fid) => setSF({ fabrics: fabrics.filter((fb) => fb.id !== fid) });
+    const addFabric = (name) => setSF({ fabrics: fabrics.concat([emptySaidanFabric(name)]) });
+    // 複数マスの done をまとめて更新（生地ごと・サイズ列ごと・色行ごと・1マスごと で共用）。
+    const patchCells = (fid, pairs, cellPatch) => setSF({ fabrics: fabrics.map((fb) => {
+      if (fb.id !== fid) return fb;
+      const cut = Object.assign({}, fb.cut);
+      pairs.forEach((pr) => { const ck = pr[0], sk = pr[1]; const col = Object.assign({}, cut[ck] || {}); col[sk] = Object.assign({ n: "", done: false }, col[sk], cellPatch); cut[ck] = col; });
+      return Object.assign({}, fb, { cut });
+    }) });
+    const setCellField = (fid, ck, sk, patch) => patchCells(fid, [[ck, sk]], patch);
+    const groupAllDone = (fab, pairs) => pairs.length > 0 && pairs.every((pr) => cellDone(getCell(fab, pr[0], pr[1])));
+    const toggleGroup = (fab, pairs) => { const allDone = groupAllDone(fab, pairs); patchCells(fab.id, pairs, { done: !allDone }); };
+    const allPairs = () => { const ps = []; plan.colors.forEach((c, ci) => plan.sizes.forEach((s, si) => ps.push([colKey(ci), sizeKey(si)]))); return ps; };
+
+    const cellW = 58;
+    const chkStyle = { width: 22, height: 22, accentColor: "var(--iquta)", cursor: "pointer", flex: "none", margin: 0 };
 
     return React.createElement(Shell, null,
       React.createElement(Header, { title: "✂️ 裁断報告書", back: () => set({ screen: "part_detail" }) }),
       React.createElement(Body, null,
-        React.createElement("div", { style: { fontSize: 13, color: "#555", marginBottom: 12 } },
-          part.partNo + (part.partName ? " " + part.partName : "")
-        ),
+        React.createElement("div", { style: { fontSize: 13, color: "#555", marginBottom: 12 } }, part.partNo + (part.partName ? " " + part.partName : "")),
 
         React.createElement("div", { style: st.card },
           React.createElement(FormRow, { label: "裁断日" }, React.createElement("input", { style: st.input, type: "date", value: f.date || today(), onChange: (e) => setSF({ date: e.target.value }) })),
@@ -3383,64 +3489,73 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
               SAIDAN_METHODS.map((m) => React.createElement("button", { key: m, style: Object.assign({}, st.assignBtn, f.method === m ? st.assignBtnActive : {}), onClick: () => setSF({ method: m }) }, m))
             )
           ),
-          React.createElement(FormRow, { label: "生地名" }, React.createElement("input", { style: st.input, placeholder: "例: 40番ツイル", value: f.fabric || "", onChange: (e) => setSF({ fabric: e.target.value }) })),
           React.createElement(FormRow, { label: "ロット番号" }, React.createElement("input", { style: st.input, placeholder: "例: L2406-01", value: f.lot || "", onChange: (e) => setSF({ lot: e.target.value }) }))
         ),
 
-        React.createElement("div", { style: st.card },
-          React.createElement("div", { style: { fontSize: 12, fontWeight: 700, marginBottom: 10 } }, "サイズ名（編集可）"),
-          React.createElement("div", { style: { display: "flex", gap: 6, marginBottom: 4 } },
-            (f.sizes || ["XS","S","M","L","LL"]).map((s, i) =>
-              React.createElement("input", { key: i, style: Object.assign({}, st.input, { textAlign: "center", padding: "8px 4px" }), value: s, onChange: (e) => { const sizes = [...(f.sizes || ["XS","S","M","L","LL"])]; sizes[i] = e.target.value; setSF({ sizes }); } })
-            )
-          )
-        ),
+        React.createElement("div", { style: { fontSize: 11, color: "var(--soft)", margin: "0 2px 8px", lineHeight: 1.6 } }, "各マスの数字は指示数（薄い字）。裁断できたら数を入力するか、指示どおりならチェックを入れてください。行・列・生地の見出しのチェックでまとめて済みにできます。"),
 
-        React.createElement("div", { style: st.card },
-          React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
-            React.createElement("div", { style: { fontSize: 12, fontWeight: 700 } }, "カラー別数量"),
-            React.createElement("button", { style: st.inlineBtn, onClick: () => setSF({ colors: [...(f.colors || []), { name: "", counts: ["","","","",""], inM: "", useM: "" }] }) }, "+ カラー追加")
-          ),
-          (f.colors || []).map((c, ci) => {
-            const rowTotal = (c.counts || []).reduce((a, v) => a + num(v), 0);
-            const useM = fl(f.ydReal) * rowTotal;
-            return React.createElement("div", { key: ci, style: { background: "#f5f4f0", borderRadius: 10, padding: "12px", marginBottom: 10 } },
-              React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 8, alignItems: "center" } },
-                React.createElement("input", { style: Object.assign({}, st.input, { flex: 1 }), placeholder: "カラー名", value: c.name, onChange: (e) => { const colors = f.colors.map((x, i) => i === ci ? Object.assign({}, x, { name: e.target.value }) : x); setSF({ colors }); } }),
-                React.createElement("button", { style: Object.assign({}, st.ghostBtn, { color: "#c00" }), onClick: () => setSF({ colors: f.colors.filter((_, i) => i !== ci) }) }, "✕")
-              ),
-              React.createElement("div", { style: { display: "flex", gap: 4, marginBottom: 8 } },
-                (c.counts || []).map((v, si) =>
-                  React.createElement("div", { key: si, style: { flex: 1, textAlign: "center" } },
-                    React.createElement("div", { style: { fontSize: 10, color: "#aaa", marginBottom: 3 } }, (f.sizes || [])[si] || ""),
-                    React.createElement("input", { style: Object.assign({}, st.input, { textAlign: "center", padding: "8px 4px" }), type: "number", min: "0", value: v, onChange: (e) => { const colors = f.colors.map((x, i) => { if (i !== ci) return x; const counts = [...(x.counts || [])]; counts[si] = e.target.value; return Object.assign({}, x, { counts }); }); setSF({ colors }); } })
-                  )
-                )
-              ),
-              React.createElement("div", { style: { display: "flex", gap: 8, fontSize: 12 } },
-                React.createElement("span", { style: { color: "#555" } }, "小計: " + (rowTotal || 0) + "枚"),
-                React.createElement("span", { style: { color: "#aaa" } }, "｜"),
-                React.createElement(FormRow, { label: "入荷m" },
-                  React.createElement("input", { style: Object.assign({}, st.input, { padding: "6px 8px" }), type: "number", step: "0.1", placeholder: "0.0", value: c.inM, onChange: (e) => { const colors = f.colors.map((x, i) => i === ci ? Object.assign({}, x, { inM: e.target.value }) : x); setSF({ colors }); } })
+        fabrics.map((fab) => {
+          const pairsAll = allPairs();
+          let cutSum = 0, planSum = 0;
+          plan.colors.forEach((c, ci) => plan.sizes.forEach((s, si) => { const ins = instructedAt(ci, si); planSum += ins; cutSum += effCount(getCell(fab, colKey(ci), sizeKey(si)), ins); }));
+          const fabDone = groupAllDone(fab, pairsAll);
+          return React.createElement("div", { key: fab.id, style: Object.assign({}, st.card, { padding: 12 }) },
+            React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", marginBottom: 8 } },
+              React.createElement("input", { style: Object.assign({}, st.input, { flex: 1, fontWeight: 700, fontSize: 15 }), placeholder: "生地種類（例: 表地）", value: fab.name, onChange: (e) => updateFabric(fab.id, { name: e.target.value }) }),
+              fabrics.length > 1 && React.createElement("button", { style: Object.assign({}, st.ghostBtn, { color: "#c00" }), onClick: () => { if (window.confirm("この生地を削除しますか？")) removeFabric(fab.id); } }, "✕")
+            ),
+            React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", marginBottom: 10 } },
+              React.createElement("span", { style: { fontSize: 11, color: "#888", flex: "none" } }, "用尺"),
+              React.createElement("input", { style: Object.assign({}, st.input, { padding: "6px 8px" }), placeholder: "〇〇m / 〇人取り", value: fab.yousaku || "", onChange: (e) => updateFabric(fab.id, { yousaku: e.target.value }) })
+            ),
+            React.createElement("div", { style: { overflowX: "auto", paddingBottom: 4 } },
+              React.createElement("div", { style: { display: "inline-block", minWidth: "100%" } },
+                React.createElement("div", { style: { display: "flex", gap: 4, marginBottom: 6, alignItems: "flex-end" } },
+                  React.createElement("div", { style: { width: 96, minWidth: 96, flex: "none" } },
+                    React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#888", cursor: "pointer" } },
+                      React.createElement("input", { type: "checkbox", style: chkStyle, checked: fabDone, onChange: () => toggleGroup(fab, pairsAll) }), "生地ごと"
+                    )
+                  ),
+                  plan.sizes.map((s, si) => {
+                    const colPairs = plan.colors.map((c, ci) => [colKey(ci), sizeKey(si)]);
+                    const colDone = groupAllDone(fab, colPairs);
+                    return React.createElement("div", { key: si, style: { width: cellW, minWidth: cellW, flex: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 3 } },
+                      React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--iquta)" } }, s || "—"),
+                      React.createElement("input", { type: "checkbox", style: chkStyle, checked: colDone, onChange: () => toggleGroup(fab, colPairs), title: "この列をまとめて裁断済み" })
+                    );
+                  })
                 ),
-                React.createElement("div", null,
-                  React.createElement("div", { style: { fontSize: 10, color: "#aaa", marginBottom: 4 } }, "使用m（自動）"),
-                  React.createElement("div", { style: Object.assign({}, st.input, { background: "#e8e6e0", color: "#555", padding: "6px 8px" }) }, useM > 0 ? useM.toFixed(2) : "—")
-                )
+                plan.colors.map((c, ci) => {
+                  const rowPairs = plan.sizes.map((s, si) => [colKey(ci), sizeKey(si)]);
+                  const rowDone = groupAllDone(fab, rowPairs);
+                  return React.createElement("div", { key: ci, style: { display: "flex", gap: 4, marginBottom: 4, alignItems: "center" } },
+                    React.createElement("div", { style: { width: 96, minWidth: 96, flex: "none", display: "flex", alignItems: "center", gap: 4 } },
+                      React.createElement("input", { type: "checkbox", style: chkStyle, checked: rowDone, onChange: () => toggleGroup(fab, rowPairs), title: "この色をまとめて裁断済み" }),
+                      React.createElement("span", { style: { fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name || "—")
+                    ),
+                    plan.sizes.map((s, si) => {
+                      const ck = colKey(ci), sk = sizeKey(si);
+                      const cell = getCell(fab, ck, sk);
+                      const ins = instructedAt(ci, si);
+                      const done = cellDone(cell);
+                      return React.createElement("div", { key: si, style: { width: cellW, minWidth: cellW, flex: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: done ? "#e9f7ec" : "transparent", borderRadius: 8, padding: "3px 2px" } },
+                        React.createElement("input", { style: Object.assign({}, st.input, { textAlign: "center", padding: "6px 2px", width: cellW - 6 }), type: "number", min: "0", inputMode: "numeric", placeholder: ins ? ("" + ins) : "0", value: cell.n || "", onChange: (e) => setCellField(fab.id, ck, sk, { n: e.target.value }) }),
+                        React.createElement("input", { type: "checkbox", style: chkStyle, checked: !!cell.done, onChange: () => setCellField(fab.id, ck, sk, { done: !cell.done }), title: "指示どおり裁断済み" })
+                      );
+                    })
+                  );
+                })
               )
-            );
-          })
-        ),
+            ),
+            React.createElement("div", { style: { fontSize: 12, color: cutSum === planSum ? "var(--iquta)" : "#555", marginTop: 8, textAlign: "right", fontWeight: 600 } }, "裁断 " + cutSum + " / 指示 " + planSum + "枚")
+          );
+        }),
 
-        React.createElement("div", { style: st.card },
-          React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 } },
-            React.createElement(FormRow, { label: "客先指定用尺（m）" }, React.createElement("input", { style: st.input, type: "number", step: "0.01", placeholder: "0.00", value: f.ydSpec || "", onChange: (e) => setSF({ ydSpec: e.target.value }) })),
-            React.createElement(FormRow, { label: "実用尺（m）" }, React.createElement("input", { style: st.input, type: "number", step: "0.01", placeholder: "0.00", value: f.ydReal || "", onChange: (e) => setSF({ ydReal: e.target.value }) }))
-          ),
-          React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 } },
-            React.createElement(SBox, { label: "裁断合計", value: grand + "枚" }),
-            React.createElement(FormRow, { label: "不良・ロス数" }, React.createElement("input", { style: st.input, type: "number", min: "0", placeholder: "0", value: f.defect || "", onChange: (e) => setSF({ defect: e.target.value }) })),
-            React.createElement(SBox, { label: "良品数", value: good + "枚" })
+        React.createElement("div", { style: Object.assign({}, st.card, { padding: 12 }) },
+          React.createElement("div", { style: { fontSize: 11, color: "#888", marginBottom: 8 } }, "生地種類を追加"),
+          React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } },
+            SAIDAN_FABRIC_PRESETS.map((n) => React.createElement("button", { key: n, style: st.assignBtn, onClick: () => addFabric(n) }, "＋ " + n)),
+            React.createElement("button", { style: Object.assign({}, st.assignBtn, { fontWeight: 700 }), onClick: () => addFabric("") }, "＋ その他")
           )
         ),
 
@@ -4191,14 +4306,27 @@ function KoteiMemoImport(props) {
 
 function KoteiEditor(props) {
   const part = props.part, sheet = props.sheet;
+  // 指示数（色×サイズ）は品番マスターを情報源に連動。糸色だけは工程表側の情報として保持する。
+  const plan = normPlan(part.plan);
+  const linked = planHasData(part.plan);
   const [needle, setNeedle] = useState((sheet && sheet.needle) || "");
   const [unten, setUnten] = useState((sheet && sheet.unten) || "");
   const [thread, setThread] = useState((sheet && sheet.thread) || "");
   const [headNote, setHeadNote] = useState((sheet && sheet.headNote) || "");
   const [targetPerDay, setTargetPerDay] = useState((sheet && sheet.targetPerDay) || "");
   const [workMin, setWorkMin] = useState((sheet && sheet.workMin) || 420);
-  const [sizes, setSizes] = useState((sheet && sheet.sizes) || ["XS", "S", "M", "L"]);
-  const [colors, setColors] = useState((sheet && sheet.colors) || [{ name: "", counts: ["", "", "", ""] }]);
+  const [sizes, setSizes] = useState(linked ? plan.sizes.slice() : ((sheet && sheet.sizes) || ["XS", "S", "M", "L"]));
+  const [colors, setColors] = useState(function () {
+    if (linked) {
+      // 品番マスターの色・サイズ・枚数を採用。糸色は既存シートから色名一致→同位置の順で引き継ぐ。
+      const prev = (sheet && Array.isArray(sheet.colors)) ? sheet.colors : [];
+      return plan.colors.map(function (pc, i) {
+        const match = prev.filter(function (x) { return x && x.name && x.name === pc.name; })[0] || prev[i] || {};
+        return { name: pc.name, counts: pc.counts.slice(), thread: match.thread || "" };
+      });
+    }
+    return (sheet && sheet.colors) || [{ name: "", counts: ["", "", "", ""] }];
+  });
   const [blocks, setBlocks] = useState(function () {
     if (sheet && sheet.blocks && sheet.blocks.length) return sheet.blocks;
     return [{ id: genId(), type: "step", part: "準備", act: "", time: "", note: "" }];
@@ -4381,13 +4509,16 @@ function KoteiEditor(props) {
   function renderQtyTable() {
     const cell = { border: "1px solid " + K_LINE, padding: 0, textAlign: "center" };
     const inCell = { width: "100%", border: "none", textAlign: "center", padding: "7px 2px", fontSize: 13, background: "transparent", color: K_INK, boxSizing: "border-box" };
+    const roText = { padding: "7px 6px", fontSize: 13, color: K_INK, fontWeight: 700, whiteSpace: "nowrap" };
     return React.createElement("div", { style: { marginTop: 12 } },
       React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 } },
         React.createElement("span", { style: { fontSize: 10, color: "var(--faint)", letterSpacing: ".1em", fontWeight: 600 } }, "色 × サイズ別 枚数"),
-        React.createElement("div", { style: { display: "flex", gap: 6 } },
-          React.createElement("button", { style: { border: "1px solid var(--line)", background: "#fff", borderRadius: 8, padding: "4px 10px", fontSize: 12, color: "var(--iquta)", fontWeight: 600 }, onClick: addColor }, "＋色"),
-          React.createElement("button", { style: { border: "1px solid var(--line)", background: "#fff", borderRadius: 8, padding: "4px 10px", fontSize: 12, color: "var(--iquta)", fontWeight: 600 }, onClick: addSize }, "＋サイズ")
-        )
+        linked
+          ? React.createElement("span", { style: { fontSize: 10, color: K_PART, background: K_PARTBG, borderRadius: 8, padding: "3px 8px", fontWeight: 700 } }, "品番マスター連動")
+          : React.createElement("div", { style: { display: "flex", gap: 6 } },
+              React.createElement("button", { style: { border: "1px solid var(--line)", background: "#fff", borderRadius: 8, padding: "4px 10px", fontSize: 12, color: "var(--iquta)", fontWeight: 600 }, onClick: addColor }, "＋色"),
+              React.createElement("button", { style: { border: "1px solid var(--line)", background: "#fff", borderRadius: 8, padding: "4px 10px", fontSize: 12, color: "var(--iquta)", fontWeight: 600 }, onClick: addSize }, "＋サイズ")
+            )
       ),
       React.createElement("div", { style: { overflowX: "auto" } },
         React.createElement("table", { style: { borderCollapse: "collapse", fontSize: 13, minWidth: "100%" } },
@@ -4397,25 +4528,31 @@ function KoteiEditor(props) {
               React.createElement("th", { style: Object.assign({}, cell, { background: K_PARTBG, color: K_PART, padding: "6px 8px", minWidth: 64 }) }, "糸色"),
               sizes.map(function (s, i) {
                 return React.createElement("th", { key: i, style: Object.assign({}, cell, { background: K_PARTBG, minWidth: 54 }) },
-                  React.createElement("input", { style: Object.assign({}, inCell, { color: K_PART, fontWeight: 700 }), value: s, onChange: function (e) { setSizeAt(i, e.target.value); } }),
-                  sizes.length > 1 && React.createElement("button", { style: { border: "none", background: "none", color: "#c99", fontSize: 10, cursor: "pointer", padding: 0 }, onClick: function () { removeSize(i); } }, "削除")
+                  linked
+                    ? React.createElement("div", { style: Object.assign({}, roText, { color: K_PART, textAlign: "center" }) }, s || "—")
+                    : React.createElement("input", { style: Object.assign({}, inCell, { color: K_PART, fontWeight: 700 }), value: s, onChange: function (e) { setSizeAt(i, e.target.value); } }),
+                  !linked && sizes.length > 1 && React.createElement("button", { style: { border: "none", background: "none", color: "#c99", fontSize: 10, cursor: "pointer", padding: 0 }, onClick: function () { removeSize(i); } }, "削除")
                 );
               }),
               React.createElement("th", { style: Object.assign({}, cell, { background: "var(--paper)", color: "var(--iquta)", padding: "6px 8px" }) }, "計"),
-              React.createElement("th", { style: Object.assign({}, cell, { background: K_PARTBG, width: 30 }) }, "")
+              !linked && React.createElement("th", { style: Object.assign({}, cell, { background: K_PARTBG, width: 30 }) }, "")
             )
           ),
           React.createElement("tbody", null,
             colors.map(function (c, ci) {
               const rowTotal = (c.counts || []).reduce(function (a, v) { return a + numK(v); }, 0);
               return React.createElement("tr", { key: ci },
-                React.createElement("td", { style: cell }, React.createElement("input", { style: Object.assign({}, inCell, { fontWeight: 700, minWidth: 56 }), placeholder: "色名", value: c.name, onChange: function (e) { setColorName(ci, e.target.value); } })),
+                React.createElement("td", { style: cell }, linked
+                  ? React.createElement("div", { style: Object.assign({}, roText, { minWidth: 56 }) }, c.name || "—")
+                  : React.createElement("input", { style: Object.assign({}, inCell, { fontWeight: 700, minWidth: 56 }), placeholder: "色名", value: c.name, onChange: function (e) { setColorName(ci, e.target.value); } })),
                 React.createElement("td", { style: cell }, React.createElement("input", { style: Object.assign({}, inCell, { minWidth: 56 }), placeholder: "糸色", value: c.thread || "", onChange: function (e) { setColorThread(ci, e.target.value); } })),
                 sizes.map(function (_, si) {
-                  return React.createElement("td", { key: si, style: cell }, React.createElement("input", { style: inCell, type: "number", inputMode: "numeric", value: (c.counts || [])[si] || "", onChange: function (e) { setCount(ci, si, e.target.value); } }));
+                  return React.createElement("td", { key: si, style: cell }, linked
+                    ? React.createElement("div", { style: Object.assign({}, roText, { textAlign: "center", fontWeight: 400, fontVariantNumeric: "tabular-nums" }) }, numK((c.counts || [])[si]) || "")
+                    : React.createElement("input", { style: inCell, type: "number", inputMode: "numeric", value: (c.counts || [])[si] || "", onChange: function (e) { setCount(ci, si, e.target.value); } }));
                 }),
                 React.createElement("td", { style: Object.assign({}, cell, { background: "var(--paper)", fontWeight: 700, padding: "0 8px", fontVariantNumeric: "tabular-nums" }) }, rowTotal || ""),
-                React.createElement("td", { style: cell }, colors.length > 1 && React.createElement("button", { style: { border: "none", background: "none", color: K_NOTE, fontSize: 14, cursor: "pointer", padding: "0 4px" }, onClick: function () { removeColor(ci); } }, "✕"))
+                !linked && React.createElement("td", { style: cell }, colors.length > 1 && React.createElement("button", { style: { border: "none", background: "none", color: K_NOTE, fontSize: 14, cursor: "pointer", padding: "0 4px" }, onClick: function () { removeColor(ci); } }, "✕"))
               );
             }),
             React.createElement("tr", null,
@@ -4423,11 +4560,12 @@ function KoteiEditor(props) {
               React.createElement("td", { style: Object.assign({}, cell, { background: "var(--iquta-bg)" }) }, ""),
               colTotals.map(function (n, i) { return React.createElement("td", { key: i, style: Object.assign({}, cell, { background: "var(--iquta-bg)", color: "var(--iquta)", fontWeight: 700, fontVariantNumeric: "tabular-nums" }) }, n || ""); }),
               React.createElement("td", { style: Object.assign({}, cell, { background: "var(--iquta)", color: "#fff", fontWeight: 700, padding: "0 8px", fontVariantNumeric: "tabular-nums" }) }, grandQty || ""),
-              React.createElement("td", { style: Object.assign({}, cell, { background: "var(--iquta-bg)" }) }, "")
+              !linked && React.createElement("td", { style: Object.assign({}, cell, { background: "var(--iquta-bg)" }) }, "")
             )
           )
         )
-      )
+      ),
+      linked && React.createElement("div", { style: { fontSize: 10, color: "var(--faint)", marginTop: 6, lineHeight: 1.6 } }, "※ 色・サイズ・枚数（指示数）は品番マスターと連動しています。変更は品番編集から。糸色は工程表ごとに入力できます。")
     );
   }
 
