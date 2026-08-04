@@ -109,8 +109,6 @@ const INIT_UI = {
   calSelectedDate: null,
   saidanPartId: null,
   saidanForm: null,
-  dlMonth: null,
-  dlSelectedDate: null,
   teamMonthTeam: null,
   teamMonthMonth: null,
   estPeople: 1,
@@ -1255,9 +1253,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       React.createElement(Body, null,
         React.createElement(BigBtn, { label: "集計・仕事量管理", sub: "全体・チーム別の実績と予算", onClick: () => set({ screen: "summary" }) }),
         React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { label: "納期カレンダー", sub: "品番ごとの納品予定日を一覧", onClick: () => set({ screen: "deadline_calendar", dlMonth: today().slice(0, 7) }) }),
-        React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { label: "生産スケジュール", sub: "チーム×日付のガントチャートで納期遅れと負荷を確認", onClick: () => set({ screen: "gantt", ganttMonth: today().slice(0, 7), ganttEditId: null, ganttForm: null }) }),
+        React.createElement(BigBtn, { label: "生産スケジュール", sub: "チーム×日付のガントチャートで納期・進捗・負荷を確認", onClick: () => set({ screen: "gantt", ganttMonth: today().slice(0, 7), ganttEditId: null, ganttForm: null, ganttDlDate: null }) }),
         React.createElement(Spacer, { h: 8 }),
         React.createElement(BigBtn, { label: "売上カレンダー", sub: "日ごとの完成売上を全体・チーム別で確認", onClick: () => set({ screen: "sales_calendar", salesMonth: today().slice(0, 7), salesTeam: "all" }) }),
         React.createElement(Spacer, { h: 8 }),
@@ -3379,140 +3375,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           ),
           React.createElement("button", { style: Object.assign({}, st.primaryBtn, { opacity: f.partNo ? 1 : 0.35 }), disabled: !f.partNo, onClick: saveSample }, "保存する")
         )
-      ),
-      React.createElement(SI)
-    );
-  }
-
-  if (ui.screen === "deadline_calendar") {
-    const dlMonth = ui.dlMonth || today().slice(0, 7);
-    const [year, month] = dlMonth.split("-").map(Number);
-    const firstDay = new Date(year, month - 1, 1).getDay();
-    const daysInMonth = new Date(year, month, 0).getDate();
-    const prevMonth = month === 1 ? (year - 1) + "-12" : year + "-" + String(month - 1).padStart(2, "0");
-    const nextMonth = month === 12 ? (year + 1) + "-01" : year + "-" + String(month + 1).padStart(2, "0");
-
-    const dlByDate = {};
-    partSummary.forEach((p) => {
-      if (!p.deadline || p.deadline.slice(0, 7) !== dlMonth) return;
-      if (!dlByDate[p.deadline]) dlByDate[p.deadline] = [];
-      dlByDate[p.deadline].push(p);
-    });
-    sampleSummary.forEach((p) => {
-      if (!p.deadline || p.deadline.slice(0, 7) !== dlMonth) return;
-      if (!dlByDate[p.deadline]) dlByDate[p.deadline] = [];
-      dlByDate[p.deadline].push(p);
-    });
-    const monthDlCount = Object.values(dlByDate).reduce((a, arr) => a + arr.length, 0);
-    const dlPlannedSales = Object.values(dlByDate).reduce((a, arr) => a + arr.reduce((b, p) => {
-      const sale = p.assigneeType === "outsource" ? (p.sellPrice || 0) * (p.qty || 0) : (p.unitPrice || 0) * (p.qty || 0);
-      return b + sale;
-    }, 0), 0);
-
-    const days = [];
-    for (let i = 0; i < firstDay; i++) days.push(null);
-    for (let d = 1; d <= daysInMonth; d++) days.push(d);
-    const todayStr = today();
-
-    const teamColor = (p) => {
-      if (p.kind === "sample") return "#7a2a7a";
-      if (p.assigneeType === "outsource") return "#888";
-      return TEAM_COLORS[p.assignee] || "#bbb";
-    };
-
-    return React.createElement(Shell, null,
-      React.createElement(Header, { title: "📅 納期カレンダー", back: () => set({ screen: "home" }) }),
-      React.createElement(Body, null,
-
-        React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 } },
-          React.createElement("button", { style: Object.assign({}, st.ghostBtn, { padding: "8px 16px", fontSize: 16 }), onClick: () => set({ dlMonth: prevMonth, dlSelectedDate: null }) }, "‹"),
-          React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, year + "年" + month + "月　納期 " + monthDlCount + "件"),
-          React.createElement("button", { style: Object.assign({}, st.ghostBtn, { padding: "8px 16px", fontSize: 16 }), onClick: () => set({ dlMonth: nextMonth, dlSelectedDate: null }) }, "›")
-        ),
-
-        monthDlCount > 0 && React.createElement("div", { style: { background: "#1a1a1a", color: "#fff", borderRadius: 10, padding: "12px 16px", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" } },
-          React.createElement("span", { style: { fontSize: 12, opacity: 0.6 } }, "この月納期の予定売上合計"),
-          React.createElement("span", { style: { fontSize: 20, fontWeight: 700 } }, "¥" + Math.round(dlPlannedSales).toLocaleString())
-        ),
-
-        React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12, fontSize: 11 } },
-          TEAMS.map((t) => React.createElement("div", { key: t, style: { display: "flex", alignItems: "center", gap: 4 } },
-            React.createElement("div", { style: { width: 10, height: 10, borderRadius: 3, background: TEAM_COLORS[t] } }),
-            React.createElement("span", { style: { color: "#888" } }, t)
-          )),
-          React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 4 } },
-            React.createElement("div", { style: { width: 10, height: 10, borderRadius: 3, background: "#888" } }),
-            React.createElement("span", { style: { color: "#888" } }, "外注")
-          ),
-          React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 4 } },
-            React.createElement("div", { style: { width: 10, height: 10, borderRadius: 3, background: "#7a2a7a" } }),
-            React.createElement("span", { style: { color: "#888" } }, "✂ サンプル")
-          )
-        ),
-
-        React.createElement("div", { style: { background: "#fff", borderRadius: 12, padding: "10px", boxShadow: "0 1px 4px rgba(0,0,0,.06)", marginBottom: 16 } },
-          React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 6 } },
-            ["日","月","火","水","木","金","土"].map((d, i) =>
-              React.createElement("div", { key: d, style: { textAlign: "center", fontSize: 11, fontWeight: 700, color: i === 0 ? "#c00" : i === 6 ? "var(--iquta)" : "#aaa", padding: "4px 0" } }, d)
-            )
-          ),
-          React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 } },
-            days.map((d, i) => {
-              if (!d) return React.createElement("div", { key: "e" + i, style: { minHeight: 64 } });
-              const dateStr = year + "-" + String(month).padStart(2, "0") + "-" + String(d).padStart(2, "0");
-              const items = dlByDate[dateStr] || [];
-              const isToday = dateStr === todayStr;
-              const dow = (firstDay + d - 1) % 7;
-              return React.createElement("div", {
-                key: "d" + i,
-                style: {
-                  minHeight: 64, borderRadius: 6, padding: "3px 2px",
-                  background: isToday ? "#fff8e0" : "#fafafa",
-                  border: isToday ? "2px solid #ffd060" : "1px solid #f0eeea",
-                  cursor: items.length > 0 ? "pointer" : "default",
-                  overflow: "hidden",
-                },
-                onClick: () => items.length > 0 && set({ dlSelectedDate: dateStr })
-              },
-                React.createElement("div", { style: { textAlign: "center", fontSize: 11, fontWeight: 700, color: dow === 0 ? "#c00" : dow === 6 ? "var(--iquta)" : "#555", marginBottom: 2 } }, d),
-                items.slice(0, 3).map((p) =>
-                  React.createElement("div", { key: p.id, style: {
-                    background: teamColor(p) + (p.closedAt ? "30" : "20"),
-                    borderLeft: "3px solid " + teamColor(p),
-                    borderRadius: 3, padding: "1px 3px", marginBottom: 2,
-                    fontSize: 9, lineHeight: 1.2,
-                    color: p.closedAt ? "#aaa" : "#333",
-                    textDecoration: p.closedAt ? "line-through" : "none",
-                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                  } }, (p.kind === "sample" ? "✂" : "") + p.partNo)
-                ),
-                items.length > 3 && React.createElement("div", { style: { fontSize: 9, color: "#aaa", textAlign: "center" } }, "他" + (items.length - 3) + "件")
-              );
-            })
-          )
-        ),
-
-        ui.dlSelectedDate && dlByDate[ui.dlSelectedDate] && React.createElement("div", null,
-          React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } },
-            React.createElement("div", { style: st.sectionLabel }, ui.dlSelectedDate.slice(5).replace("-", "/") + " 納期の品番"),
-            React.createElement("button", { style: st.ghostBtn, onClick: () => set({ dlSelectedDate: null }) }, "✕")
-          ),
-          dlByDate[ui.dlSelectedDate].map((p) =>
-            React.createElement("button", { key: p.id, style: Object.assign({}, st.summaryCard, { textAlign: "left", borderLeft: "4px solid " + teamColor(p) }), onClick: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "deadline_calendar" }) },
-              React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
-                React.createElement("div", null,
-                  React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, (p.kind === "sample" ? "✂ " : "") + p.partNo + (p.partName ? " " + p.partName : "")),
-                  React.createElement("div", { style: { fontSize: 11, color: "#888", marginTop: 2 } },
-                    (p.assigneeType === "outsource" ? "外注: " + (p.vendorName || "?") : (p.assignee || "未割当")) + "　" + p.qty + "枚"
-                  )
-                ),
-                React.createElement(Badge, { part: p })
-              )
-            )
-          )
-        ),
-
-        !ui.dlSelectedDate && monthDlCount === 0 && React.createElement(Empty, null, year + "年" + month + "月が納期の品番はありません")
       ),
       React.createElement(SI)
     );
