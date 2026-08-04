@@ -21,8 +21,48 @@ function diffDays(a, b) {
 }
 
 const EMPTY_DATA = {
-  parts: [], records: [], qtyRecords: [], members: [], vendors: [], brands: [], monthlyTargets: {}, saidanReports: [], koteiSheets: [], koteiRecords: [],
+  parts: [], records: [], qtyRecords: [], members: [], vendors: [], brands: [], monthlyTargets: {}, saidanReports: [], koteiSheets: [], koteiRecords: [], companyCalendar: {},
 };
+
+// ── ガントチャート（生産スケジュール）────────────────────────────
+// 会社カレンダー: 年をキー、休業日(YYYY-MM-DD)の配列を値とする。判定は「一覧にあるか」だけで、
+// 曜日・祝日のルール判定はしない（稼働土曜が年24日あり、ルール化は破綻するため）。
+// 2026年の初期データは実カレンダーxlsxの緑塗りセルから抽出した101日。
+// 11/3(文化の日)は稼働日で正しい。12月後半〜年末年始は未確定のため稼働扱いのまま
+// （確定後に設定画面から休業に切り替える運用）。
+const COMPANY_CALENDAR_DEFAULTS = {
+  "2026": ["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04", "2026-01-11", "2026-01-12", "2026-01-18", "2026-01-24", "2026-01-25", "2026-02-01", "2026-02-07", "2026-02-08", "2026-02-11", "2026-02-15", "2026-02-22", "2026-02-23", "2026-03-01", "2026-03-07", "2026-03-08", "2026-03-15", "2026-03-20", "2026-03-21", "2026-03-22", "2026-03-29", "2026-04-04", "2026-04-05", "2026-04-11", "2026-04-12", "2026-04-18", "2026-04-19", "2026-04-25", "2026-04-26", "2026-04-29", "2026-05-02", "2026-05-03", "2026-05-04", "2026-05-05", "2026-05-06", "2026-05-10", "2026-05-16", "2026-05-17", "2026-05-24", "2026-05-30", "2026-05-31", "2026-06-07", "2026-06-13", "2026-06-14", "2026-06-21", "2026-06-27", "2026-06-28", "2026-07-05", "2026-07-12", "2026-07-18", "2026-07-19", "2026-07-20", "2026-07-26", "2026-08-02", "2026-08-09", "2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14", "2026-08-15", "2026-08-16", "2026-08-23", "2026-08-30", "2026-09-05", "2026-09-06", "2026-09-13", "2026-09-19", "2026-09-20", "2026-09-21", "2026-09-22", "2026-09-23", "2026-09-27", "2026-10-03", "2026-10-04", "2026-10-10", "2026-10-11", "2026-10-12", "2026-10-17", "2026-10-18", "2026-10-24", "2026-10-25", "2026-10-31", "2026-11-01", "2026-11-02", "2026-11-07", "2026-11-08", "2026-11-14", "2026-11-15", "2026-11-21", "2026-11-22", "2026-11-23", "2026-11-28", "2026-11-29", "2026-12-06", "2026-12-12", "2026-12-13", "2026-12-20"],
+};
+// 保存済みカレンダー（data.companyCalendar）に内蔵初期値を下敷きとして重ねる。
+// 保存済みの年は保存値が優先。未保存でも2026年分は動く。
+function effectiveCalendar(data) {
+  const cal = (data && data.companyCalendar && typeof data.companyCalendar === "object") ? data.companyCalendar : {};
+  return Object.assign({}, COMPANY_CALENDAR_DEFAULTS, cal);
+}
+// 休業日判定: 一覧にあるかどうかだけ。未登録年は稼働扱い（ガント側で警告を出す）
+function isWorkday(dateStr, companyCalendar) {
+  const list = companyCalendar[dateStr.slice(0, 4)];
+  if (!list) return true;
+  return list.indexOf(dateStr) < 0;
+}
+function addDaysStr(dateStr, n) {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + n);
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+// 開始日から「稼働日数」ぶん進めた完了予定日（開始日が稼働日なら1日目と数える）。
+// 完了予定日は保存しない: 真実は開始日+稼働日数+会社カレンダーだけ（カレンダー修正で全バーが自動追随）。
+function calcEndDate(startStr, workDays, companyCalendar) {
+  let cur = startStr, counted = 0, guard = 0;
+  while (guard++ < 200) {
+    if (isWorkday(cur, companyCalendar)) counted++;
+    if (counted >= workDays) return cur;
+    cur = addDaysStr(cur, 1);
+  }
+  return cur;
+}
+// バー配色はモック準拠: 通常=青 / 完了=緑 / 納期超過かつ未完了=赤 / 休業列=グレー
+const GANTT_BLUE = "#2b5ce6", GANTT_GREEN = "#1e8e3e", GANTT_RED = "#d93025", GANTT_OFF = "#eceef3";
 
 // 指示枚数（色 × サイズ）: 品番マスターが唯一の情報源。裁断報告書・工程分析表はここを引く。
 // 形は koteiSheet の colors と揃える（counts は sizes と位置で対応）。
@@ -98,6 +138,9 @@ const INIT_UI = {
   vvTo: today(),
   vvExpanded: {},
   msFrom: daysAgo(6), msTo: today(), msSort: "rate", // 成績表（管理者向け）
+  ganttMonth: null, // 生産スケジュール（ガント）の表示月 YYYY-MM
+  ganttEditId: null, ganttForm: null, // ガントの編集ポップアップ（{start, days, team}）
+  ccalMonth: null, // 会社カレンダー設定の表示月 YYYY-MM
 };
 
 async function gasSave(data) {
@@ -331,6 +374,7 @@ function App() {
       if (!Array.isArray(merged.saidanReports)) merged.saidanReports = [];
       if (!Array.isArray(merged.koteiSheets)) merged.koteiSheets = [];
       if (!Array.isArray(merged.koteiRecords)) merged.koteiRecords = [];
+      if (!merged.companyCalendar || typeof merged.companyCalendar !== "object") merged.companyCalendar = {};
       // 二重送信・再送でシートに重複行があっても、画面と集計はIDで1件に正規化する
       merged.records = dedupById(merged.records);
       merged.qtyRecords = dedupById(merged.qtyRecords);
@@ -361,6 +405,7 @@ function App() {
       if (!Array.isArray(merged.saidanReports)) merged.saidanReports = [];
       if (!Array.isArray(merged.koteiSheets)) merged.koteiSheets = [];
       if (!Array.isArray(merged.koteiRecords)) merged.koteiRecords = [];
+      if (!merged.companyCalendar || typeof merged.companyCalendar !== "object") merged.companyCalendar = {};
       // 二重送信・再送でシートに重複行があっても、画面と集計はIDで1件に正規化する
       merged.records = dedupById(merged.records);
       merged.qtyRecords = dedupById(merged.qtyRecords);
@@ -543,6 +588,9 @@ function App() {
       vendorPrice: isOut ? (parseFloat(f.vendorPrice) || 0) : 0,
       workMonth: f.workMonth || null, brandId: f.brandId || null,
       plan: normPlan(f.plan),
+      // ガント: 開始日+稼働日数のみ保存。完了予定日は保存しない（常に計算で導出）
+      ganttStart: f.ganttStart || null,
+      ganttDays: (parseInt(f.ganttDays, 10) > 0) ? parseInt(f.ganttDays, 10) : null,
     });
     const nd = Object.assign({}, data, { parts: data.parts.map((p) => p.id === f.id ? updatedPart : p) });
     setData(nd);
@@ -639,7 +687,35 @@ function App() {
   }
 
   function startEdit(part) {
-    set({ editPartForm: { id: part.id, partName: part.partName || "", unitPrice: part.unitPrice || "", pleatsPrice: part.pleatsPrice || "", qty: part.qty || "", estMinPerUnit: part.estMinPerUnit || "", deadline: part.deadline || "", status: part.status || "未着手", note: part.note || "", sellPrice: part.sellPrice || "", vendorPrice: part.vendorPrice || "", assigneeType: part.assigneeType || "team", workMonth: part.workMonth || "", brandId: part.brandId || "", plan: normPlan(part.plan) }, screen: "edit_part" });
+    set({ editPartForm: { id: part.id, partName: part.partName || "", unitPrice: part.unitPrice || "", pleatsPrice: part.pleatsPrice || "", qty: part.qty || "", estMinPerUnit: part.estMinPerUnit || "", deadline: part.deadline || "", status: part.status || "未着手", note: part.note || "", sellPrice: part.sellPrice || "", vendorPrice: part.vendorPrice || "", assigneeType: part.assigneeType || "team", workMonth: part.workMonth || "", brandId: part.brandId || "", plan: normPlan(part.plan), ganttStart: part.ganttStart || "", ganttDays: part.ganttDays || "" }, screen: "edit_part" });
+  }
+
+  // ── ガント編集ポップアップ（開始日+稼働日数+担当チームの3つだけ）──
+  function openGanttModal(part) {
+    set({
+      ganttEditId: part.id,
+      ganttForm: {
+        start: part.ganttStart || "",
+        days: part.ganttDays || 5,
+        team: (part.assigneeType === "team" && TEAMS.indexOf(part.assignee) >= 0) ? part.assignee : TEAMS[0],
+      },
+    });
+  }
+  function closeGanttModal() { set({ ganttEditId: null, ganttForm: null }); }
+  function saveGanttForm() {
+    const f = ui.ganttForm;
+    const part = data.parts.find((p) => p.id === ui.ganttEditId);
+    if (!f || !part) return;
+    const n = parseInt(f.days, 10);
+    // 開始日を空にすると未配置トレイに戻る。完了予定日は保存しない（常に計算で導出）
+    const updatedPart = Object.assign({}, part, {
+      ganttStart: f.start || null,
+      ganttDays: (n && n > 0) ? n : null,
+      assignee: f.team,
+      assigneeType: "team",
+    });
+    applyLocal({ parts: data.parts.map((p) => p.id === part.id ? updatedPart : p) }, () => gasUpdatePart(updatedPart));
+    closeGanttModal();
   }
 
   function addRecord() {
@@ -1177,6 +1253,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         React.createElement(Spacer, { h: 8 }),
         React.createElement(BigBtn, { label: "納期カレンダー", sub: "品番ごとの納品予定日を一覧", onClick: () => set({ screen: "deadline_calendar", dlMonth: today().slice(0, 7) }) }),
         React.createElement(Spacer, { h: 8 }),
+        React.createElement(BigBtn, { label: "生産スケジュール", sub: "チーム×日付のガントチャートで納期遅れと負荷を確認", onClick: () => set({ screen: "gantt", ganttMonth: today().slice(0, 7), ganttEditId: null, ganttForm: null }) }),
+        React.createElement(Spacer, { h: 8 }),
         React.createElement(BigBtn, { label: "売上カレンダー", sub: "日ごとの完成売上を全体・チーム別で確認", onClick: () => set({ screen: "sales_calendar", salesMonth: today().slice(0, 7), salesTeam: "all" }) }),
         React.createElement(Spacer, { h: 8 }),
         React.createElement(BigBtn, { label: "ダッシュボード", sub: "納期・進捗を一目で確認", onClick: () => set({ screen: "dashboard" }) }),
@@ -1212,7 +1290,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement(QuickBtn, { label: "外注先管理", onClick: () => set({ screen: "vendor_mgmt" }) })
         ),
         React.createElement("div", { style: { display: "flex", gap: 8 } },
-          React.createElement(QuickBtn, { label: "ブランド管理", onClick: () => set({ screen: "brand_mgmt" }) })
+          React.createElement(QuickBtn, { label: "ブランド管理", onClick: () => set({ screen: "brand_mgmt" }) }),
+          React.createElement(QuickBtn, { label: "会社カレンダー", onClick: () => set({ screen: "company_calendar", ccalMonth: today().slice(0, 7) }) })
         )
       ),
       React.createElement(SI)
@@ -1360,6 +1439,14 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement(FormRow, { label: "数量（枚）" }, React.createElement("input", { style: st.input, type: "number", value: f.qty, onChange: (e) => setEP({ qty: e.target.value }) })),
           renderPlanEditor(f.plan, (np) => { const patch = { plan: np }; const t = planTotal(np); if (t > 0) patch.qty = "" + t; setEP(patch); }),
           React.createElement(FormRow, { label: "納期" }, React.createElement("input", { style: st.input, type: "date", value: f.deadline || "", onChange: (e) => setEP({ deadline: e.target.value }) })),
+          !isOut && React.createElement("div", { style: { display: "flex", gap: 10 } },
+            React.createElement("div", { style: { flex: 1 } },
+              React.createElement(FormRow, { label: "スケジュール開始日（未設定=未配置）" }, React.createElement("input", { style: st.input, type: "date", value: f.ganttStart || "", onChange: (e) => setEP({ ganttStart: e.target.value }) }))
+            ),
+            React.createElement("div", { style: { flex: 1 } },
+              React.createElement(FormRow, { label: "稼働日数（休業日を除く）" }, React.createElement("input", { style: st.input, type: "number", min: "1", max: "60", value: f.ganttDays, onChange: (e) => setEP({ ganttDays: e.target.value }) }))
+            )
+          ),
           !isOut && React.createElement("div", null,
             React.createElement(FormRow, { label: "製品単価（円）" }, React.createElement("input", { style: st.input, type: "number", value: f.unitPrice, onChange: (e) => setEP({ unitPrice: e.target.value }) })),
             React.createElement(FormRow, { label: "うちプリーツ加工賃（円・任意）" },
@@ -3605,6 +3692,250 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             w,
             React.createElement("button", { style: { border: "none", background: "none", color: "#c0271d", fontSize: 16, cursor: "pointer", padding: "0 4px", lineHeight: 1 }, onClick: () => delP(w) }, "✕")
           ); })
+        )
+      ),
+      React.createElement(SI)
+    );
+  }
+
+  // ── 生産スケジュール（ガントチャート）──────────────────────────
+  // parts を読むだけの見える化画面。チーム×日付で納期遅れと負荷の偏りを一目で分かるようにする。
+  // 入力は「開始日+稼働日数+チーム」の3つのみ。進捗は qtyRecords の集計（completedQty）から自動計算。
+  if (ui.screen === "gantt") {
+    const cal = effectiveCalendar(data);
+    const gMonth = ui.ganttMonth || today().slice(0, 7);
+    const gParsed = gMonth.split("-").map(Number);
+    const gy = gParsed[0], gm = gParsed[1];
+    const daysInMonth = new Date(gy, gm, 0).getDate();
+    const prevM = gm === 1 ? (gy - 1) + "-12" : gy + "-" + String(gm - 1).padStart(2, "0");
+    const nextM = gm === 12 ? (gy + 1) + "-01" : gy + "-" + String(gm + 1).padStart(2, "0");
+    const todayStr = today();
+    const mStart = gMonth + "-01";
+    const mEnd = gMonth + "-" + String(daysInMonth).padStart(2, "0");
+    const colW = 34, teamW = 96, rowH = 48, barH = 40;
+    const dows = ["日", "月", "火", "水", "木", "金", "土"];
+    const calMissing = !cal[String(gy)];
+    // 外注・締め済みはガント対象外（縦軸は社内チームのみ）
+    const ganttParts = allSummary.filter((p) => !p.closedAt && p.assigneeType !== "outsource");
+    // 開始日なし、またはチーム未定（未割当）はどのレーンにも出ないので未配置トレイに出す（隠さない）
+    const unplaced = ganttParts.filter((p) => !p.ganttStart || TEAMS.indexOf(p.assignee) < 0);
+    // 完了予定日は保存せず常に計算（開始日+稼働日数+会社カレンダーが単一の真実）
+    const partEnd = (p) => p.ganttDays ? calcEndDate(p.ganttStart, p.ganttDays, cal) : (p.deadline || p.ganttStart);
+    const dayMeta = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const ds = gMonth + "-" + String(d).padStart(2, "0");
+      dayMeta.push({ d, ds, dow: new Date(gy, gm - 1, d).getDay(), off: !isWorkday(ds, cal), isToday: ds === todayStr });
+    }
+    const gEditPart = ui.ganttEditId ? allSummary.find((p) => p.id === ui.ganttEditId) : null;
+    const gf = ui.ganttForm;
+    const setGF = (patch) => set({ ganttForm: Object.assign({}, ui.ganttForm, patch) });
+    let modal = null;
+    if (gEditPart && gf) {
+      const gDone = gEditPart.completedQty || 0;
+      const gPct = gEditPart.qty ? Math.round(gDone / gEditPart.qty * 100) : 0;
+      const gLate = gPct < 100 && gEditPart.deadline && gEditPart.deadline < todayStr;
+      const gN = parseInt(gf.days, 10);
+      const gEnd = (gf.start && gN >= 1) ? calcEndDate(gf.start, gN, cal) : null;
+      const gOver = gEnd && gEditPart.deadline && gEnd > gEditPart.deadline;
+      modal = React.createElement("div", {
+        style: { position: "fixed", inset: 0, background: "rgba(28,35,51,.4)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 },
+        onClick: (e) => { if (e.target === e.currentTarget) closeGanttModal(); },
+      },
+        React.createElement("div", { style: { background: "#fff", borderRadius: 14, width: "100%", maxWidth: 420, padding: 20, boxSizing: "border-box" } },
+          React.createElement("div", { style: { fontSize: 17, fontWeight: 700 } }, gEditPart.partNo),
+          gEditPart.partName && React.createElement("div", { style: { color: "#6b7280", fontSize: 13, marginTop: 2 } }, gEditPart.partName),
+          React.createElement("div", { style: { background: "#f7f8fb", borderRadius: 8, padding: "10px 12px", fontSize: 13, margin: "14px 0", lineHeight: 1.7 } },
+            React.createElement("div", null, "納期：", React.createElement("b", null, gEditPart.deadline || "未設定"), gLate ? React.createElement("span", { style: { color: GANTT_RED, fontWeight: 700 } }, " 超過") : null),
+            React.createElement("div", null, "進捗：" + gDone + " / " + (gEditPart.qty || 0) + "枚（" + gPct + "%）※完成枚数の記録から自動計算")
+          ),
+          React.createElement("div", { style: { display: "flex", gap: 10, marginBottom: 12 } },
+            React.createElement("label", { style: { flex: 1, fontSize: 12, color: "#6b7280" } }, "開始日",
+              React.createElement("input", { style: Object.assign({}, st.input, { marginTop: 4, height: 46 }), type: "date", value: gf.start, onChange: (e) => setGF({ start: e.target.value }) })
+            ),
+            React.createElement("label", { style: { flex: 1, fontSize: 12, color: "#6b7280" } }, "稼働日数",
+              React.createElement("input", { style: Object.assign({}, st.input, { marginTop: 4, height: 46 }), type: "number", min: "1", max: "60", value: gf.days, onChange: (e) => setGF({ days: e.target.value }) })
+            )
+          ),
+          React.createElement("div", { style: { background: "var(--iquta-bg)", borderRadius: 8, padding: "10px 12px", fontSize: 13, marginBottom: 12, lineHeight: 1.7 } },
+            gEnd
+              ? React.createElement("span", null, "完了予定日：", React.createElement("b", { style: { color: "var(--iquta)", fontSize: 15 } }, gEnd), "（休業日を除く実働" + gN + "日）",
+                  // 納期超過でも保存は止めない（あえて超過で組む判断もあるため警告のみ）
+                  gOver ? React.createElement("span", { style: { color: GANTT_RED, fontWeight: 700 } }, " ⚠ 納期（" + gEditPart.deadline + "）を超えます") : null)
+              : "完了予定日：—（開始日と稼働日数を入れてください）"
+          ),
+          React.createElement("div", { style: { fontSize: 11, color: "#aaa", marginBottom: 12 } }, "開始日を空にして保存すると未配置に戻ります"),
+          React.createElement("label", { style: { display: "block", fontSize: 12, color: "#6b7280", marginBottom: 14 } }, "担当チーム",
+            React.createElement("select", { style: Object.assign({}, st.input, { marginTop: 4, height: 46 }), value: gf.team, onChange: (e) => setGF({ team: e.target.value }) },
+              TEAMS.map((t) => React.createElement("option", { key: t, value: t }, t))
+            )
+          ),
+          React.createElement("div", { style: { display: "flex", gap: 10 } },
+            React.createElement("button", { style: { flex: 1, height: 48, borderRadius: 10, fontSize: 15, cursor: "pointer", background: "#fff", border: "1px solid var(--line)", color: "var(--ink)" }, onClick: closeGanttModal }, "キャンセル"),
+            React.createElement("button", { style: { flex: 1, height: 48, borderRadius: 10, fontSize: 15, cursor: "pointer", background: "var(--iquta)", border: "none", color: "#fff", fontWeight: 700 }, onClick: saveGanttForm }, "保存")
+          )
+        )
+      );
+    }
+    return React.createElement(Shell, null,
+      React.createElement(Header, { title: "生産スケジュール", back: () => set({ screen: "home" }) }),
+      React.createElement(Body, null,
+        React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 12 } },
+          React.createElement("button", { style: Object.assign({}, st.ghostBtn, { minWidth: 44, minHeight: 44, fontSize: 18, color: "var(--iquta)" }), onClick: () => set({ ganttMonth: prevM }) }, "‹"),
+          React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, gy + "年" + gm + "月"),
+          React.createElement("button", { style: Object.assign({}, st.ghostBtn, { minWidth: 44, minHeight: 44, fontSize: 18, color: "var(--iquta)" }), onClick: () => set({ ganttMonth: nextM }) }, "›"),
+          React.createElement("button", { style: Object.assign({}, st.ghostBtn, { minHeight: 44, padding: "0 14px", fontSize: 13, color: "var(--ink)" }), onClick: () => set({ ganttMonth: today().slice(0, 7) }) }, "今月")
+        ),
+        // 未登録年は全日稼働扱いで表示しつつ警告（勝手にルールで推測しない）
+        calMissing && React.createElement("div", { style: { background: "#fdf6f6", border: "1px solid #f0dbdb", borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "var(--aka)", fontWeight: 600 } }, gy + "年のカレンダー未登録です。全日を稼働日として表示しています（ホーム→会社カレンダーから登録）"),
+        React.createElement("div", { style: { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, padding: "10px 12px", marginBottom: 12 } },
+          unplaced.length === 0
+            ? React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: "#b45309" } }, "未配置の品番はありません")
+            : React.createElement("div", null,
+                React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: "#b45309", marginBottom: 8 } }, "⚠ 未配置 " + unplaced.length + "件（タップして開始日を決める）"),
+                React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+                  unplaced.map((p) => React.createElement("button", { key: p.id, onClick: () => openGanttModal(p), style: { background: "#fef3c7", border: "1px solid #f2d9a0", borderRadius: 8, padding: "8px 12px", fontSize: 13, cursor: "pointer", minHeight: 44, textAlign: "left" } },
+                    React.createElement("div", { style: { fontWeight: 700 } }, p.partNo),
+                    React.createElement("div", { style: { fontSize: 11, color: "#6b7280" } }, (p.qty || 0) + "枚 / 納期 " + (p.deadline ? fmt(p.deadline) : "—") + " / " + (p.assignee && p.assignee !== "未割当" ? p.assignee : "チーム未定"))
+                  ))
+                )
+              )
+        ),
+        React.createElement("div", { style: { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, overflowX: "auto" } },
+          React.createElement("div", { style: { minWidth: teamW + daysInMonth * colW } },
+            React.createElement("div", { style: { display: "flex" } },
+              React.createElement("div", { style: { width: teamW, minWidth: teamW, position: "sticky", left: 0, zIndex: 3, background: "#fff", borderRight: "2px solid var(--line)", borderBottom: "1px solid var(--line)", boxSizing: "border-box" } }),
+              dayMeta.map((m) => React.createElement("div", { key: m.d, style: { width: colW, minWidth: colW, boxSizing: "border-box", textAlign: "center", fontSize: 10, fontWeight: m.isToday ? 700 : 400, color: m.isToday ? "var(--iquta)" : m.off ? "#9aa1ad" : "#888", background: m.isToday ? "var(--iquta-bg)" : m.off ? GANTT_OFF : "#fff", borderBottom: "1px solid var(--line)", borderLeft: "1px solid #f1f3f8", padding: "5px 0 3px" } },
+                m.d,
+                React.createElement("span", { style: { display: "block", fontSize: 8.5 } }, dows[m.dow])
+              ))
+            ),
+            TEAMS.map((team) => {
+              const tParts = ganttParts
+                .filter((p) => p.assignee === team && p.ganttStart && p.ganttStart <= mEnd && partEnd(p) >= mStart)
+                .sort((a, b) => a.ganttStart < b.ganttStart ? -1 : 1);
+              // 段組み: 期間が重なる品番は自動で2段目・3段目に積む。段数の上限は設けない
+              // （隠すと見えない品番が事故のもと。4段以上は詰め込みすぎのサインとしてそのまま見せる）
+              const rowsEnd = [], rowOf = {};
+              tParts.forEach((p) => {
+                const s = p.ganttStart, e = partEnd(p);
+                let r = rowsEnd.findIndex((re) => re < s);
+                if (r < 0) { rowsEnd.push(e); r = rowsEnd.length - 1; } else rowsEnd[r] = e;
+                rowOf[p.id] = r;
+              });
+              const laneH = Math.max(1, rowsEnd.length) * rowH + 8;
+              return React.createElement("div", { key: team, style: { display: "flex" } },
+                React.createElement("div", { style: { width: teamW, minWidth: teamW, position: "sticky", left: 0, zIndex: 2, background: "#fff", borderRight: "2px solid var(--line)", borderBottom: "1px solid var(--line)", boxSizing: "border-box", height: laneH, display: "flex", flexDirection: "column", justifyContent: "center", padding: "0 8px" } },
+                  React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: TEAM_COLORS[team] || "var(--ink)" } }, team),
+                  React.createElement("div", { style: { fontSize: 10, color: "#aaa" } }, tParts.length + "件")
+                ),
+                React.createElement("div", { style: { position: "relative", width: daysInMonth * colW, minWidth: daysInMonth * colW, height: laneH, borderBottom: "1px solid var(--line)", boxSizing: "border-box", display: "flex" } },
+                  dayMeta.map((m) => React.createElement("div", { key: m.d, style: { width: colW, minWidth: colW, boxSizing: "border-box", borderLeft: "1px solid #f1f3f8", background: m.isToday ? "var(--iquta-bg)" : m.off ? GANTT_OFF : "transparent", height: "100%" } })),
+                  tParts.map((p) => {
+                    const s = p.ganttStart, e = partEnd(p);
+                    const sd = s >= mStart ? +s.slice(8) : 1;
+                    const edRaw = e <= mEnd ? +e.slice(8) : daysInMonth;
+                    const ed = Math.max(sd, edRaw);
+                    const done = p.completedQty || 0;
+                    const pct = p.qty ? Math.min(100, Math.round(done / p.qty * 100)) : 0;
+                    const isDone = pct >= 100;
+                    const isLate = !isDone && p.deadline && p.deadline < todayStr;
+                    return React.createElement("div", {
+                      key: p.id,
+                      onClick: () => openGanttModal(p),
+                      style: { position: "absolute", left: (sd - 1) * colW + 2, width: (ed - sd + 1) * colW - 4, top: rowOf[p.id] * rowH + 4, height: barH, background: isDone ? GANTT_GREEN : isLate ? GANTT_RED : GANTT_BLUE, borderRadius: 8, color: "#fff", padding: "4px 8px", overflow: "hidden", cursor: "pointer", boxShadow: "0 1px 3px rgba(28,35,51,.18)", display: "flex", flexDirection: "column", justifyContent: "center", boxSizing: "border-box" },
+                    },
+                      React.createElement("div", { style: { position: "absolute", left: 0, top: 0, bottom: 0, width: pct + "%", background: "rgba(255,255,255,.28)", pointerEvents: "none" } }),
+                      React.createElement("div", { style: { fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", position: "relative" } }, p.partNo),
+                      React.createElement("div", { style: { fontSize: 9.5, opacity: 0.92, whiteSpace: "nowrap", position: "relative" } }, done + "/" + (p.qty || 0) + "枚 " + pct + "% ・稼働" + (p.ganttDays || "?") + "日")
+                    );
+                  }),
+                  // 納期日に赤の縦フラグ
+                  tParts.filter((p) => p.deadline && p.deadline >= mStart && p.deadline <= mEnd).map((p) =>
+                    React.createElement("div", { key: "f" + p.id, style: { position: "absolute", left: (+p.deadline.slice(8)) * colW - 2, top: rowOf[p.id] * rowH + 2, width: 3, height: barH + 4, background: GANTT_RED, borderRadius: 2, zIndex: 2, pointerEvents: "none" } })
+                  )
+                )
+              );
+            })
+          )
+        ),
+        React.createElement("div", { style: { display: "flex", gap: 14, marginTop: 10, fontSize: 11, color: "#6b7280", flexWrap: "wrap" } },
+          React.createElement("span", null, React.createElement("span", { style: { display: "inline-block", width: 12, height: 12, borderRadius: 3, background: GANTT_BLUE, verticalAlign: -2, marginRight: 4 } }), "進行中（白い部分=進捗）"),
+          React.createElement("span", null, React.createElement("span", { style: { display: "inline-block", width: 12, height: 12, borderRadius: 3, background: GANTT_GREEN, verticalAlign: -2, marginRight: 4 } }), "完了"),
+          React.createElement("span", null, React.createElement("span", { style: { display: "inline-block", width: 12, height: 12, borderRadius: 3, background: GANTT_RED, verticalAlign: -2, marginRight: 4 } }), "納期超過"),
+          React.createElement("span", null, React.createElement("span", { style: { display: "inline-block", width: 12, height: 12, borderRadius: 3, background: GANTT_OFF, border: "1px solid var(--line)", verticalAlign: -2, marginRight: 4 } }), "休業日（稼働日数に数えない）"),
+          React.createElement("span", null, React.createElement("span", { style: { display: "inline-block", width: 3, height: 12, borderRadius: 2, background: GANTT_RED, verticalAlign: -2, marginRight: 4 } }), "納期日")
+        )
+      ),
+      modal,
+      React.createElement(SI)
+    );
+  }
+
+  // ── 会社カレンダー設定: 月表示、日をタップで稼働⇔休業をトグル。保存は既存 save アクション ──
+  if (ui.screen === "company_calendar") {
+    const cal = effectiveCalendar(data);
+    const cMonth = ui.ccalMonth || today().slice(0, 7);
+    const cParsed = cMonth.split("-").map(Number);
+    const cy = cParsed[0], cm = cParsed[1];
+    const firstDay = new Date(cy, cm - 1, 1).getDay();
+    const daysInMonth = new Date(cy, cm, 0).getDate();
+    const prevM = cm === 1 ? (cy - 1) + "-12" : cy + "-" + String(cm - 1).padStart(2, "0");
+    const nextM = cm === 12 ? (cy + 1) + "-01" : cy + "-" + String(cm + 1).padStart(2, "0");
+    const yearKey = String(cy);
+    const yearRegistered = !!cal[yearKey];
+    const offList = cal[yearKey] || [];
+    const todayStr = today();
+    const toggleOff = (ds) => {
+      // 内蔵初期値も含めた「実効カレンダー」を丸ごと保存する（初回タップで2026年分101日も一緒に保存される）
+      const nc = {};
+      Object.keys(cal).forEach((k) => { nc[k] = (cal[k] || []).slice(); });
+      if (!nc[yearKey]) nc[yearKey] = [];
+      const i = nc[yearKey].indexOf(ds);
+      if (i >= 0) nc[yearKey].splice(i, 1); else { nc[yearKey].push(ds); nc[yearKey].sort(); }
+      const nd = Object.assign({}, data, { companyCalendar: nc });
+      applyLocal({ companyCalendar: nc }, () => gasSave(nd));
+    };
+    const cells = [];
+    for (let i = 0; i < firstDay; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+    return React.createElement(Shell, null,
+      React.createElement(Header, { title: "会社カレンダー", back: () => set({ screen: "home" }) }),
+      React.createElement(Body, null,
+        React.createElement("div", { style: { fontSize: 12, color: "#888", marginBottom: 12, lineHeight: 1.7 } }, "日をタップすると稼働⇔休業が切り替わります。変更はすぐ保存され、生産スケジュールのバーの長さ・完了予定日に反映されます。曜日や祝日での自動判定はしません（一覧にある日だけが休業日）。"),
+        React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 } },
+          React.createElement("button", { style: Object.assign({}, st.ghostBtn, { minWidth: 44, minHeight: 44, fontSize: 18, color: "var(--iquta)" }), onClick: () => set({ ccalMonth: prevM }) }, "‹"),
+          React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, cy + "年" + cm + "月"),
+          React.createElement("button", { style: Object.assign({}, st.ghostBtn, { minWidth: 44, minHeight: 44, fontSize: 18, color: "var(--iquta)" }), onClick: () => set({ ccalMonth: nextM }) }, "›")
+        ),
+        !yearRegistered && React.createElement("div", { style: { background: "#fdf6f6", border: "1px solid #f0dbdb", borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "var(--aka)", fontWeight: 600 } }, cy + "年のカレンダーは未登録です（全日稼働扱い）。休業日をタップすると登録が始まります"),
+        React.createElement("div", { style: { fontSize: 12, color: "#888", marginBottom: 8 } }, cy + "年の休業日: " + offList.length + "日"),
+        React.createElement("div", { style: { background: "#fff", borderRadius: 12, padding: "10px", border: "1px solid var(--line)", marginBottom: 16 } },
+          React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 6 } },
+            ["日", "月", "火", "水", "木", "金", "土"].map((d, i) =>
+              React.createElement("div", { key: d, style: { textAlign: "center", fontSize: 11, fontWeight: 700, color: i === 0 ? "#c00" : i === 6 ? "var(--iquta)" : "#aaa", padding: "4px 0" } }, d)
+            )
+          ),
+          React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 } },
+            cells.map((d, i) => {
+              if (!d) return React.createElement("div", { key: "e" + i, style: { minHeight: 48 } });
+              const ds = cMonth + "-" + String(d).padStart(2, "0");
+              const isOff = offList.indexOf(ds) >= 0;
+              const isToday = ds === todayStr;
+              return React.createElement("button", {
+                key: "d" + i,
+                onClick: () => toggleOff(ds),
+                style: {
+                  minHeight: 48, borderRadius: 6, padding: "4px 2px", cursor: "pointer",
+                  background: isOff ? GANTT_OFF : "#fff",
+                  border: isToday ? "2px solid var(--iquta)" : "1px solid " + (isOff ? "#d9dce3" : "var(--line-soft)"),
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
+                },
+              },
+                React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: isOff ? "#9aa1ad" : "var(--ink)" } }, d),
+                React.createElement("div", { style: { fontSize: 9, fontWeight: 700, color: isOff ? "#9aa1ad" : "var(--iquta)" } }, isOff ? "休業" : "稼働")
+              );
+            })
+          )
         )
       ),
       React.createElement(SI)
