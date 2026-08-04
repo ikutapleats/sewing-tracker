@@ -109,8 +109,6 @@ const INIT_UI = {
   calSelectedDate: null,
   saidanPartId: null,
   saidanForm: null,
-  dlMonth: null,
-  dlSelectedDate: null,
   teamMonthTeam: null,
   teamMonthMonth: null,
   estPeople: 1,
@@ -140,6 +138,7 @@ const INIT_UI = {
   msFrom: daysAgo(6), msTo: today(), msSort: "rate", // 成績表（管理者向け）
   ganttMonth: null, // 生産スケジュール（ガント）の表示月 YYYY-MM
   ganttEditId: null, ganttForm: null, // ガントの編集ポップアップ（{start, days, team}）
+  ganttDlDate: null, // 納期行バッジで選択中の日（YYYY-MM-DD）。null=ポップオーバー非表示
   ccalMonth: null, // 会社カレンダー設定の表示月 YYYY-MM
   kbMode: "month", kbSearch: "", kbOpen: null, // 完了ボックス（表示切替・検索・グループ開閉。null=先頭のみ開く）
 };
@@ -1254,9 +1253,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       React.createElement(Body, null,
         React.createElement(BigBtn, { label: "集計・仕事量管理", sub: "全体・チーム別の実績と予算", onClick: () => set({ screen: "summary" }) }),
         React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { label: "納期カレンダー", sub: "品番ごとの納品予定日を一覧", onClick: () => set({ screen: "deadline_calendar", dlMonth: today().slice(0, 7) }) }),
-        React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { label: "生産スケジュール", sub: "チーム×日付のガントチャートで納期遅れと負荷を確認", onClick: () => set({ screen: "gantt", ganttMonth: today().slice(0, 7), ganttEditId: null, ganttForm: null }) }),
+        React.createElement(BigBtn, { label: "生産スケジュール", sub: "チーム×日付のガントチャートで納期・進捗・負荷を確認", onClick: () => set({ screen: "gantt", ganttMonth: today().slice(0, 7), ganttEditId: null, ganttForm: null, ganttDlDate: null }) }),
         React.createElement(Spacer, { h: 8 }),
         React.createElement(BigBtn, { label: "売上カレンダー", sub: "日ごとの完成売上を全体・チーム別で確認", onClick: () => set({ screen: "sales_calendar", salesMonth: today().slice(0, 7), salesTeam: "all" }) }),
         React.createElement(Spacer, { h: 8 }),
@@ -3383,140 +3380,6 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     );
   }
 
-  if (ui.screen === "deadline_calendar") {
-    const dlMonth = ui.dlMonth || today().slice(0, 7);
-    const [year, month] = dlMonth.split("-").map(Number);
-    const firstDay = new Date(year, month - 1, 1).getDay();
-    const daysInMonth = new Date(year, month, 0).getDate();
-    const prevMonth = month === 1 ? (year - 1) + "-12" : year + "-" + String(month - 1).padStart(2, "0");
-    const nextMonth = month === 12 ? (year + 1) + "-01" : year + "-" + String(month + 1).padStart(2, "0");
-
-    const dlByDate = {};
-    partSummary.forEach((p) => {
-      if (!p.deadline || p.deadline.slice(0, 7) !== dlMonth) return;
-      if (!dlByDate[p.deadline]) dlByDate[p.deadline] = [];
-      dlByDate[p.deadline].push(p);
-    });
-    sampleSummary.forEach((p) => {
-      if (!p.deadline || p.deadline.slice(0, 7) !== dlMonth) return;
-      if (!dlByDate[p.deadline]) dlByDate[p.deadline] = [];
-      dlByDate[p.deadline].push(p);
-    });
-    const monthDlCount = Object.values(dlByDate).reduce((a, arr) => a + arr.length, 0);
-    const dlPlannedSales = Object.values(dlByDate).reduce((a, arr) => a + arr.reduce((b, p) => {
-      const sale = p.assigneeType === "outsource" ? (p.sellPrice || 0) * (p.qty || 0) : (p.unitPrice || 0) * (p.qty || 0);
-      return b + sale;
-    }, 0), 0);
-
-    const days = [];
-    for (let i = 0; i < firstDay; i++) days.push(null);
-    for (let d = 1; d <= daysInMonth; d++) days.push(d);
-    const todayStr = today();
-
-    const teamColor = (p) => {
-      if (p.kind === "sample") return "#7a2a7a";
-      if (p.assigneeType === "outsource") return "#888";
-      return TEAM_COLORS[p.assignee] || "#bbb";
-    };
-
-    return React.createElement(Shell, null,
-      React.createElement(Header, { title: "📅 納期カレンダー", back: () => set({ screen: "home" }) }),
-      React.createElement(Body, null,
-
-        React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 } },
-          React.createElement("button", { style: Object.assign({}, st.ghostBtn, { padding: "8px 16px", fontSize: 16 }), onClick: () => set({ dlMonth: prevMonth, dlSelectedDate: null }) }, "‹"),
-          React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, year + "年" + month + "月　納期 " + monthDlCount + "件"),
-          React.createElement("button", { style: Object.assign({}, st.ghostBtn, { padding: "8px 16px", fontSize: 16 }), onClick: () => set({ dlMonth: nextMonth, dlSelectedDate: null }) }, "›")
-        ),
-
-        monthDlCount > 0 && React.createElement("div", { style: { background: "#1a1a1a", color: "#fff", borderRadius: 10, padding: "12px 16px", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" } },
-          React.createElement("span", { style: { fontSize: 12, opacity: 0.6 } }, "この月納期の予定売上合計"),
-          React.createElement("span", { style: { fontSize: 20, fontWeight: 700 } }, "¥" + Math.round(dlPlannedSales).toLocaleString())
-        ),
-
-        React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12, fontSize: 11 } },
-          TEAMS.map((t) => React.createElement("div", { key: t, style: { display: "flex", alignItems: "center", gap: 4 } },
-            React.createElement("div", { style: { width: 10, height: 10, borderRadius: 3, background: TEAM_COLORS[t] } }),
-            React.createElement("span", { style: { color: "#888" } }, t)
-          )),
-          React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 4 } },
-            React.createElement("div", { style: { width: 10, height: 10, borderRadius: 3, background: "#888" } }),
-            React.createElement("span", { style: { color: "#888" } }, "外注")
-          ),
-          React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 4 } },
-            React.createElement("div", { style: { width: 10, height: 10, borderRadius: 3, background: "#7a2a7a" } }),
-            React.createElement("span", { style: { color: "#888" } }, "✂ サンプル")
-          )
-        ),
-
-        React.createElement("div", { style: { background: "#fff", borderRadius: 12, padding: "10px", boxShadow: "0 1px 4px rgba(0,0,0,.06)", marginBottom: 16 } },
-          React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 6 } },
-            ["日","月","火","水","木","金","土"].map((d, i) =>
-              React.createElement("div", { key: d, style: { textAlign: "center", fontSize: 11, fontWeight: 700, color: i === 0 ? "#c00" : i === 6 ? "var(--iquta)" : "#aaa", padding: "4px 0" } }, d)
-            )
-          ),
-          React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 } },
-            days.map((d, i) => {
-              if (!d) return React.createElement("div", { key: "e" + i, style: { minHeight: 64 } });
-              const dateStr = year + "-" + String(month).padStart(2, "0") + "-" + String(d).padStart(2, "0");
-              const items = dlByDate[dateStr] || [];
-              const isToday = dateStr === todayStr;
-              const dow = (firstDay + d - 1) % 7;
-              return React.createElement("div", {
-                key: "d" + i,
-                style: {
-                  minHeight: 64, borderRadius: 6, padding: "3px 2px",
-                  background: isToday ? "#fff8e0" : "#fafafa",
-                  border: isToday ? "2px solid #ffd060" : "1px solid #f0eeea",
-                  cursor: items.length > 0 ? "pointer" : "default",
-                  overflow: "hidden",
-                },
-                onClick: () => items.length > 0 && set({ dlSelectedDate: dateStr })
-              },
-                React.createElement("div", { style: { textAlign: "center", fontSize: 11, fontWeight: 700, color: dow === 0 ? "#c00" : dow === 6 ? "var(--iquta)" : "#555", marginBottom: 2 } }, d),
-                items.slice(0, 3).map((p) =>
-                  React.createElement("div", { key: p.id, style: {
-                    background: teamColor(p) + (p.closedAt ? "30" : "20"),
-                    borderLeft: "3px solid " + teamColor(p),
-                    borderRadius: 3, padding: "1px 3px", marginBottom: 2,
-                    fontSize: 9, lineHeight: 1.2,
-                    color: p.closedAt ? "#aaa" : "#333",
-                    textDecoration: p.closedAt ? "line-through" : "none",
-                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                  } }, (p.kind === "sample" ? "✂" : "") + p.partNo)
-                ),
-                items.length > 3 && React.createElement("div", { style: { fontSize: 9, color: "#aaa", textAlign: "center" } }, "他" + (items.length - 3) + "件")
-              );
-            })
-          )
-        ),
-
-        ui.dlSelectedDate && dlByDate[ui.dlSelectedDate] && React.createElement("div", null,
-          React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } },
-            React.createElement("div", { style: st.sectionLabel }, ui.dlSelectedDate.slice(5).replace("-", "/") + " 納期の品番"),
-            React.createElement("button", { style: st.ghostBtn, onClick: () => set({ dlSelectedDate: null }) }, "✕")
-          ),
-          dlByDate[ui.dlSelectedDate].map((p) =>
-            React.createElement("button", { key: p.id, style: Object.assign({}, st.summaryCard, { textAlign: "left", borderLeft: "4px solid " + teamColor(p) }), onClick: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "deadline_calendar" }) },
-              React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
-                React.createElement("div", null,
-                  React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, (p.kind === "sample" ? "✂ " : "") + p.partNo + (p.partName ? " " + p.partName : "")),
-                  React.createElement("div", { style: { fontSize: 11, color: "#888", marginTop: 2 } },
-                    (p.assigneeType === "outsource" ? "外注: " + (p.vendorName || "?") : (p.assignee || "未割当")) + "　" + p.qty + "枚"
-                  )
-                ),
-                React.createElement(Badge, { part: p })
-              )
-            )
-          )
-        ),
-
-        !ui.dlSelectedDate && monthDlCount === 0 && React.createElement(Empty, null, year + "年" + month + "月が納期の品番はありません")
-      ),
-      React.createElement(SI)
-    );
-  }
-
   if (ui.screen === "saidan_report" && ui.saidanForm) {
     const f = ui.saidanForm;
     const part = data.parts.find((p) => p.id === f.partId) || {};
@@ -3813,6 +3676,12 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       const ds = gMonth + "-" + String(d).padStart(2, "0");
       dayMeta.push({ d, ds, dow: new Date(gy, gm - 1, d).getDay(), off: !isWorkday(ds, cal), isToday: ds === todayStr });
     }
+    // 納期行: 集計対象は全品番（未配置・チーム未定・外注・完了済みも含む）。
+    // 「納期があるのに未配置」の検知が主目的なので、ガント対象外の品番も隠さない
+    const dlByDate = {};
+    allSummary.forEach((p) => {
+      if (p.deadline && p.deadline >= mStart && p.deadline <= mEnd) (dlByDate[p.deadline] = dlByDate[p.deadline] || []).push(p);
+    });
     const gEditPart = ui.ganttEditId ? allSummary.find((p) => p.id === ui.ganttEditId) : null;
     const gf = ui.ganttForm;
     const setGF = (patch) => set({ ganttForm: Object.assign({}, ui.ganttForm, patch) });
@@ -3863,14 +3732,51 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         )
       );
     }
+    // 納期行バッジのポップオーバー: その日の品番一覧（品番・チーム・進捗%・未配置/完了マーク）。
+    // 品番タップで編集ポップアップへ。外注はガント配置対象外なので品番詳細へ飛ばす（チーム上書き事故を防ぐ）
+    let dlModal = null;
+    const dlSelList = ui.ganttDlDate ? (dlByDate[ui.ganttDlDate] || []) : [];
+    if (ui.ganttDlDate && dlSelList.length && !modal) {
+      dlModal = React.createElement("div", {
+        style: { position: "fixed", inset: 0, background: "rgba(28,35,51,.4)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 },
+        onClick: (e) => { if (e.target === e.currentTarget) set({ ganttDlDate: null }); },
+      },
+        React.createElement("div", { style: { background: "#fff", borderRadius: 14, width: "100%", maxWidth: 420, padding: 20, boxSizing: "border-box", maxHeight: "80vh", overflowY: "auto" } },
+          React.createElement("div", { style: { fontSize: 16, fontWeight: 700, marginBottom: 10 } }, ui.ganttDlDate.slice(5).replace("-", "/") + " 納期の品番 " + dlSelList.length + "件"),
+          dlSelList.map((p) => {
+            const pct = p.qty ? Math.min(100, Math.round((p.completedQty || 0) / p.qty * 100)) : 0;
+            const isOut = p.assigneeType === "outsource";
+            const isDone = !!p.closedAt || pct >= 100;
+            const teamTxt = isOut ? "外注: " + (p.vendorName || "未設定") : ((p.assignee && p.assignee !== "未割当") ? p.assignee : "チーム未定");
+            const mark = (txt, bg, col) => React.createElement("span", { style: { display: "inline-block", fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: bg, color: col, flex: "none" } }, txt);
+            return React.createElement("button", {
+              key: p.id,
+              onClick: isOut
+                ? () => set({ ganttDlDate: null, activePartId: p.id, screen: "part_detail", prevScreen: "gantt" })
+                : () => { set({ ganttDlDate: null }); openGanttModal(p); },
+              style: { display: "flex", alignItems: "center", gap: 8, width: "100%", minHeight: 48, padding: "8px 10px", background: "#fff", border: "1px solid var(--line-soft)", borderRadius: 10, marginBottom: 8, cursor: "pointer", textAlign: "left" },
+            },
+              React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+                React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, (p.kind === "sample" ? "✂ " : "") + p.partNo),
+                React.createElement("div", { style: { fontSize: 11, color: "var(--soft)", marginTop: 2 } }, teamTxt + " ／ 進捗 " + pct + "%")
+              ),
+              isDone && mark("完了", "#e8f5e8", "#2a7a2a"),
+              !isOut && !p.ganttStart && mark("未配置", "#fef3c7", "#b45309"),
+              React.createElement("span", { style: { color: "#ccc", flex: "none" } }, "›")
+            );
+          }),
+          React.createElement("button", { style: { width: "100%", height: 44, borderRadius: 10, fontSize: 14, cursor: "pointer", background: "#fff", border: "1px solid var(--line)", color: "var(--ink)", marginTop: 4 }, onClick: () => set({ ganttDlDate: null }) }, "閉じる")
+        )
+      );
+    }
     return React.createElement(Shell, null,
       React.createElement(Header, { title: "生産スケジュール", back: () => set({ screen: "home" }) }),
       React.createElement(Body, null,
         React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 12 } },
-          React.createElement("button", { style: Object.assign({}, st.ghostBtn, { minWidth: 44, minHeight: 44, fontSize: 18, color: "var(--iquta)" }), onClick: () => set({ ganttMonth: prevM }) }, "‹"),
+          React.createElement("button", { style: Object.assign({}, st.ghostBtn, { minWidth: 44, minHeight: 44, fontSize: 18, color: "var(--iquta)" }), onClick: () => set({ ganttMonth: prevM, ganttDlDate: null }) }, "‹"),
           React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, gy + "年" + gm + "月"),
-          React.createElement("button", { style: Object.assign({}, st.ghostBtn, { minWidth: 44, minHeight: 44, fontSize: 18, color: "var(--iquta)" }), onClick: () => set({ ganttMonth: nextM }) }, "›"),
-          React.createElement("button", { style: Object.assign({}, st.ghostBtn, { minHeight: 44, padding: "0 14px", fontSize: 13, color: "var(--ink)" }), onClick: () => set({ ganttMonth: today().slice(0, 7) }) }, "今月")
+          React.createElement("button", { style: Object.assign({}, st.ghostBtn, { minWidth: 44, minHeight: 44, fontSize: 18, color: "var(--iquta)" }), onClick: () => set({ ganttMonth: nextM, ganttDlDate: null }) }, "›"),
+          React.createElement("button", { style: Object.assign({}, st.ghostBtn, { minHeight: 44, padding: "0 14px", fontSize: 13, color: "var(--ink)" }), onClick: () => set({ ganttMonth: today().slice(0, 7), ganttDlDate: null }) }, "今月")
         ),
         // 未登録年は全日稼働扱いで表示しつつ警告（勝手にルールで推測しない）
         calMissing && React.createElement("div", { style: { background: "#fdf6f6", border: "1px solid #f0dbdb", borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "var(--aka)", fontWeight: 600 } }, gy + "年のカレンダー未登録です。全日を稼働日として表示しています（ホーム→会社カレンダーから登録）"),
@@ -3895,6 +3801,20 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                 m.d,
                 React.createElement("span", { style: { display: "block", fontSize: 8.5 } }, dows[m.dow])
               ))
+            ),
+            // 納期行: 日付ヘッダー直下の固定行。その日に納期がある品番の件数を赤バッジで表示（タップで一覧）
+            React.createElement("div", { style: { display: "flex" } },
+              React.createElement("div", { style: { width: teamW, minWidth: teamW, position: "sticky", left: 0, zIndex: 3, background: "#fff", borderRight: "2px solid var(--line)", borderBottom: "1px solid var(--line)", boxSizing: "border-box", display: "flex", alignItems: "center", padding: "0 8px", fontSize: 11, fontWeight: 700, color: GANTT_RED } }, "納期"),
+              dayMeta.map((m) => {
+                const list = dlByDate[m.ds] || [];
+                return React.createElement("button", {
+                  key: m.d,
+                  onClick: list.length ? () => set({ ganttDlDate: ui.ganttDlDate === m.ds ? null : m.ds }) : undefined,
+                  style: { width: colW, minWidth: colW, height: 40, boxSizing: "border-box", border: "none", borderLeft: "1px solid #f1f3f8", borderBottom: "1px solid var(--line)", background: m.isToday ? "var(--iquta-bg)" : m.off ? GANTT_OFF : "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: list.length ? "pointer" : "default", padding: 0 },
+                },
+                  list.length > 0 && React.createElement("span", { style: { minWidth: 22, height: 22, borderRadius: 11, background: GANTT_RED, color: "#fff", fontSize: 11, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 4px" } }, list.length)
+                );
+              })
             ),
             TEAMS.map((team) => {
               const tParts = ganttParts
@@ -3953,6 +3873,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement("span", null, React.createElement("span", { style: { display: "inline-block", width: 3, height: 12, borderRadius: 2, background: GANTT_RED, verticalAlign: -2, marginRight: 4 } }), "納期日")
         )
       ),
+      dlModal,
       modal,
       React.createElement(SI)
     );
