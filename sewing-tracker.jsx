@@ -141,6 +141,7 @@ const INIT_UI = {
   ganttMonth: null, // 生産スケジュール（ガント）の表示月 YYYY-MM
   ganttEditId: null, ganttForm: null, // ガントの編集ポップアップ（{start, days, team}）
   ccalMonth: null, // 会社カレンダー設定の表示月 YYYY-MM
+  kbMode: "month", kbSearch: "", kbOpen: null, // 完了ボックス（表示切替・検索・グループ開閉。null=先頭のみ開く）
 };
 
 async function gasSave(data) {
@@ -543,11 +544,13 @@ function App() {
     return a.deadline.localeCompare(b.deadline);
   }), [partSummary]);
 
+  // 品番マスター一覧は進行中のみ（完了品番は完了ボックスで見る。完了操作自体は既存のまま）
   const filteredMaster = useMemo(() => {
-    if (ui.masterFilter === "all") return partSummary;
-    if (ui.masterFilter === "未割当") return partSummary.filter((p) => !p.assignee || p.assignee === "未割当");
-    if (ui.masterFilter === "外注") return partSummary.filter((p) => p.assigneeType === "outsource");
-    return partSummary.filter((p) => p.assignee === ui.masterFilter);
+    const openParts = partSummary.filter((p) => !p.closedAt);
+    if (ui.masterFilter === "all") return openParts;
+    if (ui.masterFilter === "未割当") return openParts.filter((p) => !p.assignee || p.assignee === "未割当");
+    if (ui.masterFilter === "外注") return openParts.filter((p) => p.assigneeType === "outsource");
+    return openParts.filter((p) => p.assignee === ui.masterFilter);
   }, [partSummary, ui.masterFilter]);
 
   function addPart() {
@@ -1267,7 +1270,9 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         React.createElement(Spacer, { h: 8 }),
         React.createElement(BigBtn, { label: "生産価値", sub: "人・日・品番ごとの時間と生産価値を振り返る", onClick: () => set({ screen: "value_view", vvAxis: "member", vvPeriod: "month", vvMonth: today().slice(0, 7), vvExpanded: {} }) }),
         React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { label: "品番マスター", sub: "全品番の登録・割当管理" + (unassigned > 0 ? "　未割当 " + unassigned + "件" : ""), onClick: () => set({ screen: "master", masterFilter: "all" }) }),
+        React.createElement(BigBtn, { label: "品番マスター", sub: "進行中の品番の登録・割当管理" + (unassigned > 0 ? "　未割当 " + unassigned + "件" : ""), onClick: () => set({ screen: "master", masterFilter: "all" }) }),
+        React.createElement(Spacer, { h: 8 }),
+        React.createElement(BigBtn, { label: "完了ボックス", sub: "完了した品番を納品月別・客先別・チーム別に確認", onClick: () => set({ screen: "kanryo_box", kbMode: "month", kbSearch: "", kbOpen: null }) }),
         React.createElement(Spacer, { h: 12 }),
         React.createElement(Divider, { label: "チームを選ぶ" }),
         TEAMS.map((team) => {
@@ -3693,6 +3698,88 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             React.createElement("button", { style: { border: "none", background: "none", color: "#c0271d", fontSize: 16, cursor: "pointer", padding: "0 4px", lineHeight: 1 }, onClick: () => delP(w) }, "✕")
           ); })
         )
+      ),
+      React.createElement(SI)
+    );
+  }
+
+  // ── 完了ボックス ────────────────────────────────────────────
+  // 完了操作（closedAt）をした品番が自動でここに入る（格納の手作業なし）。
+  // 仕分けは既存データから自動: 納品月=deadlineの年月（closedAtの月ではない・決定済み）、
+  // 客先=brandName、チーム=assignee。データが欠けている品番は「未設定」グループに入れる（隠さない）。
+  if (ui.screen === "kanryo_box") {
+    const kbAll = allSummary.filter((p) => p.closedAt);
+    const q = (ui.kbSearch || "").trim().toLowerCase();
+    const kbFiltered = kbAll.filter((p) => !q || (p.partNo || "").toLowerCase().indexOf(q) >= 0 || (p.partName || "").toLowerCase().indexOf(q) >= 0);
+    const kbMode = ui.kbMode || "month";
+    const teamLabel = (p) => p.assigneeType === "outsource" ? "外注: " + (p.vendorName || "未設定") : ((p.assignee && p.assignee !== "未割当") ? p.assignee : "チーム未設定");
+    const keyOf = (p) => {
+      if (kbMode === "month") return (p.deadline || "").slice(0, 7) || "納期未設定";
+      if (kbMode === "brand") return p.brandName || "客先未設定";
+      return teamLabel(p);
+    };
+    const labelOf = (k) => (kbMode === "month" && /^\d{4}-\d{2}$/.test(k)) ? k.slice(0, 4) + "年" + (+k.slice(5)) + "月" : k;
+    const groups = {};
+    kbFiltered.forEach((p) => { const k = keyOf(p); (groups[k] = groups[k] || []).push(p); });
+    const keys = Object.keys(groups);
+    if (kbMode === "month") keys.sort().reverse(); else keys.sort((a, b) => a.localeCompare(b, "ja"));
+    // 表示切替直後（kbOpen=null）は先頭グループのみ開いた状態
+    const openMap = ui.kbOpen || (keys.length ? { [keys[0]]: true } : {});
+    const modeBtn = (m, label) => React.createElement("button", {
+      key: m,
+      style: { height: 44, padding: "0 18px", borderRadius: 22, fontSize: 14, cursor: "pointer", border: "1px solid " + (kbMode === m ? "var(--iquta)" : "var(--line)"), background: kbMode === m ? "var(--iquta)" : "#fff", color: kbMode === m ? "#fff" : "var(--ink)", fontWeight: kbMode === m ? 700 : 400 },
+      onClick: () => set({ kbMode: m, kbOpen: null }),
+    }, label);
+    // 「戻す」は既存の完了操作の逆＝reopenPart（closedAtクリア→updatePart）をそのまま使う。確認ダイアログを1回挟む
+    const restorePart = (p) => { if (window.confirm(p.partNo + " を進行中に戻しますか？")) reopenPart(p.id); };
+    const tagStyle = { display: "inline-block", fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "var(--iquta-bg)", color: "var(--iquta)", marginRight: 4, marginTop: 2 };
+    return React.createElement(Shell, null,
+      React.createElement(Header, { title: "完了ボックス", back: () => set({ screen: "home" }) }),
+      React.createElement(Body, null,
+        React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" } },
+          modeBtn("month", "納品月別"), modeBtn("brand", "客先別"), modeBtn("team", "チーム別"),
+          React.createElement("input", { style: Object.assign({}, st.input, { marginLeft: "auto", width: 220, maxWidth: "100%", height: 44 }), placeholder: "品番・品名で検索", value: ui.kbSearch || "", onChange: (e) => set({ kbSearch: e.target.value }) })
+        ),
+        keys.length === 0 && React.createElement("div", { style: { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, padding: 24, textAlign: "center", color: "var(--soft)", fontSize: 14 } }, "該当する完了品番はありません"),
+        keys.map((k) => {
+          const items = groups[k];
+          const totalQty = items.reduce((a, p) => a + (p.qty || 0), 0);
+          // 売上は既存集計の totalSales（unitPrice×qty）を再利用（重複実装しない）
+          const sales = items.reduce((a, p) => a + (p.totalSales || 0), 0);
+          const open = !!openMap[k];
+          return React.createElement("div", { key: k, style: { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, marginBottom: 10, overflow: "hidden" } },
+            React.createElement("button", {
+              style: { display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", minHeight: 52, width: "100%", background: "none", border: "none", cursor: "pointer", textAlign: "left" },
+              onClick: () => set({ kbOpen: Object.assign({}, openMap, { [k]: !open }) }),
+            },
+              React.createElement("span", { style: { color: "var(--iquta)", fontSize: 13, width: 16, flex: "none", display: "inline-block", transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" } }, "▶"),
+              React.createElement("b", { style: { fontSize: 15 } }, labelOf(k)),
+              React.createElement("div", { style: { marginLeft: "auto", fontSize: 12, color: "var(--soft)", textAlign: "right", lineHeight: 1.5 } },
+                React.createElement("span", { style: { color: "var(--ink)", fontWeight: 700 } }, items.length + "件"),
+                " / " + totalQty + "枚",
+                React.createElement("br"),
+                "売上 ¥" + Math.round(sales).toLocaleString()
+              )
+            ),
+            open && React.createElement("div", { style: { borderTop: "1px solid var(--line)" } },
+              items.map((p) => React.createElement("div", { key: p.id, style: { display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderBottom: "1px solid var(--line-soft)", flexWrap: "wrap" } },
+                React.createElement("div", { style: { fontWeight: 700, fontSize: 14, minWidth: 130 } }, (p.kind === "sample" ? "✂ " : "") + p.partNo),
+                React.createElement("div", { style: { color: "var(--soft)", fontSize: 13, flex: 1, minWidth: 140 } },
+                  p.partName || "",
+                  React.createElement("br"),
+                  React.createElement("span", { style: tagStyle }, p.brandName || "客先未設定"),
+                  React.createElement("span", { style: tagStyle }, teamLabel(p))
+                ),
+                React.createElement("div", { style: { fontSize: 12, color: "var(--soft)", textAlign: "right", lineHeight: 1.5 } },
+                  "納期 " + (p.deadline || "-"),
+                  React.createElement("br"),
+                  "完了 " + (p.closedAt || "-") + " / " + (p.qty || 0) + "枚"
+                ),
+                React.createElement("button", { style: { minHeight: 44, padding: "0 12px", border: "1px solid var(--line)", borderRadius: 8, background: "#fff", fontSize: 12, color: "var(--soft)", cursor: "pointer", flex: "none" }, onClick: () => restorePart(p) }, "戻す")
+              ))
+            )
+          );
+        })
       ),
       React.createElement(SI)
     );
