@@ -142,6 +142,7 @@ const INIT_UI = {
   ccalMonth: null, // 会社カレンダー設定の表示月 YYYY-MM
   kbMode: "month", kbSearch: "", kbOpen: null, // 完了ボックス（表示切替・検索・グループ開閉。null=先頭のみ開く）
   kaTeam: "all", kaMonth: "all", kaSort: "closed", // 完了分析（チーム絞り込み・納品月絞り込み・並び順）
+  kaDetailId: null, // 完了分析: 詳細グラフ画面を表示中の品番ID（nullなら非表示）
 };
 
 async function gasSave(data) {
@@ -3733,7 +3734,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         ),
         kaSorted.length === 0 && React.createElement("div", { style: { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, padding: 24, textAlign: "center", color: "var(--soft)", fontSize: 14 } }, "該当する完了品番はありません"),
         kaSorted.length > 0 && React.createElement("div", { style: { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, overflow: "hidden" } },
-          kaSorted.map((p) => React.createElement("div", { key: p.id, style: { display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderBottom: "1px solid var(--line-soft)", flexWrap: "wrap" } },
+          kaSorted.map((p) => React.createElement("div", { key: p.id, style: { display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderBottom: "1px solid var(--line-soft)", flexWrap: "wrap", cursor: "pointer" }, onClick: () => set({ screen: "kanryo_analysis_detail", kaDetailId: p.id }) },
             React.createElement("div", { style: { flex: 1, minWidth: 150 } },
               React.createElement("div", { style: { fontWeight: 700, fontSize: 15 } }, (p.kind === "sample" ? "✂ " : "") + p.partNo),
               React.createElement("div", { style: { color: "var(--soft)", fontSize: 13 } }, p.partName || ""),
@@ -3755,8 +3756,138 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                     React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, fmtHours(p.totalHours))
                   )
                 : React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, "時間記録なし")
-            )
+            ),
+            React.createElement("div", { style: { fontSize: 18, color: "var(--faint)", flex: "none" } }, "›")
           ))
+        )
+      ),
+      React.createElement(SI)
+    );
+  }
+
+  // ── 完了分析：品番タップで開く詳細グラフ画面 ──────────────────
+  // allSummary が持つ totalSales/totalHours/hourlyRate/workerMap/recs/brandName/vendorNameを
+  // そのまま使う（DRY・再集計しない）。工程別グラフだけ koteiRecords から個別に集計する。
+  if (ui.screen === "kanryo_analysis_detail") {
+    const p = allSummary.find((x) => x.id === ui.kaDetailId);
+    if (!p) {
+      return React.createElement(Shell, null,
+        React.createElement(Header, { title: "完了分析", back: () => set({ screen: "kanryo_analysis", kaDetailId: null }) }),
+        React.createElement(Body, null,
+          React.createElement("div", { style: { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, padding: 24, textAlign: "center", color: "var(--soft)", fontSize: 14 } }, "品番が見つかりません")
+        ),
+        React.createElement(SI)
+      );
+    }
+    // 完了分析画面と同じ見た目のタグ（客先／チーム or 外注）
+    const teamLabel = (x) => x.assigneeType === "outsource" ? "外注: " + (x.vendorName || "未設定") : ((x.assignee && x.assignee !== "未割当") ? x.assignee : "チーム未設定");
+    const tagStyle = { display: "inline-block", fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "var(--iquta-bg)", color: "var(--iquta)", marginRight: 4, marginTop: 2 };
+    // 総時間の表示: 小数1桁までだが、ちょうど整数なら整数で表示（完了分析画面のfmtHoursと同じ考え方）
+    const fmtHours = (h) => { const r = Math.round(h * 10) / 10; return (Number.isInteger(r) ? "" + r : r.toFixed(1)) + "h"; };
+    // カード見出しの共通スタイル
+    const cardStyle = { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, padding: "14px 16px", marginBottom: 14 };
+    const cardTitle = { fontSize: 13, fontWeight: 700, marginBottom: 10 };
+    // 横棒1行（工程別・担当者別で共通利用）: ラベル + 棒 + 値
+    const hBarRow = (key, label, v, maxV) => {
+      const pct = Math.max(2, Math.round((v / maxV) * 100));
+      return React.createElement("div", { key: key, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8 } },
+        React.createElement("div", { style: { width: 110, flex: "none", fontSize: 12, color: "var(--ink)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, label),
+        React.createElement("div", { style: { flex: 1, background: "var(--iquta-bg)", borderRadius: "0 4px 4px 0", overflow: "hidden" } },
+          React.createElement("div", { style: { width: pct + "%", height: 18, borderRadius: "0 4px 4px 0", background: "var(--iquta)" } })
+        ),
+        React.createElement("div", { style: { width: 48, flex: "none", textAlign: "right", fontSize: 11, color: "var(--ink)" } }, fmtHours(v))
+      );
+    };
+    // ── グラフ1: 工程別時間 ── koteiRecordsをpartIdで絞り、stepNameごとにΣ(stepSec×qty)を集計
+    // stepSec は工程1回（1枚あたり）の実測秒数なので、qty枚分を掛けて合計秒数を出し、時間に換算する
+    const koteiOfPart = (data.koteiRecords || []).filter((r) => r.partId === p.id);
+    const stepMap = {};
+    for (const r of koteiOfPart) {
+      const sec = (r.stepSec || 0) * (r.qty || 0);
+      stepMap[r.stepName] = (stepMap[r.stepName] || 0) + sec / 3600;
+    }
+    const stepBars = Object.keys(stepMap).map((name) => ({ name: name, hours: stepMap[name] })).sort((a, b) => b.hours - a.hours);
+    const stepMaxV = Math.max.apply(null, stepBars.map((s) => s.hours).concat([1]));
+    const stepTotal = stepBars.reduce((a, s) => a + s.hours, 0);
+    // ── グラフ2: 日別作業時間 ── p.recsをdateごとにΣhours、日付昇順
+    const dayMap = {};
+    for (const r of p.recs) dayMap[r.date] = (dayMap[r.date] || 0) + r.hours;
+    const dayBars = Object.keys(dayMap).sort().map((d) => ({ date: d, hours: dayMap[d] }));
+    const dayMaxV = Math.max.apply(null, dayBars.map((d) => d.hours).concat([1]));
+    const dayScroll = dayBars.length > 15;
+    // 日付ラベル「M/D」（本数が多い時は間引いて表示）
+    const dayLabel = (ds) => { const parts = (ds || "").split("-"); return parts.length === 3 ? (+parts[1]) + "/" + (+parts[2]) : ds; };
+    // ── グラフ3: 担当者別時間 ── p.workerMapを時間降順
+    const workerBars = Object.keys(p.workerMap).map((name) => ({ name: name, hours: p.workerMap[name] })).sort((a, b) => b.hours - a.hours);
+    const workerMaxV = Math.max.apply(null, workerBars.map((w) => w.hours).concat([1]));
+    return React.createElement(Shell, null,
+      React.createElement(Header, { title: p.partNo, back: () => set({ screen: "kanryo_analysis", kaDetailId: null }) }),
+      React.createElement(Body, null,
+        // 成績カード
+        React.createElement("div", { style: cardStyle },
+          React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, p.partName || ""),
+          React.createElement("div", { style: { marginTop: 2, marginBottom: 8 } },
+            React.createElement("span", { style: tagStyle }, p.brandName || "客先未設定"),
+            React.createElement("span", { style: tagStyle }, teamLabel(p))
+          ),
+          React.createElement("div", { style: { fontSize: 12, color: "var(--soft)", marginBottom: 10 } }, "完了 " + (p.closedAt || "-") + "　納期 " + (p.deadline || "-")),
+          React.createElement("div", { style: { display: "flex", gap: 20, flexWrap: "wrap" } },
+            React.createElement("div", null,
+              React.createElement("div", { style: { fontSize: 11, color: "var(--soft)" } }, "売上"),
+              React.createElement("div", { style: { fontSize: 16, fontWeight: 700 } }, "¥" + Math.round(p.totalSales || 0).toLocaleString()),
+              React.createElement("div", { style: { fontSize: 11, color: "var(--soft)" } }, "¥" + Math.round(p.unitPrice || 0).toLocaleString() + " × " + (p.qty || 0) + "枚")
+            ),
+            p.totalHours > 0
+              ? React.createElement(React.Fragment, null,
+                  React.createElement("div", null,
+                    React.createElement("div", { style: { fontSize: 11, color: "var(--soft)" } }, "総作業時間"),
+                    React.createElement("div", { style: { fontSize: 16, fontWeight: 700 } }, fmtHours(p.totalHours))
+                  ),
+                  React.createElement("div", null,
+                    React.createElement("div", { style: { fontSize: 11, color: "var(--soft)" } }, "1時間当たり"),
+                    React.createElement("div", { style: { fontSize: 18, fontWeight: 700, color: "var(--iquta)" } }, "¥" + Math.round(p.hourlyRate || 0).toLocaleString() + "/h")
+                  )
+                )
+              : React.createElement("div", null,
+                  React.createElement("div", { style: { fontSize: 11, color: "var(--soft)" } }, "総作業時間"),
+                  React.createElement("div", { style: { fontSize: 14, color: "var(--soft)" } }, "時間記録なし")
+                )
+          )
+        ),
+        // グラフ1: 工程別の時間
+        React.createElement("div", { style: cardStyle },
+          React.createElement("div", { style: cardTitle }, "工程別の時間"),
+          stepBars.length === 0
+            ? React.createElement("div", { style: { fontSize: 13, color: "var(--soft)" } }, "工程記録がありません（工程表を使っていない品番です）")
+            : React.createElement(React.Fragment, null,
+                stepBars.map((s) => hBarRow(s.name, s.name, s.hours, stepMaxV)),
+                React.createElement("div", { style: { fontSize: 11, color: "var(--soft)", marginTop: 4, textAlign: "right" } }, "合計 " + fmtHours(stepTotal))
+              )
+        ),
+        // グラフ2: 日別の作業時間
+        React.createElement("div", { style: cardStyle },
+          React.createElement("div", { style: cardTitle }, "日別の作業時間"),
+          dayBars.length === 0
+            ? React.createElement("div", { style: { fontSize: 13, color: "var(--soft)" } }, "作業記録がありません")
+            : React.createElement("div", { style: { overflowX: dayScroll ? "auto" : "visible", WebkitOverflowScrolling: "touch" } },
+                React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: dayScroll ? 4 : 6, height: 110, minWidth: dayScroll ? dayBars.length * 18 : 0 } },
+                  dayBars.map((d, i) => {
+                    // maxVを100%として棒の高さを最大80pxに正規化（0時間でも見えるよう最小2px）
+                    const h = d.hours > 0 ? Math.max(2, Math.round(80 * d.hours / dayMaxV)) : 2;
+                    const showLabel = !dayScroll || i % Math.ceil(dayBars.length / 15) === 0 || i === dayBars.length - 1;
+                    return React.createElement("div", { key: d.date, style: { flex: dayScroll ? "none" : 1, width: dayScroll ? 14 : "auto", minWidth: 14, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" } },
+                      React.createElement("div", { style: { fontSize: 9, color: "var(--ink)", marginBottom: 3, whiteSpace: "nowrap" } }, dayBars.length <= 15 ? fmtHours(d.hours) : ""),
+                      React.createElement("div", { style: { width: "100%", maxWidth: 15, height: h, borderRadius: "4px 4px 0 0", background: "var(--iquta)" } }),
+                      React.createElement("div", { style: { fontSize: 9, color: "var(--soft)", marginTop: 4, whiteSpace: "nowrap", visibility: showLabel ? "visible" : "hidden" } }, dayLabel(d.date))
+                    );
+                  })
+                )
+              )
+        ),
+        // グラフ3: 担当者別の時間（作業記録がなければグラフ2の「作業記録がありません」で足りるため非表示）
+        workerBars.length > 0 && React.createElement("div", { style: cardStyle },
+          React.createElement("div", { style: cardTitle }, "担当者別の時間"),
+          workerBars.map((w) => hBarRow(w.name, w.name, w.hours, workerMaxV))
         )
       ),
       React.createElement(SI)
