@@ -143,6 +143,7 @@ const INIT_UI = {
   kbMode: "month", kbSearch: "", kbOpen: null, // 完了ボックス（表示切替・検索・グループ開閉。null=先頭のみ開く）
   kaTeam: "all", kaMonth: "all", kaSort: "closed", // 完了分析（チーム絞り込み・納品月絞り込み・並び順）
   kaDetailId: null, // 完了分析: 詳細グラフ画面を表示中の品番ID（nullなら非表示）
+  kaBrand: "all", kaFrom: "", kaTo: "", // 完了分析（客先絞り込み・期間指定の開始日/終了日）
 };
 
 async function gasSave(data) {
@@ -3671,9 +3672,26 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const tagStyle = { display: "inline-block", fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "var(--iquta-bg)", color: "var(--iquta)", marginRight: 4, marginTop: 2 };
     // チーム絞り込み: 「全体」は外注も含む全件。チーム選択時はそのチームの自社分のみ（外注は除く）
     const kaTeamFiltered = ui.kaTeam === "all" ? kaAll : kaAll.filter((p) => p.assigneeType !== "outsource" && p.assignee === ui.kaTeam);
-    // 納品月の選択肢はチーム絞り込み後の対象から作る（選んでも0件にならないように）
-    const kaMonths = Array.from(new Set(kaTeamFiltered.map((p) => (p.deadline || "").slice(0, 7)).filter(Boolean))).sort().reverse();
-    const kaFiltered = ui.kaMonth === "all" ? kaTeamFiltered : kaTeamFiltered.filter((p) => (p.deadline || "").slice(0, 7) === ui.kaMonth);
+    // 客先(ブランド)の選択肢はチーム絞り込み後の対象から作る（選んでも0件にならないように）。
+    // brandIdが無い品番が対象に含まれる場合だけ「客先未設定」も選べるようにする
+    const kaBrandOptions = (() => {
+      const map = {};
+      let hasNone = false;
+      kaTeamFiltered.forEach((p) => { if (p.brandId) map[p.brandId] = p.brandName || "客先未設定"; else hasNone = true; });
+      const arr = Object.keys(map).map((id) => ({ id: id, name: map[id] })).sort((a, b) => a.name.localeCompare(b.name, "ja"));
+      if (hasNone) arr.push({ id: "none", name: "客先未設定" });
+      return arr;
+    })();
+    // 客先絞り込み: all=全件、none=客先未設定のみ、それ以外はbrandId一致
+    const kaBrandFiltered = ui.kaBrand === "all" ? kaTeamFiltered
+      : ui.kaBrand === "none" ? kaTeamFiltered.filter((p) => !p.brandId)
+      : kaTeamFiltered.filter((p) => p.brandId === ui.kaBrand);
+    // 期間・月は完了日(closedAt)基準（社長決定）。選択肢は客先絞り込み後の対象から作る（選んでも0件にならないように）
+    const kaMonths = Array.from(new Set(kaBrandFiltered.map((p) => (p.closedAt || "").slice(0, 7)).filter(Boolean))).sort().reverse();
+    // kaMonth==="custom"のときはkaFrom/kaTo（完了日の範囲、文字列比較でOK）で絞る。空側は無制限
+    const kaFiltered = ui.kaMonth === "all" ? kaBrandFiltered
+      : ui.kaMonth === "custom" ? kaBrandFiltered.filter((p) => (!ui.kaFrom || (p.closedAt || "") >= ui.kaFrom) && (!ui.kaTo || (p.closedAt || "") <= ui.kaTo))
+      : kaBrandFiltered.filter((p) => (p.closedAt || "").slice(0, 7) === ui.kaMonth);
     // 並び順: 完了日順は単純降順。時間当たり順は「時間記録がある品番だけ」を高い順に並べ、記録なしは末尾にまとめる
     let kaSorted;
     if (ui.kaSort === "rate") {
@@ -3700,7 +3718,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       return React.createElement("button", {
         key: team,
         style: { height: 44, padding: "0 16px", borderRadius: 22, fontSize: 14, cursor: "pointer", border: "1px solid " + (active ? color : "var(--line)"), background: active ? color : "#fff", color: active ? "#fff" : "var(--ink)", fontWeight: active ? 700 : 400, flex: "none" },
-        onClick: () => set({ kaTeam: team, kaMonth: "all" }),
+        onClick: () => set({ kaTeam: team, kaMonth: "all", kaBrand: "all" }),
       }, label);
     };
     return React.createElement(Shell, null,
@@ -3711,14 +3729,25 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           TEAMS.map((t) => kaTeamBtn(t, t, TEAM_COLORS[t]))
         ),
         React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" } },
+          React.createElement("select", { style: Object.assign({}, st.input, { height: 44, width: 160, maxWidth: "100%" }), value: ui.kaBrand, onChange: (e) => set({ kaBrand: e.target.value, kaMonth: "all" }) },
+            React.createElement("option", { value: "all" }, "全客先"),
+            kaBrandOptions.map((b) => React.createElement("option", { key: b.id, value: b.id }, b.name))
+          ),
           React.createElement("select", { style: Object.assign({}, st.input, { height: 44, width: 180, maxWidth: "100%" }), value: ui.kaMonth, onChange: (e) => set({ kaMonth: e.target.value }) },
             React.createElement("option", { value: "all" }, "全期間"),
-            kaMonths.map((m) => React.createElement("option", { key: m, value: m }, m.slice(0, 4) + "年" + (+m.slice(5)) + "月"))
+            kaMonths.map((m) => React.createElement("option", { key: m, value: m }, m.slice(0, 4) + "年" + (+m.slice(5)) + "月")),
+            React.createElement("option", { value: "custom" }, "期間を指定…")
           ),
           React.createElement("button", {
             style: { height: 44, padding: "0 16px", borderRadius: 22, fontSize: 14, cursor: "pointer", border: "1px solid var(--line)", background: "#fff", color: "var(--ink)" },
             onClick: () => set({ kaSort: ui.kaSort === "closed" ? "rate" : "closed" }),
           }, ui.kaSort === "closed" ? "並び順: 完了日順" : "並び順: 時間当たり順")
+        ),
+        // 「期間を指定…」選択時だけ表示する完了日の範囲指定（他の選択肢に戻してもkaFrom/kaToの値は残したままでよい）
+        ui.kaMonth === "custom" && React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" } },
+          React.createElement("input", { type: "date", style: Object.assign({}, st.input, { height: 44, width: 150 }), value: ui.kaFrom, onChange: (e) => set({ kaFrom: e.target.value }) }),
+          React.createElement("span", { style: { color: "var(--soft)" } }, "〜"),
+          React.createElement("input", { type: "date", style: Object.assign({}, st.input, { height: 44, width: 150 }), value: ui.kaTo, onChange: (e) => set({ kaTo: e.target.value }) })
         ),
         React.createElement("div", { style: { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, padding: 16, marginBottom: 14, display: "flex", gap: 20, flexWrap: "wrap" } },
           React.createElement("div", null,
