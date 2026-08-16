@@ -143,6 +143,7 @@ const INIT_UI = {
   kbMode: "month", kbSearch: "", kbOpen: null, // 完了ボックス（表示切替・検索・グループ開閉。null=先頭のみ開く）
   kaTeam: "all", kaMonth: "all", kaSort: "closed", // 完了分析（チーム絞り込み・納品月絞り込み・並び順）
   kaDetailId: null, // 完了分析: 詳細グラフ画面を表示中の品番ID（nullなら非表示）
+  kaDetailFrom: null, // 詳細グラフ画面の戻り先（"kanryo_analysis" or "kanryo_box"。null=完了分析）
   kaBrand: "all", kaFrom: "", kaTo: "", // 完了分析（客先絞り込み・期間指定の開始日/終了日）
 };
 
@@ -3632,7 +3633,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
               )
             ),
             open && React.createElement("div", { style: { borderTop: "1px solid var(--line)" } },
-              items.map((p) => React.createElement("div", { key: p.id, style: { display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderBottom: "1px solid var(--line-soft)", flexWrap: "wrap" } },
+              // 行タップでその品番の詳細分析（グラフ）画面へ。kaDetailFromで戻り先を完了ボックスに指定
+              items.map((p) => React.createElement("div", { key: p.id, style: { display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderBottom: "1px solid var(--line-soft)", flexWrap: "wrap", cursor: "pointer" }, onClick: () => set({ screen: "kanryo_analysis_detail", kaDetailId: p.id, kaDetailFrom: "kanryo_box" }) },
                 React.createElement("div", { style: { fontWeight: 700, fontSize: 14, minWidth: 130 } }, (p.kind === "sample" ? "✂ " : "") + p.partNo),
                 React.createElement("div", { style: { color: "var(--soft)", fontSize: 13, flex: 1, minWidth: 140 } },
                   p.partName || "",
@@ -3645,7 +3647,9 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                   React.createElement("br"),
                   "完了 " + (p.closedAt || "-") + " / " + (p.qty || 0) + "枚"
                 ),
-                React.createElement("button", { style: { minHeight: 44, padding: "0 12px", border: "1px solid var(--line)", borderRadius: 8, background: "#fff", fontSize: 12, color: "var(--soft)", cursor: "pointer", flex: "none" }, onClick: () => restorePart(p) }, "戻す")
+                // 「戻す」ボタンは行タップ（詳細へ）と別の操作なので、クリックが行に伝わらないよう止める
+                React.createElement("button", { style: { minHeight: 44, padding: "0 12px", border: "1px solid var(--line)", borderRadius: 8, background: "#fff", fontSize: 12, color: "var(--soft)", cursor: "pointer", flex: "none" }, onClick: (e) => { e.stopPropagation(); restorePart(p); } }, "戻す"),
+                React.createElement("div", { style: { fontSize: 18, color: "var(--faint)", flex: "none" } }, "›")
               ))
             )
           );
@@ -3773,7 +3777,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         ),
         kaSorted.length === 0 && React.createElement("div", { style: { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, padding: 24, textAlign: "center", color: "var(--soft)", fontSize: 14 } }, "該当する完了品番はありません"),
         kaSorted.length > 0 && React.createElement("div", { style: { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, overflow: "hidden" } },
-          kaSorted.map((p) => React.createElement("div", { key: p.id, style: { display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderBottom: "1px solid var(--line-soft)", flexWrap: "wrap", cursor: "pointer" }, onClick: () => set({ screen: "kanryo_analysis_detail", kaDetailId: p.id }) },
+          kaSorted.map((p) => React.createElement("div", { key: p.id, style: { display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderBottom: "1px solid var(--line-soft)", flexWrap: "wrap", cursor: "pointer" }, onClick: () => set({ screen: "kanryo_analysis_detail", kaDetailId: p.id, kaDetailFrom: "kanryo_analysis" }) },
             React.createElement("div", { style: { flex: 1, minWidth: 150 } },
               React.createElement("div", { style: { fontWeight: 700, fontSize: 15 } }, (p.kind === "sample" ? "✂ " : "") + p.partNo),
               React.createElement("div", { style: { color: "var(--soft)", fontSize: 13 } }, p.partName || ""),
@@ -3813,7 +3817,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const p = allSummary.find((x) => x.id === ui.kaDetailId);
     if (!p) {
       return React.createElement(Shell, null,
-        React.createElement(Header, { title: "完了分析", back: () => set({ screen: "kanryo_analysis", kaDetailId: null }) }),
+        React.createElement(Header, { title: "完了分析", back: () => set({ screen: ui.kaDetailFrom || "kanryo_analysis", kaDetailId: null, kaDetailFrom: null }) }),
         React.createElement(Body, null,
           React.createElement("div", { style: { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, padding: 24, textAlign: "center", color: "var(--soft)", fontSize: 14 } }, "品番が見つかりません")
         ),
@@ -3865,7 +3869,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const workerBars = Object.keys(p.workerMap).map((name) => ({ name: name, hours: p.workerMap[name] })).sort((a, b) => b.hours - a.hours);
     const workerMaxV = Math.max.apply(null, workerBars.map((w) => w.hours).concat([1]));
     return React.createElement(Shell, null,
-      React.createElement(Header, { title: p.partNo, back: () => set({ screen: "kanryo_analysis", kaDetailId: null }) }),
+      React.createElement(Header, { title: p.partNo, back: () => set({ screen: ui.kaDetailFrom || "kanryo_analysis", kaDetailId: null, kaDetailFrom: null }) }),
       React.createElement(Body, null,
         // 成績カード
         React.createElement("div", { style: cardStyle },
