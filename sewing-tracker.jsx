@@ -3656,11 +3656,17 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
 
   // ── 完了分析 ────────────────────────────────────────────────
   // 完了ボックスの一覧をさらに「稼ぎの良し悪し」で見る画面。新しい集計は作らず、
-  // allSummary が既に持つ totalSales(単価×枚数)・totalHours(作業記録の合計時間)・
-  // hourlyRate(totalSales÷totalHours)をそのまま使う（重複計算しない＝DRY）。
+  // allSummary が既に持つ totalSales(単価×枚数)・totalHours(作業記録の合計時間)を再利用する。
   // totalHours は作業記録の hours 合計なので、縫製以外の作業も含む「品番にかかった全時間」。
+  // 【1時間当たりの計算】単価にはプリーツ加工賃(pleatsPrice)が含まれるが、作業記録の時間は
+  // 縫製の時間でプリーツ加工の時間は入っていない。そのままだとプリーツ品の1時間当たりが
+  // 不当に高く出るため、生産価値画面(koteiValue)と同じく「縫製工賃 = 単価 − プリーツ加工賃」
+  // で計算する。売上表示は会社の売上なので総額(単価×枚数)のまま。
   if (ui.screen === "kanryo_analysis") {
     const kaAll = allSummary.filter((p) => p.closedAt);
+    // 縫製売上(プリーツ加工賃を除いた売上)と、それベースの1時間当たり
+    const sewSales = (x) => Math.max(0, (x.unitPrice || 0) - (x.pleatsPrice || 0)) * (x.qty || 0);
+    const sewRate = (x) => x.totalHours > 0 ? sewSales(x) / x.totalHours : 0;
     const teamLabel = (p) => p.assigneeType === "outsource" ? "外注: " + (p.vendorName || "未設定") : ((p.assignee && p.assignee !== "未割当") ? p.assignee : "チーム未設定");
     const tagStyle = { display: "inline-block", fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "var(--iquta-bg)", color: "var(--iquta)", marginRight: 4, marginTop: 2 };
     // チーム絞り込み: 「全体」は外注も含む全件。チーム選択時はそのチームの自社分のみ（外注は除く）
@@ -3671,7 +3677,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     // 並び順: 完了日順は単純降順。時間当たり順は「時間記録がある品番だけ」を高い順に並べ、記録なしは末尾にまとめる
     let kaSorted;
     if (ui.kaSort === "rate") {
-      const withHours = kaFiltered.filter((p) => p.totalHours > 0).sort((a, b) => b.hourlyRate - a.hourlyRate);
+      const withHours = kaFiltered.filter((p) => p.totalHours > 0).sort((a, b) => sewRate(b) - sewRate(a));
       const noHours = kaFiltered.filter((p) => p.totalHours === 0).sort((a, b) => (b.closedAt || "").localeCompare(a.closedAt || ""));
       kaSorted = withHours.concat(noHours);
     } else {
@@ -3684,7 +3690,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const kaTotalHours = kaFiltered.reduce((a, p) => a + (p.totalHours || 0), 0);
     const kaWithHours = kaFiltered.filter((p) => p.totalHours > 0);
     const kaHoursSum = kaWithHours.reduce((a, p) => a + p.totalHours, 0);
-    const kaSalesWithHoursSum = kaWithHours.reduce((a, p) => a + (p.totalSales || 0), 0);
+    // 合計の1時間当たりも縫製工賃ベース（プリーツ加工賃を除く）
+    const kaSalesWithHoursSum = kaWithHours.reduce((a, p) => a + sewSales(p), 0);
     const kaAvgRate = kaHoursSum > 0 ? kaSalesWithHoursSum / kaHoursSum : null;
     // 総時間の表示: 小数1桁までだが、ちょうど整数なら整数で表示（見た目をすっきりさせる）
     const fmtHours = (h) => { const r = Math.round(h * 10) / 10; return (Number.isInteger(r) ? "" + r : r.toFixed(1)) + "h"; };
@@ -3729,7 +3736,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement("div", null,
             React.createElement("div", { style: { fontSize: 11, color: "var(--soft)" } }, "1時間当たり"),
             React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: "var(--iquta)" } }, kaAvgRate !== null ? "¥" + Math.round(kaAvgRate).toLocaleString() : "—"),
-            kaAvgRate !== null && kaWithHours.length < kaCount && React.createElement("div", { style: { fontSize: 10, color: "var(--soft)" } }, "※時間記録のある" + kaWithHours.length + "件で計算")
+            kaAvgRate !== null && React.createElement("div", { style: { fontSize: 10, color: "var(--soft)" } }, "※プリーツ加工賃を除いた縫製工賃で計算" + (kaWithHours.length < kaCount ? "（時間記録のある" + kaWithHours.length + "件）" : ""))
           )
         ),
         kaSorted.length === 0 && React.createElement("div", { style: { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, padding: 24, textAlign: "center", color: "var(--soft)", fontSize: 14 } }, "該当する完了品番はありません"),
@@ -3752,7 +3759,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
               React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, "売上 ¥" + Math.round(p.totalSales || 0).toLocaleString()),
               p.totalHours > 0
                 ? React.createElement("div", null,
-                    React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: "var(--iquta)" } }, "¥" + Math.round(p.hourlyRate || 0).toLocaleString() + "/h"),
+                    // 1時間当たりは縫製工賃ベース（プリーツ加工賃を除く）
+                    React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: "var(--iquta)" } }, "¥" + Math.round(sewRate(p)).toLocaleString() + "/h"),
                     React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, fmtHours(p.totalHours))
                   )
                 : React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, "時間記録なし")
@@ -3766,8 +3774,9 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
   }
 
   // ── 完了分析：品番タップで開く詳細グラフ画面 ──────────────────
-  // allSummary が持つ totalSales/totalHours/hourlyRate/workerMap/recs/brandName/vendorNameを
+  // allSummary が持つ totalSales/totalHours/workerMap/recs/brandName/vendorNameを
   // そのまま使う（DRY・再集計しない）。工程別グラフだけ koteiRecords から個別に集計する。
+  // 1時間当たりは完了分析一覧と同じく縫製工賃ベース（単価−プリーツ加工賃）で計算する。
   if (ui.screen === "kanryo_analysis_detail") {
     const p = allSummary.find((x) => x.id === ui.kaDetailId);
     if (!p) {
@@ -3784,6 +3793,9 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const tagStyle = { display: "inline-block", fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "var(--iquta-bg)", color: "var(--iquta)", marginRight: 4, marginTop: 2 };
     // 総時間の表示: 小数1桁までだが、ちょうど整数なら整数で表示（完了分析画面のfmtHoursと同じ考え方）
     const fmtHours = (h) => { const r = Math.round(h * 10) / 10; return (Number.isInteger(r) ? "" + r : r.toFixed(1)) + "h"; };
+    // 縫製売上(プリーツ加工賃を除く)ベースの1時間当たり（完了分析一覧と同じ計算）
+    const sewUnit = Math.max(0, (p.unitPrice || 0) - (p.pleatsPrice || 0));
+    const sewRateV = p.totalHours > 0 ? (sewUnit * (p.qty || 0)) / p.totalHours : 0;
     // カード見出しの共通スタイル
     const cardStyle = { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, padding: "14px 16px", marginBottom: 14 };
     const cardTitle = { fontSize: 13, fontWeight: 700, marginBottom: 10 };
@@ -3835,7 +3847,9 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             React.createElement("div", null,
               React.createElement("div", { style: { fontSize: 11, color: "var(--soft)" } }, "売上"),
               React.createElement("div", { style: { fontSize: 16, fontWeight: 700 } }, "¥" + Math.round(p.totalSales || 0).toLocaleString()),
-              React.createElement("div", { style: { fontSize: 11, color: "var(--soft)" } }, "¥" + Math.round(p.unitPrice || 0).toLocaleString() + " × " + (p.qty || 0) + "枚")
+              React.createElement("div", { style: { fontSize: 11, color: "var(--soft)" } }, "¥" + Math.round(p.unitPrice || 0).toLocaleString() + " × " + (p.qty || 0) + "枚"),
+              // プリーツ品は内訳を明示（単価のうちプリーツ加工賃がいくらか）
+              (p.pleatsPrice || 0) > 0 && React.createElement("div", { style: { fontSize: 11, color: "var(--soft)" } }, "うちプリーツ加工賃 ¥" + Math.round(p.pleatsPrice).toLocaleString() + "/枚")
             ),
             p.totalHours > 0
               ? React.createElement(React.Fragment, null,
@@ -3845,7 +3859,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                   ),
                   React.createElement("div", null,
                     React.createElement("div", { style: { fontSize: 11, color: "var(--soft)" } }, "1時間当たり"),
-                    React.createElement("div", { style: { fontSize: 18, fontWeight: 700, color: "var(--iquta)" } }, "¥" + Math.round(p.hourlyRate || 0).toLocaleString() + "/h")
+                    React.createElement("div", { style: { fontSize: 18, fontWeight: 700, color: "var(--iquta)" } }, "¥" + Math.round(sewRateV).toLocaleString() + "/h"),
+                    (p.pleatsPrice || 0) > 0 && React.createElement("div", { style: { fontSize: 10, color: "var(--soft)" } }, "※縫製工賃 ¥" + Math.round(sewUnit).toLocaleString() + "/枚で計算")
                   )
                 )
               : React.createElement("div", null,
