@@ -3749,24 +3749,27 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement("span", { style: { color: "var(--soft)" } }, "〜"),
           React.createElement("input", { type: "date", style: Object.assign({}, st.input, { height: 44, width: 150 }), value: ui.kaTo, onChange: (e) => set({ kaTo: e.target.value }) })
         ),
-        React.createElement("div", { style: { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, padding: 16, marginBottom: 14, display: "flex", gap: 20, flexWrap: "wrap" } },
-          React.createElement("div", null,
-            React.createElement("div", { style: { fontSize: 11, color: "var(--soft)" } }, "件数 / 総枚数"),
-            React.createElement("div", { style: { fontSize: 16, fontWeight: 700 } }, kaCount + "件 / " + kaTotalQty + "枚")
+        // 合計カード: 品番ごとの白い行と一目で区別できるよう、濃い青の塗りつぶし＋白文字にする
+        React.createElement("div", { style: { background: "var(--iquta)", borderRadius: 12, padding: "14px 16px", marginBottom: 14, color: "#fff" } },
+          React.createElement("div", { style: { fontSize: 12, fontWeight: 700, letterSpacing: 1, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 } },
+            "合計",
+            React.createElement("span", { style: { fontWeight: 400, fontSize: 11, color: "rgba(255,255,255,.8)" } }, kaCount + "件 / " + kaTotalQty + "枚")
           ),
-          React.createElement("div", null,
-            React.createElement("div", { style: { fontSize: 11, color: "var(--soft)" } }, "売上合計"),
-            React.createElement("div", { style: { fontSize: 16, fontWeight: 700 } }, "¥" + Math.round(kaTotalSales).toLocaleString())
+          React.createElement("div", { style: { display: "flex", gap: 24, flexWrap: "wrap", alignItems: "flex-end" } },
+            React.createElement("div", null,
+              React.createElement("div", { style: { fontSize: 11, color: "rgba(255,255,255,.8)" } }, "売上合計"),
+              React.createElement("div", { style: { fontSize: 18, fontWeight: 700 } }, "¥" + Math.round(kaTotalSales).toLocaleString())
+            ),
+            React.createElement("div", null,
+              React.createElement("div", { style: { fontSize: 11, color: "rgba(255,255,255,.8)" } }, "総作業時間"),
+              React.createElement("div", { style: { fontSize: 18, fontWeight: 700 } }, fmtHours(kaTotalHours))
+            ),
+            React.createElement("div", null,
+              React.createElement("div", { style: { fontSize: 11, color: "rgba(255,255,255,.8)" } }, "1時間当たり"),
+              React.createElement("div", { style: { fontSize: 22, fontWeight: 700 } }, kaAvgRate !== null ? "¥" + Math.round(kaAvgRate).toLocaleString() : "—")
+            )
           ),
-          React.createElement("div", null,
-            React.createElement("div", { style: { fontSize: 11, color: "var(--soft)" } }, "総作業時間"),
-            React.createElement("div", { style: { fontSize: 16, fontWeight: 700 } }, fmtHours(kaTotalHours))
-          ),
-          React.createElement("div", null,
-            React.createElement("div", { style: { fontSize: 11, color: "var(--soft)" } }, "1時間当たり"),
-            React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: "var(--iquta)" } }, kaAvgRate !== null ? "¥" + Math.round(kaAvgRate).toLocaleString() : "—"),
-            kaAvgRate !== null && React.createElement("div", { style: { fontSize: 10, color: "var(--soft)" } }, "※プリーツ加工賃を除いた縫製工賃で計算" + (kaWithHours.length < kaCount ? "（時間記録のある" + kaWithHours.length + "件）" : ""))
-          )
+          kaAvgRate !== null && React.createElement("div", { style: { fontSize: 10, color: "rgba(255,255,255,.75)", marginTop: 8 } }, "※プリーツ加工賃を除いた縫製工賃で計算" + (kaWithHours.length < kaCount ? "（時間記録のある" + kaWithHours.length + "件）" : ""))
         ),
         kaSorted.length === 0 && React.createElement("div", { style: { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, padding: 24, textAlign: "center", color: "var(--soft)", fontSize: 14 } }, "該当する完了品番はありません"),
         kaSorted.length > 0 && React.createElement("div", { style: { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, overflow: "hidden" } },
