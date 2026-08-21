@@ -127,6 +127,7 @@ const INIT_UI = {
   kEntryMode: "hours",
   kEntryPartId: "",
   kEntryQty: {},
+  kEntryOff: {},
   kEntryOpen: {},
   vvAxis: "member",
   vvPeriod: "month",
@@ -294,6 +295,13 @@ async function gasLoad() {
 
 // 生産価値 = 工程の実測秒数 × 枚数 × レート
 // レート = 縫製工賃 ÷ 1着総工数（秒）。単価が無い品番は暫定レート 1秒=1円。
+// 日報のパーツまとめ入力：記録する工程の判定。チェックを外した工程（＝担当していない）は
+// レコードを作らない。枚数の条件は従来どおり「1枚以上」。保存も画面のサマリーもこの判定を見る。
+function koteiStepPicked(offMap, stepId, qty) {
+  if ((offMap || {})[stepId]) return false;
+  return qty > 0;
+}
+
 // 縫製工賃 = 受注単価 − プリーツ加工賃（加工賃込みの単価の品番は、加工分を除いて
 // 縫製の時間単価を出す。プリーツ品の1時間あたりが不当に高く出ないように）。
 // 単価は品番（live）優先。総工数・単価・加工賃は日報レコードにも写してあり、工程表が消えても壊れない。
@@ -772,7 +780,7 @@ function App() {
     steps.forEach((b) => {
       if (b.part) curPart = b.part;
       const q = parseFloat((ui.kEntryQty || {})[b.id]);
-      if (!q || q <= 0) return;
+      if (!koteiStepPicked(ui.kEntryOff, b.id, q)) return;
       newRecs.push({
         id: genId(), date: date, memberId: member.id, memberName: member.name,
         partId: partId, stepId: b.id, stepPart: curPart, stepAct: b.act || "",
@@ -783,7 +791,7 @@ function App() {
     if (newRecs.length === 0) return;
     const nd = Object.assign({}, data, { koteiRecords: (data.koteiRecords || []).concat(newRecs) });
     setData(nd);
-    set({ kEntryQty: {}, kEntryPartId: "" });
+    set({ kEntryQty: {}, kEntryOff: {}, kEntryPartId: "" });
     setSaving(true); setSaveError(false);
     gasAddKoteiRecords(newRecs).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
   }
@@ -818,7 +826,7 @@ function App() {
       steps.forEach((b) => {
         if (b.part) curPart = b.part;
         const q = parseFloat((ui.kEntryQty || {})[b.id]);
-        if (!q || q <= 0) return;
+        if (!koteiStepPicked(ui.kEntryOff, b.id, q)) return;
         koteiRecs.push({
           id: genId(), date: date, memberId: member.id, memberName: member.name,
           partId: f.partId, stepId: b.id, stepPart: curPart, stepAct: b.act || "",
@@ -833,7 +841,7 @@ function App() {
     if (koteiRecs.length) nd = Object.assign({}, nd, { koteiRecords: (nd.koteiRecords || []).concat(koteiRecs) });
     setData(nd);
     setMF({ hours: "", partId: "", other: "", otherOn: false });
-    set({ kEntryQty: {} });
+    set({ kEntryQty: {}, kEntryOff: {} });
     setSaving(true); setSaveError(false);
     const ps = [];
     if (newRecord) ps.push(gasAddRecord(newRecord));
@@ -1741,6 +1749,19 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       kg.steps.push(b);
     });
     const setGroupQty = (steps, v) => { const patch = {}; steps.forEach((s) => { patch[s.id] = v; }); setKQ(patch); };
+    // ── 工程チェック（パーツ内の一部工程だけ担当した日のため）──
+    // 初期状態は全チェック。全工程を担当する日が多数派なので、共通ケースのタップ数を増やさない。
+    // チェックを外した工程は kEntryOff に入り、保存時に koteiStepPicked で落ちる（記録されない）。
+    const kOff = ui.kEntryOff || {};
+    const isOn = (id) => !kOff[id];
+    const toggleStep = (id) => set({ kEntryOff: Object.assign({}, kOff, { [id]: isOn(id) }) });
+    const setGroupOn = (steps, on) => { const patch = {}; steps.forEach((s) => { patch[s.id] = !on; }); set({ kEntryOff: Object.assign({}, kOff, patch) }); };
+    const qtyOf = (id) => parseFloat((ui.kEntryQty || {})[id]);
+    const qtyStrOf = (id) => { const v = (ui.kEntryQty || {})[id]; return v === undefined || v === null ? "" : "" + v; };
+    // 枚数欄は「このパーツの枚数」。setGroupQty がパーツ内の全工程に同じ値を書くので、
+    // 揃っているときだけその値を出す（最近やった工程で一部だけ入れた場合は空にして、実際より多く見せない）
+    const groupQtyStr = (steps) => { const v = qtyStrOf(steps[0].id); return steps.every((s) => qtyStrOf(s.id) === v) ? v : ""; };
+    const pickedOf = (steps) => steps.filter((s) => koteiStepPicked(kOff, s.id, qtyOf(s.id)));
     // 全工程に上から通し番号
     const stepNo = {}; selSteps.forEach((b, i) => { stepNo[b.id] = i + 1; });
     // 案1：その人がその品番で過去に入力した工程（＝いつもの持ち場）。今も存在する工程だけ。
@@ -1750,19 +1771,59 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     }
     const usualSteps = selSteps.filter((b) => usualIds[b.id]);
     const toggleOpen = (key) => set({ kEntryOpen: Object.assign({}, ui.kEntryOpen, { [key]: !ui.kEntryOpen[key] }) });
-    // 工程1行（番号＋作業内容＋時間＋枚数）
-    const stepRow = (s) => React.createElement("div", { key: s.id, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6 } },
-      React.createElement("div", { style: { width: 26, textAlign: "center", fontSize: 12, fontWeight: 600, color: "var(--faint)", flex: "none", fontVariantNumeric: "tabular-nums" } }, stepNo[s.id]),
-      React.createElement("div", { style: { flex: 1, minWidth: 0 } },
-        React.createElement("div", { style: { fontSize: 13, color: "var(--ink)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, s.act || "（無題の工程）"),
-        React.createElement("div", { style: { fontSize: 10, color: "var(--faint)" } }, (s.part ? s.part + "　" : "") + fmtKoteiTime(parseKoteiTime(s.time)))
-      ),
-      React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 4px", fontSize: 15, background: "var(--paper)", color: "var(--iquta)", fontWeight: 700 }, type: "number", min: "0", placeholder: "枚", value: (ui.kEntryQty || {})[s.id] || "", onChange: (e) => setKQ({ [s.id]: e.target.value }) })
+    // 工程1行（チェック＋番号＋作業内容＋秒/枚）。行のどこをタップしても切り替わる（iPad想定・行高52px）
+    const stepRow = (s) => {
+      const on = isOn(s.id);
+      return React.createElement("div", {
+        key: s.id, role: "button", "aria-pressed": on, onClick: () => toggleStep(s.id),
+        style: { display: "flex", alignItems: "center", gap: 10, minHeight: 52, padding: "6px 10px", marginBottom: 6, borderRadius: 10, cursor: "pointer", boxSizing: "border-box", WebkitTapHighlightColor: "transparent", background: on ? "#fff" : "#eceae4", border: "1px solid " + (on ? "var(--line)" : "transparent") }
+      },
+        React.createElement("input", { type: "checkbox", checked: on, readOnly: true, tabIndex: -1, style: { width: 22, height: 22, flex: "none", accentColor: "var(--iquta)", pointerEvents: "none", margin: 0 } }),
+        React.createElement("div", { style: { width: 22, textAlign: "center", fontSize: 12, fontWeight: 600, color: "var(--faint)", flex: "none", fontVariantNumeric: "tabular-nums" } }, stepNo[s.id]),
+        React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+          React.createElement("div", { style: { fontSize: 14, color: on ? "var(--ink)" : "var(--faint)", textDecoration: on ? "none" : "line-through", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, s.act || "（無題の工程）"),
+          React.createElement("div", { style: { fontSize: 10, color: "var(--faint)" } }, (s.part ? s.part + "　" : "") + fmtKoteiTime(parseKoteiTime(s.time)) + "／枚")
+        )
+      );
+    };
+    // パーツごとの見出し（担当カウンタ＋全部外す/全部チェック）
+    const kCheckHead = (steps) => {
+      const on = steps.filter((x) => isOn(x.id)).length;
+      return React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, margin: "2px 0 8px", flexWrap: "wrap" } },
+        React.createElement("span", { style: { fontSize: 12, fontWeight: 700, color: on === 0 ? "var(--aka)" : "var(--iquta)" } }, on + " / 全" + steps.length + " 工程を担当"),
+        React.createElement("button", { style: { border: "1px solid var(--line)", background: "#fff", color: "var(--soft)", fontSize: 12, fontWeight: 700, borderRadius: 8, padding: "0 14px", minHeight: 44, cursor: "pointer" }, onClick: () => setGroupOn(steps, on === 0) }, on > 0 ? "全部外す" : "全部チェック")
+      );
+    };
+    // 枚数はパーツにつき1欄。チェックした全工程に同じ枚数が入る（工程ごとに枚数が違う日は分けて2回記録する）
+    const kQtyRow = (steps) => React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, marginTop: 8 } },
+      React.createElement("span", { style: { fontSize: 11, color: "var(--soft)" } }, "チェックした工程に"),
+      React.createElement("input", { style: { width: 72, textAlign: "center", border: "1px solid var(--line)", borderRadius: 8, padding: "0 4px", minHeight: 44, fontSize: 15, background: "#fff", color: "var(--iquta)", fontWeight: 700, boxSizing: "border-box" }, type: "number", min: "1", placeholder: "枚", value: groupQtyStr(steps), onChange: (e) => setGroupQty(steps, e.target.value) }),
+      React.createElement("span", { style: { fontSize: 11, color: "var(--soft)" } }, "枚")
     );
     const hasQty = Object.keys(ui.kEntryQty || {}).some((id) => parseFloat((ui.kEntryQty || {})[id]) > 0);
     // 作業時間は必須項目。時間を入れるまで枚数入力を出さず（忘れ防止の導線）、記録するも時間必須。
     const hoursOk = !!(f.hours && parseFloat(f.hours) > 0);
-    const ready = f.memberId && f.partId && hoursOk;
+    // 枚数を入れたのにチェック0件／枚数が1未満のパーツがあれば、記録するを止めて赤で知らせる。
+    // 枚数を1つも入れていない日は従来どおり「時間だけの記録」として保存できる（既存の導線を変えない）。
+    const kWarn = (function () {
+      for (let i = 0; i < kGroups.length; i++) {
+        const g = kGroups[i];
+        const qs = g.steps.map((x) => qtyStrOf(x.id)).filter((v) => v !== "");
+        if (qs.length === 0) continue;
+        if (!qs.some((v) => parseFloat(v) >= 1)) return g.part + "の枚数は1枚以上を入れてください";
+        if (pickedOf(g.steps).length === 0) return g.part + "は担当した工程にチェックを入れてください";
+      }
+      return "";
+    })();
+    // サマリー: ◯工程 × ◯枚（＝Σ(チェック工程の秒)×枚数÷60 分ぶんの生産価値）
+    const kPicked = pickedOf(selSteps);
+    const kQtyVals = [];
+    kPicked.forEach((x) => { const q = qtyOf(x.id); if (kQtyVals.indexOf(q) < 0) kQtyVals.push(q); });
+    const kMinutes = Math.round(kPicked.reduce((a, x) => a + parseKoteiTime(x.time) * qtyOf(x.id), 0) / 60);
+    const kSummary = kPicked.length === 0 ? ""
+      : kPicked.length + (kQtyVals.length === 1 ? "工程 × " + kQtyVals[0] + "枚" : "工程 ・のべ" + kPicked.reduce((a, x) => a + qtyOf(x.id), 0) + "枚")
+        + " を記録します（計 約" + kMinutes + "分ぶんの生産価値）";
+    const ready = f.memberId && f.partId && hoursOk && !kWarn;
 
     // 本日・本人の記録
     const myRecs = f.memberId ? data.records.filter((r) => r.memberId === f.memberId && r.date === f.date) : [];
@@ -1827,7 +1888,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                 React.createElement(FormRow, { label: "品番を選ぶ" },
                   teamParts.length === 0
                     ? React.createElement("div", { style: { color: "#bbb", fontSize: 13, padding: "8px 0" } }, "進行中の品番がありません")
-                    : React.createElement("select", { style: st.input, value: f.partId, onChange: (e) => { setMF({ partId: e.target.value }); set({ kEntryQty: {} }); } },
+                    : React.createElement("select", { style: st.input, value: f.partId, onChange: (e) => { setMF({ partId: e.target.value }); set({ kEntryQty: {}, kEntryOff: {} }); } },
                         React.createElement("option", { value: "" }, "選択してください"),
                         teamParts.map((p) => React.createElement("option", { key: p.id, value: p.id }, p.partNo + (p.partName ? " (" + p.partName + ")" : "")))
                       )
@@ -1857,15 +1918,10 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                       const ugs = []; const ugIdx = {};
                       usualSteps.forEach((s) => { const pn = partOf[s.id] || "—"; if (!(pn in ugIdx)) { ugIdx[pn] = ugs.length; ugs.push({ part: pn, steps: [] }); } ugs[ugIdx[pn]].steps.push(s); });
                       return ugs.map((g, gi) => React.createElement("div", { key: gi, style: gi > 0 ? { borderTop: "1px solid var(--line)", paddingTop: 8, marginTop: 4 } : null },
-                        React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6, flexWrap: "wrap" } },
-                          React.createElement("span", { style: { fontSize: 12, fontWeight: 700, color: "var(--iquta)" } }, g.part + "（" + g.steps.length + "工程）"),
-                          React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
-                            React.createElement("span", { style: { fontSize: 11, color: "var(--soft)" } }, "まとめて"),
-                            React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 4px", fontSize: 14, background: "#fff" }, type: "number", min: "0", placeholder: "枚", onChange: (e) => setGroupQty(g.steps, e.target.value) }),
-                            React.createElement("span", { style: { fontSize: 11, color: "var(--soft)" } }, "枚")
-                          )
-                        ),
-                        g.steps.map((s) => stepRow(s))
+                        React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--iquta)", marginBottom: 6 } }, g.part + "（" + g.steps.length + "工程）"),
+                        kCheckHead(g.steps),
+                        g.steps.map((s) => stepRow(s)),
+                        kQtyRow(g.steps)
                       ));
                     })()
                   ),
@@ -1874,7 +1930,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                   kGroups.map((grp, gi) => {
                     const gkey = "g" + gi;
                     const gopen = !!ui.kEntryOpen[gkey];
-                    const gfilled = grp.steps.filter((s) => parseFloat((ui.kEntryQty || {})[s.id]) > 0).length;
+                    const gfilled = pickedOf(grp.steps).length;
                     return React.createElement("div", { key: gi, style: { background: "#f5f4f0", borderRadius: 10, marginBottom: 8, overflow: "hidden" } },
                       React.createElement("button", { style: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "12px", background: "none", border: "none", cursor: "pointer" }, onClick: () => toggleOpen(gkey) },
                         React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: "var(--iquta)" } }, grp.part + "（" + grp.steps.length + "工程）"),
@@ -1884,17 +1940,16 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                         )
                       ),
                       gopen && React.createElement("div", { style: { padding: "0 12px 10px" } },
-                        React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, marginBottom: 8 } },
-                          React.createElement("span", { style: { fontSize: 11, color: "var(--soft)" } }, "まとめて"),
-                          React.createElement("input", { style: { width: 60, textAlign: "center", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 4px", fontSize: 14, background: "#fff" }, type: "number", min: "0", placeholder: "枚", onChange: (e) => setGroupQty(grp.steps, e.target.value) }),
-                          React.createElement("span", { style: { fontSize: 11, color: "var(--soft)" } }, "枚")
-                        ),
-                        grp.steps.map((s) => stepRow(s))
+                        kCheckHead(grp.steps),
+                        grp.steps.map((s) => stepRow(s)),
+                        kQtyRow(grp.steps)
                       )
                     );
                   })
                 ),
                 f.partId && !selSheet && React.createElement("div", { style: { fontSize: 11, color: "#bbb", margin: "4px 0 8px" } }, "この品番は工程表がないため、時間のみ記録します"),
+                f.partId && selSheet && hoursOk && kWarn && React.createElement("div", { style: { background: "#fdf6f6", border: "1px solid #f0dbdb", borderRadius: 10, padding: "10px 12px", margin: "4px 0 8px", fontSize: 13, fontWeight: 600, color: "var(--aka)" } }, kWarn),
+                f.partId && selSheet && hoursOk && !kWarn && kSummary && React.createElement("div", { style: { background: "var(--iquta-bg)", borderRadius: 10, padding: "10px 12px", margin: "4px 0 8px", fontSize: 13, fontWeight: 700, color: "var(--iquta)" } }, kSummary),
                 f.partId && React.createElement("button", { style: Object.assign({}, st.primaryBtn, { opacity: ready ? 1 : 0.35 }), disabled: !ready, onClick: saveEntry }, "記録する")
               )
             ),
