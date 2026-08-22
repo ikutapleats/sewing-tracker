@@ -1748,19 +1748,26 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       else { if (!kg) { kg = { part: "—", steps: [] }; kGroups.push(kg); } }
       kg.steps.push(b);
     });
-    const setGroupQty = (steps, v) => { const patch = {}; steps.forEach((s) => { patch[s.id] = v; }); setKQ(patch); };
     // ── 工程チェック（パーツ内の一部工程だけ担当した日のため）──
     // 初期状態は全チェック。全工程を担当する日が多数派なので、共通ケースのタップ数を増やさない。
     // チェックを外した工程は kEntryOff に入り、保存時に koteiStepPicked で落ちる（記録されない）。
+    // 枚数はパーツごとにまとめて入れ、工程ごとに違う日はその工程の欄だけ直す（1回の記録で済ませる）。
     const kOff = ui.kEntryOff || {};
     const isOn = (id) => !kOff[id];
     const toggleStep = (id) => set({ kEntryOff: Object.assign({}, kOff, { [id]: isOn(id) }) });
     const setGroupOn = (steps, on) => { const patch = {}; steps.forEach((s) => { patch[s.id] = !on; }); set({ kEntryOff: Object.assign({}, kOff, patch) }); };
     const qtyOf = (id) => parseFloat((ui.kEntryQty || {})[id]);
     const qtyStrOf = (id) => { const v = (ui.kEntryQty || {})[id]; return v === undefined || v === null ? "" : "" + v; };
-    // 枚数欄は「このパーツの枚数」。setGroupQty がパーツ内の全工程に同じ値を書くので、
-    // 揃っているときだけその値を出す（最近やった工程で一部だけ入れた場合は空にして、実際より多く見せない）
-    const groupQtyStr = (steps) => { const v = qtyStrOf(steps[0].id); return steps.every((s) => qtyStrOf(s.id) === v) ? v : ""; };
+    // まとめ入力はチェック済みの工程にだけ書く（外した工程＝担当していないので枚数を持たせない）
+    const setGroupQty = (steps, v) => { const patch = {}; steps.forEach((s) => { if (isOn(s.id)) patch[s.id] = v; }); setKQ(patch); };
+    // まとめ欄は「チェックした工程に入っている枚数」。工程ごとに直して揃っていないときは空にする
+    // （実際より多く見せない。各工程の枚数は行の欄に出ているので、そちらが正）
+    const groupQtyStr = (steps) => {
+      const on = steps.filter((x) => isOn(x.id));
+      if (on.length === 0) return "";
+      const v = qtyStrOf(on[0].id);
+      return on.every((x) => qtyStrOf(x.id) === v) ? v : "";
+    };
     const pickedOf = (steps) => steps.filter((s) => koteiStepPicked(kOff, s.id, qtyOf(s.id)));
     // 全工程に上から通し番号
     const stepNo = {}; selSteps.forEach((b, i) => { stepNo[b.id] = i + 1; });
@@ -1783,6 +1790,15 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         React.createElement("div", { style: { flex: 1, minWidth: 0 } },
           React.createElement("div", { style: { fontSize: 14, color: on ? "var(--ink)" : "var(--faint)", textDecoration: on ? "none" : "line-through", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, s.act || "（無題の工程）"),
           React.createElement("div", { style: { fontSize: 10, color: "var(--faint)" } }, (s.part ? s.part + "　" : "") + fmtKoteiTime(parseKoteiTime(s.time)) + "／枚")
+        ),
+        // 枚数はまとめ入力で入るが、その工程だけ枚数が違う日はここで直せる（記録を分けなくてよい）
+        // 枚数欄のタップで行のチェックが切り替わらないよう、ここでイベントを止める
+        React.createElement("div", { style: { flex: "none" }, onClick: (e) => e.stopPropagation() },
+          React.createElement("input", {
+            type: "number", min: "1", placeholder: "枚", disabled: !on, value: qtyStrOf(s.id),
+            onChange: (e) => setKQ({ [s.id]: e.target.value }),
+            style: { width: 64, textAlign: "center", border: "1px solid var(--line)", borderRadius: 8, padding: "0 4px", minHeight: 40, fontSize: 15, fontWeight: 700, boxSizing: "border-box", background: on ? "var(--paper)" : "transparent", color: on ? "var(--iquta)" : "var(--faint)", opacity: on ? 1 : 0.4 }
+          })
         )
       );
     };
@@ -1794,12 +1810,15 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         React.createElement("button", { style: { border: "1px solid var(--line)", background: "#fff", color: "var(--soft)", fontSize: 12, fontWeight: 700, borderRadius: 8, padding: "0 14px", minHeight: 44, cursor: "pointer" }, onClick: () => setGroupOn(steps, on === 0) }, on > 0 ? "全部外す" : "全部チェック")
       );
     };
-    // 枚数はパーツにつき1欄。チェックした全工程に同じ枚数が入る（工程ごとに枚数が違う日は分けて2回記録する）
-    const kQtyRow = (steps) => React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, marginTop: 8 } },
-      React.createElement("span", { style: { fontSize: 11, color: "var(--soft)" } }, "チェックした工程に"),
-      React.createElement("input", { style: { width: 72, textAlign: "center", border: "1px solid var(--line)", borderRadius: 8, padding: "0 4px", minHeight: 44, fontSize: 15, background: "#fff", color: "var(--iquta)", fontWeight: 700, boxSizing: "border-box" }, type: "number", min: "1", placeholder: "枚", value: groupQtyStr(steps), onChange: (e) => setGroupQty(steps, e.target.value) }),
-      React.createElement("span", { style: { fontSize: 11, color: "var(--soft)" } }, "枚")
-    );
+    // まとめ入力。チェックした全工程に同じ枚数を入れ、違う工程だけ行の欄で直す
+    const kQtyRow = (steps) => {
+      const anyOn = steps.some((x) => isOn(x.id));
+      return React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, marginBottom: 8, opacity: anyOn ? 1 : 0.4 } },
+        React.createElement("span", { style: { fontSize: 11, color: "var(--soft)" } }, "チェックした工程にまとめて"),
+        React.createElement("input", { style: { width: 72, textAlign: "center", border: "1px solid var(--line)", borderRadius: 8, padding: "0 4px", minHeight: 44, fontSize: 15, background: "#fff", color: "var(--iquta)", fontWeight: 700, boxSizing: "border-box" }, type: "number", min: "1", placeholder: "枚", disabled: !anyOn, value: groupQtyStr(steps), onChange: (e) => setGroupQty(steps, e.target.value) }),
+        React.createElement("span", { style: { fontSize: 11, color: "var(--soft)" } }, "枚")
+      );
+    };
     const hasQty = Object.keys(ui.kEntryQty || {}).some((id) => parseFloat((ui.kEntryQty || {})[id]) > 0);
     // 作業時間は必須項目。時間を入れるまで枚数入力を出さず（忘れ防止の導線）、記録するも時間必須。
     // ただし同じ日・同じ品番で時間を記録済みなら必須を解く。同じパーツの中で工程ごとに枚数が
@@ -1824,8 +1843,12 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const kQtyVals = [];
     kPicked.forEach((x) => { const q = qtyOf(x.id); if (kQtyVals.indexOf(q) < 0) kQtyVals.push(q); });
     const kMinutes = Math.round(kPicked.reduce((a, x) => a + parseKoteiTime(x.time) * qtyOf(x.id), 0) / 60);
+    // 枚数がいくつかに分かれている日は「3工程 × 10枚 ＋ 2工程 × 5枚」と並べる。
+    // 種類が多すぎて読めなくなるときだけ、のべ枚数にまとめる。
     const kSummary = kPicked.length === 0 ? ""
-      : kPicked.length + (kQtyVals.length === 1 ? "工程 × " + kQtyVals[0] + "枚" : "工程 ・のべ" + kPicked.reduce((a, x) => a + qtyOf(x.id), 0) + "枚")
+      : (kQtyVals.length <= 3
+          ? kQtyVals.map((q) => kPicked.filter((x) => qtyOf(x.id) === q).length + "工程 × " + q + "枚").join(" ＋ ")
+          : kPicked.length + "工程 ・のべ" + kPicked.reduce((a, x) => a + qtyOf(x.id), 0) + "枚")
         + " を記録します（計 約" + kMinutes + "分ぶんの生産価値）";
     const ready = f.memberId && f.partId && hoursOk && !kWarn && (hoursEntered || kPicked.length > 0);
 
@@ -1926,8 +1949,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                       return ugs.map((g, gi) => React.createElement("div", { key: gi, style: gi > 0 ? { borderTop: "1px solid var(--line)", paddingTop: 8, marginTop: 4 } : null },
                         React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--iquta)", marginBottom: 6 } }, g.part + "（" + g.steps.length + "工程）"),
                         kCheckHead(g.steps),
-                        g.steps.map((s) => stepRow(s)),
-                        kQtyRow(g.steps)
+                        kQtyRow(g.steps),
+                        g.steps.map((s) => stepRow(s))
                       ));
                     })()
                   ),
@@ -1947,8 +1970,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                       ),
                       gopen && React.createElement("div", { style: { padding: "0 12px 10px" } },
                         kCheckHead(grp.steps),
-                        grp.steps.map((s) => stepRow(s)),
-                        kQtyRow(grp.steps)
+                        kQtyRow(grp.steps),
+                        grp.steps.map((s) => stepRow(s))
                       )
                     );
                   })

@@ -77,6 +77,12 @@ eq("残った工程の中身は全チェック時と同じ", some, all.filter(fu
 eq("全部外すと1件も作られない", buildKoteiRecs(steps, allQty, { s1: true, s2: true, s3: true, s4: true }).length, 0);
 eq("チェックしても枚数が無ければ作られない", buildKoteiRecs(steps, {}, {}).length, 0);
 
+const mixed = buildKoteiRecs(steps, { s1: "10", s2: "10", s3: "5", s4: "5" }, {});
+eq("1回の記録で工程ごとに枚数を変えられる", mixed.map(function (r) { return r.stepId + ":" + r.qty; }), ["s1:10", "s2:10", "s3:5", "s4:5"]);
+eq("枚数を変えても外した工程は作られない",
+  buildKoteiRecs(steps, { s1: "10", s2: "10", s3: "5", s4: "5" }, { s2: true }).map(function (r) { return r.stepId + ":" + r.qty; }),
+  ["s1:10", "s3:5", "s4:5"]);
+
 // 本体のレコード生成箇所が、テストが前提とするフィールド構成のままかを見張る
 console.log("\n[本体ソースのフィールド構成]");
 const expectKeys = ["id", "date", "memberId", "memberName", "partId", "stepId", "stepPart", "stepAct", "stepSec", "qty", "totalSec", "unitPrice", "pleatsPrice"];
