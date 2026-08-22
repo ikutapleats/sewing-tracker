@@ -840,7 +840,7 @@ function App() {
     if (newRecord) nd = Object.assign({}, nd, { records: nd.records.concat([newRecord]) });
     if (koteiRecs.length) nd = Object.assign({}, nd, { koteiRecords: (nd.koteiRecords || []).concat(koteiRecs) });
     setData(nd);
-    setMF({ hours: "", partId: "", other: "", otherOn: false });
+    setMF({ hours: "", other: "", otherOn: false });
     set({ kEntryQty: {}, kEntryOff: {} });
     setSaving(true); setSaveError(false);
     const ps = [];
@@ -1802,7 +1802,11 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     );
     const hasQty = Object.keys(ui.kEntryQty || {}).some((id) => parseFloat((ui.kEntryQty || {})[id]) > 0);
     // 作業時間は必須項目。時間を入れるまで枚数入力を出さず（忘れ防止の導線）、記録するも時間必須。
-    const hoursOk = !!(f.hours && parseFloat(f.hours) > 0);
+    // ただし同じ日・同じ品番で時間を記録済みなら必須を解く。同じパーツの中で工程ごとに枚数が
+    // 違う日は記録を分ける運用のため、2回目に時間を入れ直させると時間が二重に積まれてしまう。
+    const hoursEntered = !!(f.hours && parseFloat(f.hours) > 0);
+    const doneHours = data.records.reduce((a, r) => a + ((r.memberId === f.memberId && r.partId === f.partId && r.date === f.date) ? (r.hours || 0) : 0), 0);
+    const hoursOk = hoursEntered || doneHours > 0;
     // 枚数を入れたのにチェック0件／枚数が1未満のパーツがあれば、記録するを止めて赤で知らせる。
     // 枚数を1つも入れていない日は従来どおり「時間だけの記録」として保存できる（既存の導線を変えない）。
     const kWarn = (function () {
@@ -1823,7 +1827,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const kSummary = kPicked.length === 0 ? ""
       : kPicked.length + (kQtyVals.length === 1 ? "工程 × " + kQtyVals[0] + "枚" : "工程 ・のべ" + kPicked.reduce((a, x) => a + qtyOf(x.id), 0) + "枚")
         + " を記録します（計 約" + kMinutes + "分ぶんの生産価値）";
-    const ready = f.memberId && f.partId && hoursOk && !kWarn;
+    const ready = f.memberId && f.partId && hoursOk && !kWarn && (hoursEntered || kPicked.length > 0);
 
     // 本日・本人の記録
     const myRecs = f.memberId ? data.records.filter((r) => r.memberId === f.memberId && r.date === f.date) : [];
@@ -1893,7 +1897,9 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                         teamParts.map((p) => React.createElement("option", { key: p.id, value: p.id }, p.partNo + (p.partName ? " (" + p.partName + ")" : "")))
                       )
                 ),
-                f.partId && React.createElement(FormRow, { label: "作業時間（h）＊必須" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3.5", min: "0", step: "0.5", value: f.hours, onChange: (e) => setMF({ hours: e.target.value }) })),
+                f.partId && React.createElement(FormRow, { label: doneHours > 0 ? "作業時間（h）" : "作業時間（h）＊必須" }, React.createElement("input", { style: st.input, type: "number", placeholder: doneHours > 0 ? "追加の時間があれば" : "例: 3.5", min: "0", step: "0.5", value: f.hours, onChange: (e) => setMF({ hours: e.target.value }) })),
+                // 枚数が違う工程を続けて記録するときは、時間は空欄のまま。入れると同じ時間がもう一度積まれる
+                f.partId && doneHours > 0 && React.createElement("div", { style: { fontSize: 12, color: "var(--iquta)", background: "var(--iquta-bg)", borderRadius: 8, padding: "8px 12px", margin: "-4px 0 10px", lineHeight: 1.6 } }, "この品番の時間は今日すでに " + (Math.round(doneHours * 10) / 10) + "時間 記録済みです。枚数だけ足すときは空欄のままで記録できます"),
                 // 工程外の作業（芯貼り・裁断・サポートなど）は内数で申告 → 1時間あたりの分母から除外される
                 f.partId && React.createElement("div", { style: { margin: "2px 0 10px" } },
                   React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--ink)", cursor: "pointer" } },
