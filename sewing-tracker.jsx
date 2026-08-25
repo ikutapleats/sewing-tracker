@@ -129,6 +129,9 @@ const INIT_UI = {
   kEntryQty: {},
   kEntryOff: {},
   kEntryOpen: {},
+  kFixOpen: {},   // 記録一覧で開いている入力まとまり
+  kFixDlg: null,  // 枚数修正ダイアログ { ids, title, sub, scope, qty }
+  kFixProg: null, // 修正の進捗 { done, total, err }
   vvAxis: "member",
   vvPeriod: "month",
   vvMonth: today().slice(0, 7),
@@ -295,6 +298,62 @@ async function gasLoad() {
 
 // 生産価値 = 工程の実測秒数 × 枚数 × レート
 // レート = 縫製工賃 ÷ 1着総工数（秒）。単価が無い品番は暫定レート 1秒=1円。
+// 1回の記録操作で作られたレコードのまとまり（＝日報の1入力ぶん）を表すキー。
+// 新しいレコードは同じ entryId を持つ。entryId が無い過去のレコードは
+// 「日付＋メンバー＋品番＋パーツ＋枚数」が同じものを1回ぶんとみなす（フォールバック）。
+function koteiEntryKey(r) {
+  if (r && r.entryId) return "e:" + r.entryId;
+  return "f:" + [r.date, r.memberId, r.partId, r.stepPart || "", r.qty].join("|");
+}
+
+// レコード配列を入力1回ぶんずつにまとめる。並びは元の配列の順を保つ。
+function koteiEntryGroups(recs) {
+  const idx = {};
+  const out = [];
+  (recs || []).forEach(function (r) {
+    const k = koteiEntryKey(r);
+    if (idx[k] === undefined) { idx[k] = out.length; out.push({ key: k, date: r.date, memberId: r.memberId, partId: r.partId, recs: [] }); }
+    out[idx[k]].recs.push(r);
+  });
+  out.forEach(function (g) {
+    const parts = [];
+    const qtys = [];
+    g.recs.forEach(function (r) {
+      if (parts.indexOf(r.stepPart || "") < 0) parts.push(r.stepPart || "");
+      if (qtys.indexOf(r.qty) < 0) qtys.push(r.qty);
+    });
+    g.parts = parts;                                   // このまとまりが触ったパーツ（ふつうは1つ）
+    g.partLabel = parts.filter(function (x) { return x; }).join("・");
+    g.sameQty = qtys.length === 1 ? qtys[0] : null;    // 枚数が揃っていなければ null
+    g.totalQty = g.recs.reduce(function (a, r) { return a + (r.qty || 0); }, 0);
+  });
+  return out;
+}
+
+// 工程をパーツごとのくくりに分ける（印刷・日報と同じ継承ルール）
+function koteiStepGroups(steps) {
+  const gs = [];
+  let g = null;
+  (steps || []).forEach(function (b) {
+    if (b.part) { if (!g || g.part !== b.part) { g = { part: b.part, steps: [] }; gs.push(g); } }
+    else { if (!g) { g = { part: "—", steps: [] }; gs.push(g); } }
+    g.steps.push(b);
+  });
+  return gs;
+}
+
+// 工程表の工程行と、工程→パーツ名の対応（パーツ名は空欄なら直前行を継承する既存ルール）
+function koteiSheetSteps(sheets, partId) {
+  const sh = (sheets || []).find(function (x) { return x.partId === partId; });
+  return sh ? (sh.blocks || []).filter(function (b) { return b.type === "step"; }) : [];
+}
+function koteiStepPartMap(steps) {
+  const m = {};
+  let cur = "";
+  (steps || []).forEach(function (b) { if (b.part) cur = b.part; m[b.id] = cur; });
+  return m;
+}
+
 // 日報のパーツまとめ入力：記録する工程の判定。チェックを外した工程（＝担当していない）は
 // レコードを作らない。枚数の条件は従来どおり「1枚以上」。保存も画面のサマリーもこの判定を見る。
 function koteiStepPicked(offMap, stepId, qty) {
@@ -777,12 +836,13 @@ function App() {
     const steps = (sheet.blocks || []).filter((b) => b.type === "step");
     let curPart = "";
     const newRecs = [];
+    const entryId = Date.now().toString(36) + genId(); // この1回の記録でできる全レコードに同じ値を付ける
     steps.forEach((b) => {
       if (b.part) curPart = b.part;
       const q = parseFloat((ui.kEntryQty || {})[b.id]);
       if (!koteiStepPicked(ui.kEntryOff, b.id, q)) return;
       newRecs.push({
-        id: genId(), date: date, memberId: member.id, memberName: member.name,
+        id: genId(), entryId: entryId, date: date, memberId: member.id, memberName: member.name,
         partId: partId, stepId: b.id, stepPart: curPart, stepAct: b.act || "",
         stepSec: parseKoteiTime(b.time), qty: q,
         totalSec: totalSec, unitPrice: part.unitPrice || 0, pleatsPrice: part.pleatsPrice || 0,
@@ -794,6 +854,31 @@ function App() {
     set({ kEntryQty: {}, kEntryOff: {}, kEntryPartId: "" });
     setSaving(true); setSaveError(false);
     gasAddKoteiRecords(newRecs).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
+  }
+
+  // 記録済みの枚数を直す。既存の upsertItem に1件ずつ乗せる（idはそのまま・qtyだけ変える）。
+  // 途中で失敗したらそこで止め、どこまで直せたかを出す。同じ操作をもう一度実行すれば残りが直る。
+  function fixKoteiQty(ids, qty) {
+    const q = parseFloat(qty);
+    if (!(q >= 1)) return;
+    const targets = (data.koteiRecords || []).filter((r) => ids.indexOf(r.id) >= 0);
+    if (targets.length === 0) return;
+    set({ kFixProg: { done: 0, total: targets.length, err: "" } });
+    setSaving(true); setSaveError(false);
+    let done = 0;
+    targets.reduce((p, r) => p.then(() => gasUpsertItem("koteiRecords", Object.assign({}, r, { qty: q })).then(() => {
+      done++;
+      // 1件ごとに画面へ反映する（途中で失敗しても、直った分だけが残る）
+      setData((prev) => Object.assign({}, prev, { koteiRecords: (prev.koteiRecords || []).map((x) => (x.id === r.id ? Object.assign({}, x, { qty: q }) : x)) }));
+      set({ kFixProg: { done: done, total: targets.length, err: "" } });
+    })), Promise.resolve())
+      .then(() => { set({ kFixDlg: null, kFixProg: null }); })
+      .catch((e) => {
+        console.error(e);
+        setSaveError(true);
+        set({ kFixProg: { done: done, total: targets.length, err: done + "件まで修正済み、残り" + (targets.length - done) + "件は未修正です。もう一度「修正する」を押してください" } });
+      })
+      .finally(() => setSaving(false));
   }
 
   function deleteKoteiRecord(id) {
@@ -823,12 +908,13 @@ function App() {
       const totalSec = sheet.totalSec || 0;
       const steps = (sheet.blocks || []).filter((b) => b.type === "step");
       let curPart = "";
+      const entryId = Date.now().toString(36) + genId(); // この1回の記録でできる全レコードに同じ値を付ける
       steps.forEach((b) => {
         if (b.part) curPart = b.part;
         const q = parseFloat((ui.kEntryQty || {})[b.id]);
         if (!koteiStepPicked(ui.kEntryOff, b.id, q)) return;
         koteiRecs.push({
-          id: genId(), date: date, memberId: member.id, memberName: member.name,
+          id: genId(), entryId: entryId, date: date, memberId: member.id, memberName: member.name,
           partId: f.partId, stepId: b.id, stepPart: curPart, stepAct: b.act || "",
           stepSec: parseKoteiTime(b.time), qty: q,
           totalSec: totalSec, unitPrice: part.unitPrice || 0, pleatsPrice: part.pleatsPrice || 0,
@@ -1742,12 +1828,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const selSheet = f.partId ? (data.koteiSheets || []).find((s) => s.partId === f.partId) : null;
     const selSteps = selSheet ? (selSheet.blocks || []).filter((b) => b.type === "step") : [];
     // パーツごとにグループ化（印刷と同じ継承ルール）
-    const kGroups = []; let kg = null;
-    selSteps.forEach((b) => {
-      if (b.part) { if (!kg || kg.part !== b.part) { kg = { part: b.part, steps: [] }; kGroups.push(kg); } }
-      else { if (!kg) { kg = { part: "—", steps: [] }; kGroups.push(kg); } }
-      kg.steps.push(b);
-    });
+    const kGroups = koteiStepGroups(selSteps);
     // ── 工程チェック（パーツ内の一部工程だけ担当した日のため）──
     // 初期状態は全チェック。全工程を担当する日が多数派なので、共通ケースのタップ数を増やさない。
     // チェックを外した工程は kEntryOff に入り、保存時に koteiStepPicked で落ちる（記録されない）。
@@ -1777,6 +1858,43 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       (data.koteiRecords || []).forEach((r) => { if (r.memberId === f.memberId && r.partId === f.partId) usualIds[r.stepId] = true; });
     }
     const usualSteps = selSteps.filter((b) => usualIds[b.id]);
+    // ── 前回の続き ──
+    // 「昨日」ではなく自分の直近の入力日を見る（休業日・欠勤明けでも空振りしない）。
+    // 今日ぶんは対象にしない（同じ内容をもう一度記録してしまうのを防ぐ）。
+    const prevAll = f.memberId ? (data.koteiRecords || []).filter((r) => r.memberId === f.memberId && (r.date || "") < (f.date || today())) : [];
+    const prevDate = prevAll.reduce((a, r) => ((r.date || "") > a ? (r.date || "") : a), "");
+    const prevGroups = (prevDate ? koteiEntryGroups(prevAll.filter((r) => r.date === prevDate)) : [])
+      .filter((g) => teamParts.some((p) => p.id === g.partId)); // 進行中の品番だけ（完了した品番は出さない）
+    // 品番・パーツ・工程チェックだけを前回のまま戻す。枚数は今日ぶんを入れてもらうので空のまま。
+    const applyPrev = (g) => {
+      const steps = koteiSheetSteps(data.koteiSheets, g.partId);
+      const partOf = koteiStepPartMap(steps);
+      const inEntry = (pn) => g.parts.indexOf(pn || "") >= 0;
+      const recorded = {};
+      g.recs.forEach((r) => { recorded[r.stepId] = true; });
+      const off = {};
+      steps.forEach((b) => { if (inEntry(partOf[b.id]) && !recorded[b.id]) off[b.id] = true; });
+      const open = {};
+      koteiStepGroups(steps).forEach((grp, gi) => { if (inEntry(grp.part === "—" ? "" : grp.part)) open["g" + gi] = true; });
+      setMF({ partId: g.partId });
+      set({ kEntryQty: {}, kEntryOff: off, kEntryOpen: open });
+    };
+    // 前回の1回ぶんを表すチップ（品番＋パーツ／工程数／前回の枚数）
+    const prevChip = (g) => {
+      const part = data.parts.find((p) => p.id === g.partId);
+      const steps = koteiSheetSteps(data.koteiSheets, g.partId);
+      const partOf = koteiStepPartMap(steps);
+      const total = steps.filter((b) => g.parts.indexOf(partOf[b.id] || "") >= 0).length;
+      const n = g.recs.length;
+      return React.createElement("button", {
+        key: g.key, onClick: () => applyPrev(g),
+        style: { textAlign: "left", background: "var(--iquta-bg)", border: "1px solid var(--line)", borderRadius: 10, padding: "8px 14px", minHeight: 52, cursor: "pointer", flex: "1 1 auto", minWidth: 0 }
+      },
+        React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: "var(--iquta)" } }, (part ? part.partNo : "?") + (g.partLabel ? "　" + g.partLabel : "")),
+        React.createElement("div", { style: { fontSize: 11, color: "var(--soft)", marginTop: 2 } },
+          ((total > 0 && n < total) ? n + "/" + total + "工程" : n + "工程") + " ・ " + (g.sameQty != null ? "前回" + g.sameQty + "枚" : "前回のべ" + g.totalQty + "枚"))
+      );
+    };
     const toggleOpen = (key) => set({ kEntryOpen: Object.assign({}, ui.kEntryOpen, { [key]: !ui.kEntryOpen[key] }) });
     // 工程1行（チェック＋番号＋作業内容＋秒/枚）。行のどこをタップしても切り替わる（iPad想定・行高52px）
     const stepRow = (s) => {
@@ -1909,6 +2027,12 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                   React.createElement("option", { value: "" }, "選択してください"),
                   data.members.map((m) => React.createElement("option", { key: m.id, value: m.id }, m.name))
                 ))
+              ),
+
+              prevGroups.length > 0 && React.createElement("div", { style: st.card },
+                React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: "var(--iquta)" } }, "前回の続き"),
+                React.createElement("div", { style: { fontSize: 11, color: "var(--soft)", margin: "4px 0 10px", lineHeight: 1.6 } }, fmt(prevDate) + "に記録したぶんです。押すと品番と工程のチェックがそのまま入ります（枚数は今日のぶんを入れてください）"),
+                React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 } }, prevGroups.map(prevChip))
               ),
 
               React.createElement("div", { style: st.card },
@@ -2048,20 +2172,80 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           ),
           myKotei.length > 0 && React.createElement("div", { style: { marginTop: 10 } },
             React.createElement("div", { style: { fontSize: 10, color: "var(--faint)", letterSpacing: ".14em", marginBottom: 6, fontWeight: 600 } }, "生産価値"),
-            myKotei.slice().sort((a, b) => koteiValue(b, data.parts) - koteiValue(a, data.parts)).map((r) => {
-              const part = data.parts.find((p) => p.id === r.partId);
-              return React.createElement("div", { key: r.id, style: Object.assign({}, st.recRow, { alignItems: "flex-start" }) },
-                React.createElement("div", { style: { flex: 1, minWidth: 0 } },
-                  React.createElement("div", { style: { fontSize: 13, fontWeight: 700 } }, (part ? part.partNo : "?") + "　" + (r.stepPart || "")),
-                  React.createElement("div", { style: { fontSize: 12, color: "#777", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, (r.stepAct || "") + " ×" + r.qty + "枚")
+            // 記録した1回ぶんを1行にまとめる（枚数を直すときも、その1回ぶんをまとめて直せる）
+            koteiEntryGroups(myKotei).map((g) => {
+              const part = data.parts.find((p) => p.id === g.partId);
+              const gOpen = !!(ui.kFixOpen || {})[g.key];
+              const gVal = g.recs.reduce((a, r) => a + koteiValue(r, data.parts), 0);
+              const gTitle = (part ? part.partNo : "?") + (g.partLabel ? "　" + g.partLabel : "");
+              return React.createElement("div", { key: g.key, style: Object.assign({}, st.recRow, { flexDirection: "column", alignItems: "stretch", gap: 0 }) },
+                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+                  React.createElement("button", { style: { flex: 1, minWidth: 0, textAlign: "left", background: "none", border: "none", padding: 0, minHeight: 44, cursor: "pointer" }, onClick: () => set({ kFixOpen: Object.assign({}, ui.kFixOpen, { [g.key]: !gOpen }) }) },
+                    React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: "var(--ink)" } }, gTitle),
+                    React.createElement("div", { style: { fontSize: 12, color: "#777" } }, g.recs.length + "工程 ・ " + (g.sameQty != null ? g.sameQty + "枚" : "工程ごとに異なる") + "　" + (gOpen ? "▼" : "▶"))
+                  ),
+                  React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: "var(--iquta)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" } }, "¥" + Math.round(gVal).toLocaleString()),
+                  React.createElement("button", {
+                    style: Object.assign({}, st.ghostBtn, { minHeight: 44, whiteSpace: "nowrap" }),
+                    onClick: () => set({ kFixDlg: { ids: g.recs.map((r) => r.id), title: gTitle, sub: g.recs.length + "工程 ・ " + (g.sameQty != null ? "現在 " + g.sameQty + "枚" : "枚数は工程ごとに異なります"), qty: g.sameQty != null ? "" + g.sameQty : "" }, kFixProg: null })
+                  }, "枚数修正")
                 ),
-                React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: "var(--iquta)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" } }, "¥" + Math.round(koteiValue(r, data.parts)).toLocaleString()),
-                React.createElement("button", { style: st.deleteBtn, onClick: () => deleteKoteiRecord(r.id) }, "✕")
+                // 開くと工程ごと。1件だけ直したいときと、消したいときはこちら
+                gOpen && React.createElement("div", { style: { marginTop: 8, borderTop: "1px solid var(--line-soft)", paddingTop: 8 } },
+                  g.recs.map((r) => React.createElement("div", { key: r.id, style: { display: "flex", alignItems: "center", gap: 8, minHeight: 44 } },
+                    React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+                      React.createElement("div", { style: { fontSize: 12, color: "#555", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, (r.stepAct || "（無題の工程）")),
+                      React.createElement("div", { style: { fontSize: 11, color: "var(--faint)" } }, "×" + r.qty + "枚 ・ ¥" + Math.round(koteiValue(r, data.parts)).toLocaleString())
+                    ),
+                    React.createElement("button", {
+                      style: Object.assign({}, st.ghostBtn, { minHeight: 44, whiteSpace: "nowrap", fontSize: 11 }),
+                      onClick: () => set({ kFixDlg: { ids: [r.id], title: gTitle, sub: (r.stepAct || "（無題の工程）") + " ・ 現在 " + r.qty + "枚", qty: "" + r.qty }, kFixProg: null })
+                    }, "この工程だけ修正"),
+                    React.createElement("button", { style: st.deleteBtn, onClick: () => deleteKoteiRecord(r.id) }, "✕")
+                  ))
+                )
               );
             })
           )
         )
       ),
+      // 枚数の修正。直せるのは枚数だけ（工程・日付を間違えたときは従来どおり消して入れ直す）
+      ui.kFixDlg && (function () {
+        const d = ui.kFixDlg;
+        const prog = ui.kFixProg;
+        const q = parseFloat(d.qty);
+        const busy = !!(prog && !prog.err && prog.done < prog.total);
+        const canFix = q >= 1 && !busy;
+        return React.createElement("div", {
+          style: { position: "fixed", inset: 0, background: "rgba(28,35,51,.4)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 },
+          onClick: (e) => { if (e.target === e.currentTarget && !busy) set({ kFixDlg: null, kFixProg: null }); },
+        },
+          React.createElement("div", { style: { background: "#fff", borderRadius: 14, width: "100%", maxWidth: 420, padding: 20, boxSizing: "border-box" } },
+            React.createElement("div", { style: { fontSize: 17, fontWeight: 700 } }, "枚数の修正"),
+            React.createElement("div", { style: { fontSize: 13, color: "var(--ink)", fontWeight: 700, marginTop: 10 } }, d.title),
+            React.createElement("div", { style: { fontSize: 12, color: "var(--soft)", marginTop: 2 } }, d.sub),
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, margin: "14px 0 10px" } },
+              React.createElement("span", { style: { fontSize: 13, color: "var(--soft)" } }, "新しい枚数"),
+              React.createElement("input", { style: Object.assign({}, st.input, { width: 100, textAlign: "center", fontWeight: 700, color: "var(--iquta)", height: 46 }), type: "number", min: "1", placeholder: "枚", value: d.qty, disabled: busy, onChange: (e) => set({ kFixDlg: Object.assign({}, d, { qty: e.target.value }) }) }),
+              React.createElement("span", { style: { fontSize: 13, color: "var(--soft)" } }, "枚")
+            ),
+            React.createElement("div", { style: { background: "var(--iquta-bg)", borderRadius: 8, padding: "10px 12px", fontSize: 13, lineHeight: 1.7, color: "var(--ink)" } },
+              q >= 1
+                ? [
+                    (d.ids.length > 1 ? "この" + d.ids.length + "工程すべての枚数を " : "この工程の枚数を "),
+                    React.createElement("b", { key: "q", style: { color: "var(--iquta)", fontSize: 15 } }, q + "枚"),
+                    " に変えます",
+                  ]
+                : "1枚以上の枚数を入れてください"),
+            prog && !prog.err && React.createElement("div", { style: { fontSize: 12, color: "var(--soft)", marginTop: 10 } }, "修正中… " + prog.done + "/" + prog.total),
+            prog && prog.err && React.createElement("div", { style: { background: "#fdf6f6", border: "1px solid #f0dbdb", borderRadius: 8, padding: "10px 12px", fontSize: 12, color: "var(--aka)", fontWeight: 600, marginTop: 10, lineHeight: 1.6 } }, prog.err),
+            React.createElement("div", { style: { display: "flex", gap: 10, marginTop: 16 } },
+              React.createElement("button", { style: Object.assign({}, st.ghostBtn, { flex: 1, minHeight: 46 }), disabled: busy, onClick: () => set({ kFixDlg: null, kFixProg: null }) }, "やめる"),
+              React.createElement("button", { style: Object.assign({}, st.primaryBtn, { flex: 1, marginTop: 0, minHeight: 46, opacity: canFix ? 1 : 0.35 }), disabled: !canFix, onClick: () => fixKoteiQty(d.ids, d.qty) }, "修正する")
+            )
+          )
+        );
+      })(),
       React.createElement(SI)
     );
   }

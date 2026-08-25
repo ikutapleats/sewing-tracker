@@ -47,7 +47,7 @@ function buildKoteiRecs(steps, qtyMap, offMap) {
     const q = parseFloat(qtyMap[b.id]);
     if (!koteiStepPicked(offMap, b.id, q)) return;
     recs.push({
-      id: "id_" + b.id, date: "2026-08-04", memberId: "m1", memberName: "みほ",
+      id: "id_" + b.id, entryId: "E1", date: "2026-08-04", memberId: "m1", memberName: "みほ",
       partId: "P1", stepId: b.id, stepPart: curPart, stepAct: b.act || "",
       stepSec: parseInt(b.time, 10) || 0, qty: q,
       totalSec: 600, unitPrice: 1200, pleatsPrice: 200,
@@ -67,8 +67,8 @@ const allQty = { s1: "10", s2: "10", s3: "10", s4: "10" };
 console.log("\n[パーツまとめ入力の組み立て]");
 const all = buildKoteiRecs(steps, allQty, {});
 eq("全チェックなら従来どおり全工程が記録される", all.map(function (r) { return r.stepId; }), ["s1", "s2", "s3", "s4"]);
-eq("レコードのフィールド構成は従来と同一", Object.keys(all[0]).sort(),
-  ["date", "id", "memberId", "memberName", "partId", "pleatsPrice", "qty", "stepAct", "stepPart", "stepSec", "stepId", "totalSec", "unitPrice"].sort());
+eq("レコードのフィールド構成は従来と同一（entryIdのみ追加）", Object.keys(all[0]).sort(),
+  ["date", "entryId", "id", "memberId", "memberName", "partId", "pleatsPrice", "qty", "stepAct", "stepPart", "stepSec", "stepId", "totalSec", "unitPrice"].sort());
 eq("パーツ名の継承は変わらない", all.map(function (r) { return r.stepPart; }), ["前身頃", "前身頃", "後身頃", "後身頃"]);
 
 const some = buildKoteiRecs(steps, allQty, { s2: true, s4: true });
@@ -85,7 +85,7 @@ eq("枚数を変えても外した工程は作られない",
 
 // 本体のレコード生成箇所が、テストが前提とするフィールド構成のままかを見張る
 console.log("\n[本体ソースのフィールド構成]");
-const expectKeys = ["id", "date", "memberId", "memberName", "partId", "stepId", "stepPart", "stepAct", "stepSec", "qty", "totalSec", "unitPrice", "pleatsPrice"];
+const expectKeys = ["id", "entryId", "date", "memberId", "memberName", "partId", "stepId", "stepPart", "stepAct", "stepSec", "qty", "totalSec", "unitPrice", "pleatsPrice"];
 ["newRecs.push({", "koteiRecs.push({"].forEach(function (marker) {
   const st = src.indexOf(marker);
   if (st < 0) { fail++; console.log("  NG  " + marker + " が見つかりません"); return; }
