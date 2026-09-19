@@ -13,6 +13,8 @@ const STATUSES = ["未着手", "裁断済み", "仕掛り中", "完了"];
 
 function today() { return new Date().toISOString().slice(0, 10); }
 function daysAgo(n) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); }
+// 日付文字列(YYYY-MM-DD)をn日ずらす。成績表と個人推移で前期比の期間定義を一致させるため共通化
+function shiftDate(ds, n) { const d = new Date(ds + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
 function genId() { return Math.random().toString(36).slice(2, 9); }
 function fmt(d) { return d ? d.slice(5).replace("-", "/") : "—"; }
 function diffDays(a, b) {
@@ -2872,9 +2874,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     // ── 成績表（管理者向け）: 期間内の人ごとの数字を1つの表で冷静に比較する ──
     const hasSheet = {};
     (data.koteiSheets || []).forEach((s) => { hasSheet[s.partId] = true; });
-    const shift = (ds, n) => { const d = new Date(ds + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
     const spanDays = Math.max(1, Math.round((new Date(ui.msTo + "T00:00:00") - new Date(ui.msFrom + "T00:00:00")) / 86400000) + 1);
-    const pFrom = shift(ui.msFrom, -spanDays), pTo = shift(ui.msFrom, -1); // 直前の同じ長さの期間（前期比の物差し）
+    const pFrom = shiftDate(ui.msFrom, -spanDays), pTo = shiftDate(ui.msFrom, -1); // 直前の同じ長さの期間（前期比の物差し）
     const rows = data.members.map((m) => {
       // 期間集計は個人推移画面と共通の関数を使う（DRY・数字を絶対にズレさせない）
       const cur = memberPeriodStats(data, hasSheet, m.id, ui.msFrom, ui.msTo);
@@ -2957,9 +2958,11 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     }
     const hasSheet = {};
     (data.koteiSheets || []).forEach((s) => { hasSheet[s.partId] = true; });
-    // 直近30日／その前の30日（前期比の物差し）。成績表の「過去1ヶ月」プリセットの前期比と同じ期間定義
-    const cur = memberPeriodStats(data, hasSheet, member.id, daysAgo(29), today());
-    const prev = memberPeriodStats(data, hasSheet, member.id, daysAgo(59), daysAgo(30));
+    // 直近30日／その前の30日（前期比の物差し）。前期の境界は成績表と同じshiftDateで求め、
+    // 「過去1ヶ月」プリセット選択時の成績表の前期比と完全に一致させる（独自計算だとタイムゾーンで1日ズレる）
+    const mtFrom = daysAgo(29), mtTo = today();
+    const cur = memberPeriodStats(data, hasSheet, member.id, mtFrom, mtTo);
+    const prev = memberPeriodStats(data, hasSheet, member.id, shiftDate(mtFrom, -30), shiftDate(mtFrom, -1));
     const trend = (cur.rate > 0 && prev.rate > 0) ? (cur.rate / prev.rate - 1) * 100 : null;
     // 月別推移: 当月＋直前6ヶ月の7本（古い→新しい）。当月だけ「月初〜本日」で締め、それ以外は月末まで
     const curYm = today().slice(0, 7);
@@ -4248,7 +4251,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const sewSalesSum = filtered.reduce((a, p) => a + sewSalesOf(p), 0);
     // 並び順は完了分析画面のkaSort==="rate"と同じルール（時間記録のある品番を高い順→記録なしは完了日順で末尾）
     const withHours = filtered.filter((p) => p.totalHours > 0).sort((a, b) => sewRateOf(b) - sewRateOf(a));
-    const noHours = filtered.filter((p) => p.totalHours === 0).sort((a, b) => (b.closedAt || "").localeCompare(a.closedAt || ""));
+    const noHours = filtered.filter((p) => !(p.totalHours > 0)).sort((a, b) => (b.closedAt || "").localeCompare(a.closedAt || "")); // 時間が不正値の品番も一覧から落とさない
     const sorted = withHours.concat(noHours);
     const topRate = withHours.length > 0 ? sewRateOf(withHours[0]) : 0; // 指数モードの分母（最も高い品番=100）
     const money = ui.kaShareMoney;
@@ -5203,8 +5206,9 @@ const styleEl = document.createElement("style");
 styleEl.textContent =
   ":root{--white:#ffffff;--paper:#fbfcfe;--iquta:#1e5ad7;--iquta-d:#1745ae;--iquta-bg:#eef3fe;--iquta-soft:#eef3fe;--ink:#1b2333;--soft:#7f8aa3;--faint:#b3bccf;--line:#e6ecfa;--line-soft:#f0f4fd;--aka:#d0433f}" +
   "@keyframes spin { to { transform: rotate(360deg); } }" +
-  // 印刷/PDF保存: .print-area だけを表示し、他はすべて隠す（共有用出力・個人推移の「印刷」用）
-  "@media print{body *{visibility:hidden}.print-area,.print-area *{visibility:visible}.print-area{position:absolute;left:0;top:0;width:100%}.no-print{display:none!important}}@page{size:A4 portrait;margin:12mm}";
+  // 印刷/PDF保存: 出力ビュー(.print-area)がある画面だけ、印刷時にそれ以外を隠す。
+  // :has()で対象画面を限定し、他画面の通常のブラウザ印刷には影響させない
+  "@media print{body:has(.print-area) *{visibility:hidden}.print-area,.print-area *{visibility:visible}.print-area{position:absolute;left:0;top:0;width:100%}}@page{size:A4 portrait;margin:12mm}";
 document.head.appendChild(styleEl);
 
 
