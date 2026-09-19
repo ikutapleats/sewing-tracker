@@ -140,6 +140,7 @@ const INIT_UI = {
   vvTo: today(),
   vvExpanded: {},
   msFrom: daysAgo(6), msTo: today(), msSort: "rate", // 成績表（管理者向け）
+  mtMemberId: null, // 個人推移画面の対象メンバー
   ganttMonth: null, // 生産スケジュール（ガント）の表示月 YYYY-MM
   ganttEditId: null, ganttForm: null, // ガントの編集ポップアップ（{start, days, team}）
   ganttDlDate: null, // 納期行バッジで選択中の日（YYYY-MM-DD）。null=ポップオーバー非表示
@@ -149,6 +150,7 @@ const INIT_UI = {
   kaDetailId: null, // 完了分析: 詳細グラフ画面を表示中の品番ID（nullなら非表示）
   kaDetailFrom: null, // 詳細グラフ画面の戻り先（"kanryo_analysis" or "kanryo_box"。null=完了分析）
   kaBrand: "all", kaFrom: "", kaTo: "", // 完了分析（客先絞り込み・期間指定の開始日/終了日）
+  kaShareMoney: true, // 共有出力: 金額を表示するか
 };
 
 async function gasSave(data) {
@@ -392,6 +394,58 @@ function rateOf(recsArr, kersArr, parts, hasSheet) {
   let h = 0, v = 0;
   Object.keys(cell).forEach(function (k) { if (cell[k].h > 0 && cell[k].v > 0) { h += cell[k].h; v += cell[k].v; } });
   return { hours: h, value: v, rate: h > 0 ? v / h : 0 };
+}
+
+// 縫製売上(プリーツ加工賃を除いた売上)と、それベースの1時間当たり。
+// 完了分析・共有用出力で共通利用（DRY・計算は1箇所だけに置く）。
+function sewSalesOf(x) { return Math.max(0, (x.unitPrice || 0) - (x.pleatsPrice || 0)) * (x.qty || 0); }
+function sewRateOf(x) { return x.totalHours > 0 ? sewSalesOf(x) / x.totalHours : 0; }
+
+// 完了分析の絞り込み（チーム→客先→期間の順）。f にはui（kaTeam/kaBrand/kaMonth/kaFrom/kaTo）をそのまま渡せる。
+// 段階ごとの中間結果（teamFiltered/brandFiltered）も返す: 絞り込み後の選択肢(客先・月)づくりに使うため
+function kanryoFiltered(kaAll, f) {
+  // チーム絞り込み: 「全体」は外注も含む全件。チーム選択時はそのチームの自社分のみ（外注は除く）
+  const teamFiltered = f.kaTeam === "all" ? kaAll : kaAll.filter((p) => p.assigneeType !== "outsource" && p.assignee === f.kaTeam);
+  // 客先絞り込み: all=全件、none=客先未設定のみ、それ以外はbrandId一致
+  const brandFiltered = f.kaBrand === "all" ? teamFiltered
+    : f.kaBrand === "none" ? teamFiltered.filter((p) => !p.brandId)
+    : teamFiltered.filter((p) => p.brandId === f.kaBrand);
+  // kaMonth==="custom"のときはkaFrom/kaTo（完了日の範囲、文字列比較でOK）で絞る。空側は無制限
+  const filtered = f.kaMonth === "all" ? brandFiltered
+    : f.kaMonth === "custom" ? brandFiltered.filter((p) => (!f.kaFrom || (p.closedAt || "") >= f.kaFrom) && (!f.kaTo || (p.closedAt || "") <= f.kaTo))
+    : brandFiltered.filter((p) => (p.closedAt || "").slice(0, 7) === f.kaMonth);
+  return { teamFiltered: teamFiltered, brandFiltered: brandFiltered, filtered: filtered };
+}
+
+// 完了分析の合計カード用の集計（絞り込み後の配列を渡す）
+function kanryoTotals(filtered) {
+  const count = filtered.length;
+  const totalQty = filtered.reduce((a, p) => a + (p.qty || 0), 0);
+  const totalSales = filtered.reduce((a, p) => a + (p.totalSales || 0), 0);
+  const totalHours = filtered.reduce((a, p) => a + (p.totalHours || 0), 0);
+  const withHours = filtered.filter((p) => p.totalHours > 0);
+  const hoursSum = withHours.reduce((a, p) => a + p.totalHours, 0);
+  // 合計の1時間当たりも縫製工賃ベース（プリーツ加工賃を除く）
+  const salesWithHoursSum = withHours.reduce((a, p) => a + sewSalesOf(p), 0);
+  const avgRate = hoursSum > 0 ? salesWithHoursSum / hoursSum : null;
+  return { count: count, totalQty: totalQty, totalSales: totalSales, totalHours: totalHours, withHours: withHours, hoursSum: hoursSum, salesWithHoursSum: salesWithHoursSum, avgRate: avgRate };
+}
+
+// 成績表（管理者向け）の期間集計を1人ぶん計算する。member_stats・個人推移画面で共通利用
+function memberPeriodStats(data, hasSheet, mid, from, to) {
+  const filt = (d) => (d || "") >= from && (d || "") <= to;
+  const rs = data.records.filter((r) => r.memberId === mid && filt(r.date));
+  const ks = (data.koteiRecords || []).filter((r) => r.memberId === mid && filt(r.date));
+  const hoursAll = rs.reduce((a, r) => a + (r.hours || 0), 0);
+  const sheetH = rs.reduce((a, r) => a + (hasSheet[r.partId] ? (r.hours || 0) : 0), 0);
+  const value = ks.reduce((a, r) => a + koteiValue(r, data.parts), 0);
+  const qty = ks.reduce((a, r) => a + (r.qty || 0), 0);
+  const dset = {};
+  rs.forEach((r) => { if (r.date) dset[r.date] = 1; });
+  ks.forEach((r) => { if (r.date) dset[r.date] = 1; });
+  const otherH = rs.reduce((a, r) => a + (r.otherHours || 0), 0); // 工程外（芯貼り・裁断・サポート等）
+  // 1時間あたりは共通計算（工程表あり時間のみ・工程外の内数と工程枚数が入っていない日は除外）
+  return { hoursAll: hoursAll, noSheetH: hoursAll - sheetH, otherH: otherH, value: value, qty: qty, days: Object.keys(dset).length, rate: rateOf(rs, ks, data.parts, hasSheet).rate };
 }
 
 // 金額のカウントアップ演出（表示のみ）。値が変わったら前の値からスーッと伸びる。
@@ -3937,13 +3991,11 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
   // で計算する。売上表示は会社の売上なので総額(単価×枚数)のまま。
   if (ui.screen === "kanryo_analysis") {
     const kaAll = allSummary.filter((p) => p.closedAt);
-    // 縫製売上(プリーツ加工賃を除いた売上)と、それベースの1時間当たり
-    const sewSales = (x) => Math.max(0, (x.unitPrice || 0) - (x.pleatsPrice || 0)) * (x.qty || 0);
-    const sewRate = (x) => x.totalHours > 0 ? sewSales(x) / x.totalHours : 0;
     const teamLabel = (p) => p.assigneeType === "outsource" ? "外注: " + (p.vendorName || "未設定") : ((p.assignee && p.assignee !== "未割当") ? p.assignee : "チーム未設定");
     const tagStyle = { display: "inline-block", fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "var(--iquta-bg)", color: "var(--iquta)", marginRight: 4, marginTop: 2 };
-    // チーム絞り込み: 「全体」は外注も含む全件。チーム選択時はそのチームの自社分のみ（外注は除く）
-    const kaTeamFiltered = ui.kaTeam === "all" ? kaAll : kaAll.filter((p) => p.assigneeType !== "outsource" && p.assignee === ui.kaTeam);
+    // 絞り込み（チーム→客先→期間）は共有出力画面と同じ関数を使う（DRY・数字を絶対にズレさせない）
+    const kaFilterResult = kanryoFiltered(kaAll, ui);
+    const kaTeamFiltered = kaFilterResult.teamFiltered, kaBrandFiltered = kaFilterResult.brandFiltered, kaFiltered = kaFilterResult.filtered;
     // 客先(ブランド)の選択肢はチーム絞り込み後の対象から作る（選んでも0件にならないように）。
     // brandIdが無い品番が対象に含まれる場合だけ「客先未設定」も選べるようにする
     const kaBrandOptions = (() => {
@@ -3954,35 +4006,21 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       if (hasNone) arr.push({ id: "none", name: "客先未設定" });
       return arr;
     })();
-    // 客先絞り込み: all=全件、none=客先未設定のみ、それ以外はbrandId一致
-    const kaBrandFiltered = ui.kaBrand === "all" ? kaTeamFiltered
-      : ui.kaBrand === "none" ? kaTeamFiltered.filter((p) => !p.brandId)
-      : kaTeamFiltered.filter((p) => p.brandId === ui.kaBrand);
     // 期間・月は完了日(closedAt)基準（社長決定）。選択肢は客先絞り込み後の対象から作る（選んでも0件にならないように）
     const kaMonths = Array.from(new Set(kaBrandFiltered.map((p) => (p.closedAt || "").slice(0, 7)).filter(Boolean))).sort().reverse();
-    // kaMonth==="custom"のときはkaFrom/kaTo（完了日の範囲、文字列比較でOK）で絞る。空側は無制限
-    const kaFiltered = ui.kaMonth === "all" ? kaBrandFiltered
-      : ui.kaMonth === "custom" ? kaBrandFiltered.filter((p) => (!ui.kaFrom || (p.closedAt || "") >= ui.kaFrom) && (!ui.kaTo || (p.closedAt || "") <= ui.kaTo))
-      : kaBrandFiltered.filter((p) => (p.closedAt || "").slice(0, 7) === ui.kaMonth);
     // 並び順: 完了日順は単純降順。時間当たり順は「時間記録がある品番だけ」を高い順に並べ、記録なしは末尾にまとめる
     let kaSorted;
     if (ui.kaSort === "rate") {
-      const withHours = kaFiltered.filter((p) => p.totalHours > 0).sort((a, b) => sewRate(b) - sewRate(a));
+      const withHours = kaFiltered.filter((p) => p.totalHours > 0).sort((a, b) => sewRateOf(b) - sewRateOf(a));
       const noHours = kaFiltered.filter((p) => p.totalHours === 0).sort((a, b) => (b.closedAt || "").localeCompare(a.closedAt || ""));
       kaSorted = withHours.concat(noHours);
     } else {
       kaSorted = kaFiltered.slice().sort((a, b) => (b.closedAt || "").localeCompare(a.closedAt || ""));
     }
-    // 合計カード用の集計（絞り込み後）
-    const kaCount = kaFiltered.length;
-    const kaTotalQty = kaFiltered.reduce((a, p) => a + (p.qty || 0), 0);
-    const kaTotalSales = kaFiltered.reduce((a, p) => a + (p.totalSales || 0), 0);
-    const kaTotalHours = kaFiltered.reduce((a, p) => a + (p.totalHours || 0), 0);
-    const kaWithHours = kaFiltered.filter((p) => p.totalHours > 0);
-    const kaHoursSum = kaWithHours.reduce((a, p) => a + p.totalHours, 0);
-    // 合計の1時間当たりも縫製工賃ベース（プリーツ加工賃を除く）
-    const kaSalesWithHoursSum = kaWithHours.reduce((a, p) => a + sewSales(p), 0);
-    const kaAvgRate = kaHoursSum > 0 ? kaSalesWithHoursSum / kaHoursSum : null;
+    // 合計カード用の集計（絞り込み後）も共有出力画面と同じ関数を使う
+    const kaTotals = kanryoTotals(kaFiltered);
+    const kaCount = kaTotals.count, kaTotalQty = kaTotals.totalQty, kaTotalSales = kaTotals.totalSales, kaTotalHours = kaTotals.totalHours;
+    const kaWithHours = kaTotals.withHours, kaAvgRate = kaTotals.avgRate;
     // 総時間の表示: 小数1桁までだが、ちょうど整数なら整数で表示（見た目をすっきりさせる）
     const fmtHours = (h) => { const r = Math.round(h * 10) / 10; return (Number.isInteger(r) ? "" + r : r.toFixed(1)) + "h"; };
     const kaTeamBtn = (team, label, color) => {
@@ -4013,7 +4051,12 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement("button", {
             style: { height: 44, padding: "0 16px", borderRadius: 22, fontSize: 14, cursor: "pointer", border: "1px solid var(--line)", background: "#fff", color: "var(--ink)" },
             onClick: () => set({ kaSort: ui.kaSort === "closed" ? "rate" : "closed" }),
-          }, ui.kaSort === "closed" ? "並び順: 完了日順" : "並び順: 時間当たり順")
+          }, ui.kaSort === "closed" ? "並び順: 完了日順" : "並び順: 時間当たり順"),
+          // 客先などへの共有用に、この絞り込み条件のまま印刷向けレイアウトで出力する画面へ（フィルタはui state経由でそのまま引き継ぐ）
+          React.createElement("button", {
+            style: { height: 44, padding: "0 16px", borderRadius: 22, fontSize: 14, cursor: "pointer", border: "1px solid var(--line)", background: "#fff", color: "var(--ink)" },
+            onClick: () => set({ screen: "kanryo_share", kaShareMoney: true }),
+          }, "共有用に出力")
         ),
         // 「期間を指定…」選択時だけ表示する完了日の範囲指定（他の選択肢に戻してもkaFrom/kaToの値は残したままでよい）
         ui.kaMonth === "custom" && React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" } },
@@ -4064,7 +4107,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
               p.totalHours > 0
                 ? React.createElement("div", null,
                     // 1時間当たりは縫製工賃ベース（プリーツ加工賃を除く）
-                    React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: "var(--iquta)" } }, "¥" + Math.round(sewRate(p)).toLocaleString() + "/h"),
+                    React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: "var(--iquta)" } }, "¥" + Math.round(sewRateOf(p)).toLocaleString() + "/h"),
                     React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, fmtHours(p.totalHours))
                   )
                 : React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, "時間記録なし")
@@ -4097,9 +4140,9 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const tagStyle = { display: "inline-block", fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "var(--iquta-bg)", color: "var(--iquta)", marginRight: 4, marginTop: 2 };
     // 総時間の表示: 小数1桁までだが、ちょうど整数なら整数で表示（完了分析画面のfmtHoursと同じ考え方）
     const fmtHours = (h) => { const r = Math.round(h * 10) / 10; return (Number.isInteger(r) ? "" + r : r.toFixed(1)) + "h"; };
-    // 縫製売上(プリーツ加工賃を除く)ベースの1時間当たり（完了分析一覧と同じ計算）
+    // 縫製売上(プリーツ加工賃を除く)ベースの1時間当たり（完了分析一覧と同じ計算＝共通関数）
     const sewUnit = Math.max(0, (p.unitPrice || 0) - (p.pleatsPrice || 0));
-    const sewRateV = p.totalHours > 0 ? (sewUnit * (p.qty || 0)) / p.totalHours : 0;
+    const sewRateV = sewRateOf(p);
     // カード見出しの共通スタイル
     const cardStyle = { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, padding: "14px 16px", marginBottom: 14 };
     const cardTitle = { fontSize: 13, fontWeight: 700, marginBottom: 10 };
@@ -4907,7 +4950,9 @@ const styleEl = document.createElement("style");
 // 青の微調整はこの1箇所で済むように、画面側は必ず var() 参照で使う。
 styleEl.textContent =
   ":root{--white:#ffffff;--paper:#fbfcfe;--iquta:#1e5ad7;--iquta-d:#1745ae;--iquta-bg:#eef3fe;--iquta-soft:#eef3fe;--ink:#1b2333;--soft:#7f8aa3;--faint:#b3bccf;--line:#e6ecfa;--line-soft:#f0f4fd;--aka:#d0433f}" +
-  "@keyframes spin { to { transform: rotate(360deg); } }";
+  "@keyframes spin { to { transform: rotate(360deg); } }" +
+  // 印刷/PDF保存: .print-area だけを表示し、他はすべて隠す（共有用出力・個人推移の「印刷」用）
+  "@media print{body *{visibility:hidden}.print-area,.print-area *{visibility:visible}.print-area{position:absolute;left:0;top:0;width:100%}.no-print{display:none!important}}@page{size:A4 portrait;margin:12mm}";
 document.head.appendChild(styleEl);
 
 
