@@ -284,6 +284,11 @@ async function gasAddKoteiRecords(records) {
   await gasAddSafe({ action: "addKoteiRecords", records: records });
 }
 
+// 工程時間の訂正を過去記録へ反映（stepSecのみ書き換え・承認済み機能）。updates: [{ match:{partId,stepId}, newSec }]
+async function gasResyncKoteiRecords(updates) {
+  return await gasPostRaw({ action: "resyncKoteiRecords", updates: updates });
+}
+
 async function gasAddPart(part) {
   const res = await fetch(GAS_URL, {
     method: "POST",
@@ -412,6 +417,43 @@ function koteiStepPartMap(steps) {
 function koteiStepPicked(offMap, stepId, qty) {
   if ((offMap || {})[stepId]) return false;
   return qty > 0;
+}
+
+// ── 工程時間の訂正を過去記録へ反映するための「食い違い」検出（純関数）
+// 特定キーの確認結果: koteiRecords は partId と stepId（工程表ブロックのid）を両方持つ（addKoteiRecords 参照）。
+// stepId はテンプレ複製・工程表コピー時に genId() で振り直されるので工程表をまたいで重複しないが、
+// 別品番の同名工程を絶対に巻き込まないよう、match は必ず { partId, stepId } の組で渡す（stepName は使わない）。
+// 反映対象は既存レコードの stepSec のみ。工程の追加・削除では過去記録を増減させない。
+function koteiResyncDiff(sheet, koteiRecords, onlyStepIds) {
+  const recs = koteiRecords || [];
+  const only = onlyStepIds ? {} : null;
+  if (only) onlyStepIds.forEach(function (id) { only[id] = true; });
+  const out = [];
+  ((sheet && sheet.blocks) || []).forEach(function (b) {
+    if (b.type !== "step") return;
+    if (only && !only[b.id]) return;
+    const newSec = parseKoteiTime(b.time);
+    if (!(newSec > 0)) return; // 0・空欄・読めない表記(NaN)は対象外
+    const hit = recs.filter(function (r) { return r.partId === sheet.partId && r.stepId === b.id && Number(r.stepSec) !== newSec; });
+    if (hit.length === 0) return;
+    const secs = hit.map(function (r) { return Number(r.stepSec); });
+    const oldSecSame = secs.every(function (s) { return s === secs[0]; });
+    let qty = 0, oldSecQty = 0;
+    hit.forEach(function (r) {
+      const q = Number(r.qty) || 0;
+      qty += q;
+      oldSecQty += (Number(r.stepSec) || 0) * q;
+    });
+    const name = ((b.part ? b.part + " " : "") + (b.act || "")).trim() || "工程";
+    out.push({
+      stepId: b.id, partId: sheet.partId, name: name,
+      oldSec: oldSecSame ? secs[0] : null,
+      oldSecMin: Math.min.apply(null, secs), oldSecMax: Math.max.apply(null, secs),
+      newSec: newSec, recCount: hit.length, qty: qty, oldSecQty: oldSecQty,
+      match: { partId: sheet.partId, stepId: b.id },
+    });
+  });
+  return out;
 }
 
 // 縫製工賃 = 受注単価 − プリーツ加工賃（加工賃込みの単価の品番は、加工分を除いて
@@ -1276,6 +1318,35 @@ function App() {
   }
   function deleteKotei(id) {
     applyLocal({ koteiSheets: (data.koteiSheets || []).filter((r) => r.id !== id) }, () => gasDeleteItem("koteiSheets", id));
+  }
+
+  // 工程表の保存直後に呼ぶ：changedOnly=trueなら、直前まで保存されていたシートと比べて
+  // 秒数が変わった工程だけを対象にする（未変更の保存では何も出ない）。
+  // changedOnly=falseは「過去記録との食い違いを確認」ボタン用で、全工程を対象にする。
+  function detectKoteiResync(rec, changedOnly) {
+    if (!rec.partId) return [];
+    let onlyStepIds = null;
+    if (changedOnly) {
+      const old = (data.koteiSheets || []).find((s) => s.id === rec.id);
+      const oldMap = {};
+      ((old && old.blocks) || []).forEach((b) => { if (b.type === "step") oldMap[b.id] = parseKoteiTime(b.time) || 0; });
+      onlyStepIds = (rec.blocks || []).filter((b) => b.type === "step" && oldMap.hasOwnProperty(b.id) && oldMap[b.id] !== (parseKoteiTime(b.time) || 0)).map((b) => b.id);
+    }
+    return koteiResyncDiff(rec, data.koteiRecords || [], onlyStepIds);
+  }
+
+  // 選ばれた工程のstepSecを既存記録へ一括反映。反映後はローカルを直接書き換えつつ、
+  // 最新のサーバーデータで集計を確実に合わせるためreloadDataも走らせる（失敗は無視＝次回タブ復帰時に直る）。
+  async function resyncKoteiRecords(updates) {
+    const res = await gasResyncKoteiRecords(updates);
+    setData((prev) => Object.assign({}, prev, {
+      koteiRecords: (prev.koteiRecords || []).map((r) => {
+        const u = updates.find((u) => u.match.partId === r.partId && u.match.stepId === r.stepId);
+        return u ? Object.assign({}, r, { stepSec: u.newSec }) : r;
+      }),
+    }));
+    reloadData().catch(() => {});
+    return res;
   }
 
   // ── 工程表テンプレ：partIdがnullの工程表＝テンプレ（既存画面はpartIdで引くため互いに干渉しない）
@@ -5420,7 +5491,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const partList = kctx.partList, extraParts = kctx.extraParts, phraseCats = kctx.phraseCats, extraPhrases = kctx.extraPhrases;
     return React.createElement(KoteiEditor, {
       key: part.id, part: part, sheet: sheet, brandName: brandName, extraParts: extraParts, extraPhrases: extraPhrases, phraseCats: phraseCats, partList: partList,
-      onSave: saveKotei, onDelete: deleteKotei,
+      onSave: saveKotei, onDelete: deleteKotei, detectResync: detectKoteiResync, onResync: resyncKoteiRecords,
       back: () => set({ screen: ui.koteiReturn || "part_detail", koteiPartId: null }),
       SI: SI,
     });
@@ -6229,11 +6300,37 @@ function KoteiEditor(props) {
   function buildRec() {
     return { id: (sheet && sheet.id) || genId(), partId: part.id, needle: needle, unten: unten, thread: thread, headNote: headNote, targetPerDay: targetPerDay, workMin: workMin, sizes: sizes, colors: colors, blocks: blocks, totalSec: summary.tot, designImgId: designImgId, updatedAt: today() };
   }
-  // 最下部: 保存して閉じる（従来どおり一覧へ戻る）
-  function handleSave() { props.onSave(buildRec()); props.back(); }
+  // 工程時間の訂正を過去記録へ反映するダイアログ（過去記録との食い違い）。
+  // items: 食い違いのある工程ごとの{...koteiResyncDiffの戻り値, on}。closeAfterはダイアログを
+  // 閉じたあとprops.back()するか（保存フローから開いた時のみtrue）。
+  const [resync, setResync] = useState(null);
+  function openResyncDialog(diff, closeAfter) {
+    setResync({ items: diff.map((d) => Object.assign({}, d, { on: true })), closeAfter: closeAfter, busy: false, done: null, error: null });
+  }
+  // 最下部: 保存して閉じる（従来どおり一覧へ戻る）。食い違いが検出されたら閉じずにダイアログを出す
+  // （保存前の古いシートで比較する必要があるためonSaveより先にdetectResyncを呼ぶ）。
+  function handleSave() {
+    const rec = buildRec();
+    const diff = props.detectResync ? props.detectResync(rec, true) : [];
+    props.onSave(rec);
+    if (diff.length) { openResyncDialog(diff, true); } else { props.back(); }
+  }
   // ヘッダー: 一時保存（保存して画面に留まり、入力を続けられる）。
   // 保存後は未保存判定の基準を現在値に更新（この後ロゴでホームへ移動しても余計な確認を出さない）。
-  function handleSaveStay() { props.onSave(buildRec()); initialSnap.current = editSnap(); }
+  function handleSaveStay() {
+    const rec = buildRec();
+    const diff = props.detectResync ? props.detectResync(rec, true) : [];
+    props.onSave(rec);
+    initialSnap.current = editSnap();
+    if (diff.length) openResyncDialog(diff, false);
+  }
+  // ボタン「過去記録との食い違いを確認」：保存済みの全工程を対象に食い違いを探す
+  function checkResync() {
+    if (isDirty()) { window.alert("先に保存してください（保存した秒数と記録を突き合わせます）"); return; }
+    const diff = props.detectResync(buildRec(), false);
+    if (diff.length === 0) { window.alert("食い違いはありません"); return; }
+    openResyncDialog(diff, false);
+  }
 
   // 未保存判定（既存stateのスナップショット比較）: 開いた時点の編集対象を丸ごと控えておき、
   // ヘッダーのロゴ（ホームへ）押下時に現在値と比較する。新しい状態管理は増やさない。
@@ -6241,6 +6338,77 @@ function KoteiEditor(props) {
   const initialSnap = useRef(null);
   if (initialSnap.current === null) initialSnap.current = editSnap();
   function isDirty() { return editSnap() !== initialSnap.current; }
+
+  // ── 過去記録との食い違いダイアログ（工程時間の訂正を過去記録へ反映） ──
+  function closeResync() {
+    if (resync && resync.busy) return; // 反映中は閉じない（閉じても記録は書き換わるため）
+    const closeAfter = resync && resync.closeAfter;
+    setResync(null);
+    if (closeAfter) props.back();
+  }
+  function toggleResyncItem(stepId) {
+    setResync((prev) => prev && !prev.busy && Object.assign({}, prev, { items: prev.items.map((it) => it.stepId === stepId ? Object.assign({}, it, { on: !it.on }) : it) }));
+  }
+  function doResync() {
+    const sel = resync.items.filter((it) => it.on);
+    if (sel.length === 0 || resync.busy) return;
+    const updates = sel.map((it) => ({ match: it.match, newSec: it.newSec }));
+    setResync((prev) => Object.assign({}, prev, { busy: true, error: null }));
+    props.onResync(updates).then((res) => {
+      const counts = res && res.counts ? res.counts : [];
+      const total = counts.reduce((a, n) => a + (n || 0), 0);
+      setResync((prev) => Object.assign({}, prev, { busy: false, done: { counts: counts, total: total } }));
+    }).catch(() => {
+      setResync((prev) => Object.assign({}, prev, { busy: false, error: "反映に失敗しました。通信を確認してもう一度お試しください" }));
+    });
+  }
+  function renderResyncDialog() {
+    const sel = resync.items.filter((it) => it.on);
+    const before = sel.reduce((a, it) => a + (it.oldSecQty || 0), 0) / 3600;
+    const after = sel.reduce((a, it) => a + it.newSec * it.qty, 0) / 3600;
+    const rowStyle = { border: "1px solid var(--line)", borderRadius: 10, marginBottom: 10, overflow: "hidden" };
+    return React.createElement("div", { style: { position: "fixed", inset: 0, zIndex: 100, background: "rgba(20,20,20,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12 } },
+      React.createElement("div", { style: { background: "#fff", borderRadius: 14, width: "100%", maxWidth: 480, padding: 20, maxHeight: "90vh", overflowY: "auto" } },
+        React.createElement("div", { style: { fontSize: 16, fontWeight: 700, marginBottom: 4 } }, "過去の記録に新しい秒数を反映しますか？"),
+        React.createElement("div", { style: { fontSize: 13, color: "var(--soft)", lineHeight: 1.6, marginBottom: 14 } }, "変更した工程の秒数で、入力済みの記録を計算し直します。反映すると数字を見る・完了分析・MQの数値も自動で直ります。"),
+        resync.done
+          ? React.createElement(React.Fragment, null,
+            React.createElement("div", { style: { fontSize: 14, fontWeight: 700, marginBottom: 10 } }, "反映しました"),
+            sel.map((it, i) => React.createElement("div", { key: it.stepId, style: { fontSize: 13, padding: "4px 0" } }, it.name + "：" + (resync.done.counts[i] || 0) + "件")),
+            React.createElement("div", { style: { fontSize: 13, fontWeight: 700, marginTop: 8, marginBottom: 16 } }, "合計 " + resync.done.total + "件の記録を更新しました"),
+            React.createElement("button", { style: { width: "100%", height: 50, borderRadius: 10, fontSize: 15, fontWeight: 700, border: "none", background: "var(--iquta)", color: "#fff" }, onClick: closeResync }, "閉じる")
+          )
+          : React.createElement(React.Fragment, null,
+            React.createElement("div", null, resync.items.map((it) => {
+              const chg = (it.oldSec == null ? (it.oldSecMin + "〜" + it.oldSecMax + "秒/枚") : (it.oldSec + "秒/枚")) ;
+              return React.createElement("div", { key: it.stepId, style: rowStyle, onClick: function () { toggleResyncItem(it.stepId); } },
+                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", minHeight: 56, cursor: "pointer" } },
+                  React.createElement("div", { style: { width: 26, height: 26, borderRadius: 7, flex: "none", border: "2px solid " + (it.on ? "var(--iquta)" : "var(--line)"), background: it.on ? "var(--iquta)" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: "#fff" } }, it.on ? "✓" : ""),
+                  React.createElement("div", null,
+                    React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: it.on ? "var(--ink)" : "#9aa1ad" } }, it.name),
+                    React.createElement("div", { style: { fontSize: 13, color: it.on ? "var(--ink)" : "#9aa1ad" } }, chg + " → ", React.createElement("b", { style: { color: it.on ? "var(--iquta)" : "#9aa1ad" } }, it.newSec + "秒/枚"))
+                  ),
+                  React.createElement("div", { style: { marginLeft: "auto", fontSize: 12, color: "var(--soft)", textAlign: "right", lineHeight: 1.5 } }, "対象 " + it.recCount + "記録", React.createElement("br"), "計 " + it.qty + "枚")
+                )
+              );
+            })),
+            React.createElement("div", { style: { background: "var(--iquta-bg)", borderRadius: 10, padding: "12px 14px", fontSize: 13, lineHeight: 1.8, margin: "14px 0" } },
+              sel.length === 0
+                ? "工程が選ばれていません"
+                : ["反映すると、この品番の生産価値時間が ", React.createElement("b", { key: "b", style: { color: "var(--iquta)" } }, before.toFixed(1) + "h → " + after.toFixed(1) + "h"), " に変わります（対象 " + sel.reduce((a, it) => a + it.recCount, 0) + "記録）"]
+            ),
+            React.createElement("div", { style: { background: "#fef3c7", borderRadius: 10, padding: "10px 14px", fontSize: 12, lineHeight: 1.7, marginBottom: 14 } },
+              "⚠ 反映は「最初の秒数が間違っていた」ときだけ。習熟で速くなった等の標準時間の見直しは反映せず、新しい記録から適用してください（過去の実績が書き換わってしまうため）。"
+            ),
+            resync.error && React.createElement("div", { style: { color: "var(--aka)", fontSize: 12, marginBottom: 10 } }, resync.error),
+            React.createElement("div", { style: { display: "flex", gap: 10 } },
+              React.createElement("button", { style: { flex: 1, height: 50, borderRadius: 10, fontSize: 15, border: "1px solid var(--line)", background: "#fff", color: resync.busy ? "#9aa1ad" : "var(--ink)" }, disabled: resync.busy, onClick: closeResync }, "今回は反映しない"),
+              React.createElement("button", { style: { flex: 1, height: 50, borderRadius: 10, fontSize: 15, fontWeight: 700, border: "none", background: (sel.length === 0 || resync.busy) ? "#c3cbdc" : "var(--iquta)", color: "#fff" }, disabled: sel.length === 0 || resync.busy, onClick: doResync }, resync.busy ? "反映中…" : "選んだ工程を反映")
+            )
+          )
+      )
+    );
+  }
 
   function doPrint() {
     const need = blocks.filter(function (b) { return b.type === "sketch" && b.imgId && !imgData[b.imgId]; }).map(function (b) { return b.imgId; });
@@ -6757,10 +6925,12 @@ function KoteiEditor(props) {
       renderSummary(),
       React.createElement("button", { style: { width: "100%", background: "var(--iquta)", color: "#fff", border: "none", borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 700, marginTop: 18 }, onClick: handleSave }, "保存して閉じる"),
       React.createElement("button", { style: { width: "100%", background: "#fff", color: "var(--iquta)", border: "1px solid var(--line)", borderRadius: 12, padding: 13, fontSize: 14, fontWeight: 700, marginTop: 8 }, onClick: function () { if (!uploading) doPrint(); } }, uploading ? "図を準備中…" : "A4印刷 / PDF保存"),
+      props.detectResync && sheet && sheet.id && React.createElement("button", { style: { width: "100%", background: "#fff", color: "var(--iquta)", border: "1px solid var(--line)", borderRadius: 12, padding: 13, fontSize: 14, fontWeight: 700, marginTop: 8 }, onClick: checkResync }, "過去記録との食い違いを確認"),
       (sheet && sheet.id) && React.createElement("button", { style: { width: "100%", background: "none", color: "var(--aka)", border: "none", borderRadius: 12, padding: 12, fontSize: 13, fontWeight: 700, marginTop: 8 }, onClick: function () { if (window.confirm("この工程表を削除しますか？")) { props.onDelete(sheet.id); props.back(); } } }, "削除する")
     ),
     modalId != null && renderModal(),
     designOpen && renderDesignModal(),
+    resync && renderResyncDialog(),
     React.createElement(props.SI)
   );
 }
