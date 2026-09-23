@@ -32,7 +32,8 @@ if (!data.mqSettings || typeof data.mqSettings !== "object") data.mqSettings = {
 ```
 mqSettings: {
   viewCode: "任意の閲覧コード",
-  teamWages: { "Aチーム": 1300, "Bチーム": 1250, "Cチーム": 1300, "サンプルチーム": 1500 },
+  teamWages: { "Aチーム": 1600, "Bチーム": 1700, "Cチーム": 1760, "サンプルチーム": 1920 },
+  defaultWage: 1720,   // 全社平均。時給未設定のチーム・チーム不明の時間に使う
   monthlyF: {}   // 段階2用。段階1では空のまま
 }
 ```

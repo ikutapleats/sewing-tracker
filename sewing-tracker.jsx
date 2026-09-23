@@ -185,6 +185,30 @@ function storePending(list) { try { localStorage.setItem(PENDING_KEY, JSON.strin
 // 注意: これは簡易ゲートであり、データ自体は全端末に配信されている（見た目を隠すだけ）。
 // 個人情報（個人別の時給など）はmqSettingsに絶対に追加してはならない
 const MQ_UNLOCK_KEY = "iquta-mq-unlocked";
+// チーム別平均時給の初期値（2026-09確定・賃金台帳から算出した社保込み実効時給）と全社平均。
+// mqSettingsに保存値があればそちらを優先し、未設定のチームは全社平均(defaultWage)で計算する（0円で無視しない＝人件費の過小計上を防ぐ）。
+// 時給は履歴を持たず現在値1本。異動・昇給時はMQ設定画面から上書きする
+const MQ_DEFAULT_TEAM_WAGES = { "Aチーム": 1600, "Bチーム": 1700, "Cチーム": 1760, "サンプルチーム": 1920 };
+const MQ_DEFAULT_WAGE = 1720;
+// MQ設定で時給欄を出すチーム名の一覧。TEAMS固定ではなく、品番の担当チーム・保存済み時給のキーも合わせて動的に列挙する
+// （将来プリーツ・パタン等のチームが増えても設定できるようにする。メンバーマスタにはチーム項目が無いため品番側から拾う）
+function mqTeamList(parts, teamWages) {
+  const set = {};
+  TEAMS.forEach((t) => { set[t] = true; });
+  (parts || []).forEach((p) => { if (p.assigneeType !== "outsource" && p.assignee && p.assignee !== "未割当") set[p.assignee] = true; });
+  Object.keys(teamWages || {}).forEach((t) => { if (t) set[t] = true; });
+  return Object.keys(set);
+}
+// そのチームに使う時給。保存値 > 初期値 > 全社平均 の順。返り値は必ず正の数
+function mqWageForTeam(team, mqSettings) {
+  const ms = mqSettings || {};
+  const dflt = (ms.defaultWage > 0) ? ms.defaultWage : MQ_DEFAULT_WAGE;
+  if (!team) return dflt;
+  const saved = ms.teamWages && ms.teamWages[team];
+  if (typeof saved === "number" && saved > 0) return saved;
+  if (MQ_DEFAULT_TEAM_WAGES[team] > 0) return MQ_DEFAULT_TEAM_WAGES[team];
+  return dflt;
+}
 function pushPending(body) { const l = loadPending(); l.push({ body: body, ts: Date.now() }); storePending(l); try { window.dispatchEvent(new CustomEvent("iquta-pending")); } catch (e) {} }
 async function gasPostRaw(body) {
   const res = await fetch(GAS_URL, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(body) });
@@ -452,16 +476,14 @@ function mqVqOf(p) { return (p.vMaterial || 0) + (p.vOutsource || 0) + (p.vShipp
 
 // 品番の集合からPQ/VQ/MQ/人件費/残りを集計する。allSummaryの要素（totalSales・totalHours付き）を渡す
 // 全体・チーム・品番一覧・品番詳細のすべてでこの1関数を共通利用する
-function mqOfParts(parts, teamWages) {
+function mqOfParts(parts, mqSettings) {
   // 人件費 = Σ(その品番の作業時間 × 担当チームの平均時給)
   // 社長決定（実装メモ4節の「記録者の所属チーム」を上書き）: メンバーにはチーム所属の項目が無いため、
   // 記録者ではなく「品番の担当チーム」(part.assignee / assigneeType)の平均時給を使う。
-  // 外注品番・チーム未設定（未割当）・平均時給が未設定/0のチームは、その品番の人件費を0として扱う
+  // チームが特定できない品番（外注・未割当）や時給未設定のチームの時間は全社平均(defaultWage)で計算する（0円で無視しない）
   const wageOf = (p) => {
-    if (!p || p.assigneeType === "outsource") return 0;
-    if (!p.assignee || TEAMS.indexOf(p.assignee) < 0) return 0;
-    const w = teamWages && teamWages[p.assignee];
-    return (typeof w === "number" && w > 0) ? w : 0;
+    if (!p || p.assigneeType === "outsource" || !p.assignee || p.assignee === "未割当") return mqWageForTeam(null, mqSettings);
+    return mqWageForTeam(p.assignee, mqSettings);
   };
   let pq = 0, vq = 0, labor = 0, hours = 0;
   (parts || []).forEach((p) => {
@@ -4953,7 +4975,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const periodLabel = ui.mqMonth === "all" ? "全期間"
       : ui.mqMonth === "custom" ? ((ui.mqFrom || "") + "〜" + (ui.mqTo || ""))
       : ui.mqMonth.slice(0, 4) + "年" + (+ui.mqMonth.slice(5)) + "月";
-    const wageMissing = TEAMS.some((t) => !(teamWages[t] > 0));
+    const mqTeams = mqTeamList(kaAll, teamWages);
+    const wageMissing = mqTeams.some((t) => !(teamWages[t] > 0)); // 保存値が無いチームは初期値/全社平均で計算中
 
     const mqTabs = ["all"].concat(TEAMS).concat(["list"]);
     const mqTabLabel = (t) => t === "all" ? "全体" : t === "list" ? "品番一覧" : t;
@@ -4972,7 +4995,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       if (ui.mqPartId) {
         const part = kaAll.find((p) => p.id === ui.mqPartId);
         if (!part) return React.createElement("div", { style: { color: "var(--soft)", fontSize: 13, textAlign: "center", padding: 24 } }, "品番が見つかりません");
-        const r = mqOfParts([part], teamWages);
+        const r = mqOfParts([part], mqSettings);
         return React.createElement("div", { style: st.card },
           React.createElement("button", { style: st.ghostBtn, onClick: () => set({ mqPartId: null }) }, "‹ 一覧に戻る"),
           React.createElement("div", { style: { fontSize: 14, fontWeight: 700, marginTop: 10 } }, "品番 " + part.partNo + (part.partName ? " " + part.partName : "")),
@@ -4982,7 +5005,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       }
       // 時間あたりMQ順（高い順）。記録なしは末尾（完了分析の並び順ルールを踏襲）
       const withRates = mqFiltered.filter((p) => p.totalHours > 0).map((p) => {
-        const r = mqOfParts([p], teamWages);
+        const r = mqOfParts([p], mqSettings);
         return Object.assign({}, p, { _mqRate: r.mq / p.totalHours, _laborRate: r.labor / p.totalHours, _g: r.g });
       }).sort((a, b) => b._mqRate - a._mqRate);
       const noHours = mqFiltered.filter((p) => !(p.totalHours > 0));
@@ -5015,7 +5038,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     if (ui.mqTab === "list") {
       mqBody = mqListBody();
     } else {
-      const r = mqOfParts(mqFiltered, teamWages);
+      const r = mqOfParts(mqFiltered, mqSettings);
       const title = (curTeam === "all" ? "全体" : curTeam) + "(" + periodLabel + ")";
       const sub = curTeam === "all" ? "人件費=各チーム平均時給×時間の合計" : "人件費=" + curTeam + "平均時給×時間";
       mqBody = React.createElement("div", { style: st.card },
@@ -5029,7 +5052,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       React.createElement(Header, {
         title: "MQ分析", back: () => set({ screen: "home" }),
         actions: [
-          { label: "MQ設定", onClick: () => set({ screen: "mq_settings", mqSettingsForm: { teamWages: Object.assign({}, teamWages), viewCode: viewCode } }) },
+          { label: "MQ設定", onClick: () => set({ screen: "mq_settings", mqSettingsForm: null }) },
           { label: "ロック", onClick: () => { try { localStorage.removeItem(MQ_UNLOCK_KEY); } catch (e) {} set({ mqUnlockTick: Date.now() }); } },
         ],
       }),
@@ -5047,7 +5070,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement("span", { style: { color: "var(--soft)" } }, "〜"),
           React.createElement("input", { type: "date", style: Object.assign({}, st.input, { height: 44, width: 150 }), value: ui.mqTo, onChange: (e) => set({ mqTo: e.target.value }) })
         ),
-        wageMissing && React.createElement("div", { style: { background: "#fdf6f6", border: "1px solid #f0dbdb", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 13, color: "var(--aka)", fontWeight: 600 } }, "チーム平均時給が未設定です（MQ設定）"),
+        wageMissing && React.createElement("div", { style: { background: "#fdf6f6", border: "1px solid #f0dbdb", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 13, color: "var(--aka)", fontWeight: 600 } }, "時給未設定のチームがあります（初期値または全社平均 ¥" + mqWageForTeam(null, mqSettings).toLocaleString() + "/h で計算中。MQ設定で確定してください）"),
         mqBody
       ),
       React.createElement(SI)
@@ -5070,15 +5093,21 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         React.createElement(SI)
       );
     }
-    const form = ui.mqSettingsForm || { teamWages: Object.assign({}, mqSettings.teamWages || {}), viewCode: viewCode };
+    // 時給欄はTEAMS固定ではなく、品番の担当チーム・保存済みキーも含めて動的に列挙（将来のチーム追加に対応）
+    const mqTeams = mqTeamList(allSummary, mqSettings.teamWages);
+    // 未保存のチームは初期値（2026-09確定）をプリフィルして、そのまま保存できるようにする
+    const prefill = {};
+    mqTeams.forEach((t) => { const w = mqSettings.teamWages && mqSettings.teamWages[t]; prefill[t] = (w > 0) ? w : (MQ_DEFAULT_TEAM_WAGES[t] || ""); });
+    const form = ui.mqSettingsForm || { teamWages: prefill, defaultWage: (mqSettings.defaultWage > 0) ? mqSettings.defaultWage : MQ_DEFAULT_WAGE, viewCode: viewCode };
     const setForm = (patch) => set({ mqSettingsForm: Object.assign({}, form, patch) });
     const saveMqSettings = () => {
       const wages = {};
-      TEAMS.forEach((t) => { wages[t] = parseFloat(form.teamWages[t]) || 0; });
+      mqTeams.forEach((t) => { const w = parseFloat(form.teamWages[t]) || 0; if (w > 0) wages[t] = w; });
+      const defaultWage = parseFloat(form.defaultWage) || MQ_DEFAULT_WAGE;
       // 空欄保存は不可（空にするとゲート1に戻り、誰でも新しいコードを設定できてしまうため）
       const newCode = (form.viewCode || "").trim();
       if (!newCode) { window.alert("閲覧コードを入力してください"); return; }
-      const nms = Object.assign({}, mqSettings, { teamWages: wages, viewCode: newCode, monthlyF: mqSettings.monthlyF || {} });
+      const nms = Object.assign({}, mqSettings, { teamWages: wages, defaultWage: defaultWage, viewCode: newCode, monthlyF: mqSettings.monthlyF || {} });
       const nd = Object.assign({}, data, { mqSettings: nms });
       applyLocal({ mqSettings: nms }, () => gasSave(nd));
       // 閲覧コードを変更した場合、保存した本人がロックアウトされないようlocalStorageも合わせて更新
@@ -5090,9 +5119,12 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       React.createElement(Body, null,
         React.createElement("div", { style: st.card },
           React.createElement("div", { style: { fontSize: 12, color: "var(--soft)", marginBottom: 14, lineHeight: 1.6 } }, "チーム別の平均時給とMQ分析ページの閲覧コードを設定します。個人別の時給はここに追加しないでください（全データが各端末に配信されるため、個人情報は入れない設計です）。"),
-          TEAMS.map((t) => React.createElement(FormRow, { key: t, label: t + " 平均時給（円/時）" },
+          mqTeams.map((t) => React.createElement(FormRow, { key: t, label: t + " 平均時給（円/時）" },
             React.createElement("input", { style: st.input, type: "number", min: "0", value: form.teamWages[t] != null ? form.teamWages[t] : "", onChange: (e) => setForm({ teamWages: Object.assign({}, form.teamWages, { [t]: e.target.value }) }) })
           )),
+          React.createElement(FormRow, { label: "全社平均時給（円/時）※時給未設定のチーム・チーム不明の時間に使う" },
+            React.createElement("input", { style: st.input, type: "number", min: "0", value: form.defaultWage != null ? form.defaultWage : "", onChange: (e) => setForm({ defaultWage: e.target.value }) })
+          ),
           React.createElement(FormRow, { label: "閲覧コード" },
             React.createElement("input", { style: st.input, type: "text", value: form.viewCode, onChange: (e) => setForm({ viewCode: e.target.value }) })
           ),
