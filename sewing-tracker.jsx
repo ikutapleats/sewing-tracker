@@ -24,6 +24,8 @@ function diffDays(a, b) {
 
 const EMPTY_DATA = {
   parts: [], records: [], qtyRecords: [], members: [], vendors: [], brands: [], monthlyTargets: {}, saidanReports: [], koteiSheets: [], koteiRecords: [], companyCalendar: {},
+  // MQ分析用の設定（閲覧コード・チーム別平均時給・段階2用の月次経費の入れ物）。未保存でも安全に動くよう空オブジェクトを既定にする
+  mqSettings: {},
 };
 
 // ── ガントチャート（生産スケジュール）────────────────────────────
@@ -153,6 +155,10 @@ const INIT_UI = {
   kaDetailFrom: null, // 詳細グラフ画面の戻り先（"kanryo_analysis" or "kanryo_box"。null=完了分析）
   kaBrand: "all", kaFrom: "", kaTo: "", // 完了分析（客先絞り込み・期間指定の開始日/終了日）
   kaShareMoney: true, // 共有出力: 金額を表示するか
+  // MQ分析（段階1: 経費の代わりにチーム別平均時給×時間の人件費を使う。閲覧コード付き）
+  mqTab: "all", mqMonth: "all", mqFrom: "", mqTo: "", mqPartId: null,
+  mqCodeInput: "", mqCodeError: false, mqInitCode: "", mqUnlockTick: 0, mqSettingsForm: null,
+  epVOpen: false, // 品番編集フォームの「変動費(MQ分析用)」折りたたみの開閉
 };
 
 async function gasSave(data) {
@@ -174,6 +180,11 @@ async function gasSave(data) {
 const PENDING_KEY = "iquta-pending-saves";
 function loadPending() { try { return JSON.parse(localStorage.getItem(PENDING_KEY) || "[]"); } catch (e) { return []; } }
 function storePending(list) { try { localStorage.setItem(PENDING_KEY, JSON.stringify(list)); } catch (e) {} }
+
+// MQ分析ページの閲覧コート通過を端末に記憶するキー。
+// 注意: これは簡易ゲートであり、データ自体は全端末に配信されている（見た目を隠すだけ）。
+// 個人情報（個人別の時給など）はmqSettingsに絶対に追加してはならない
+const MQ_UNLOCK_KEY = "iquta-mq-unlocked";
 function pushPending(body) { const l = loadPending(); l.push({ body: body, ts: Date.now() }); storePending(l); try { window.dispatchEvent(new CustomEvent("iquta-pending")); } catch (e) {} }
 async function gasPostRaw(body) {
   const res = await fetch(GAS_URL, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(body) });
@@ -433,6 +444,37 @@ function kanryoTotals(filtered) {
   return { count: count, totalQty: totalQty, totalSales: totalSales, totalHours: totalHours, withHours: withHours, hoursSum: hoursSum, salesWithHoursSum: salesWithHoursSum, avgRate: avgRate };
 }
 
+// ── MQ分析（段階1）: 変動費VQ・人件費の計算 ──────────────────────
+// VQ(変動費) = 糸・副資材 + 外注加工費 + 運賃・送料（いずれも品番の総額・円、未入力=0）
+// 注意: プリーツ加工賃(pleatsPrice)はMQ計算では控除しない。プリーツは内部工程であり社外流出費ではないため。
+// 完了分析のsewRate（プリーツ加工賃を除いた縫製工賃）とは目的が違う数字であることに注意（実装メモ4節）
+function mqVqOf(p) { return (p.vMaterial || 0) + (p.vOutsource || 0) + (p.vShipping || 0); }
+
+// 品番の集合からPQ/VQ/MQ/人件費/残りを集計する。allSummaryの要素（totalSales・totalHours付き）を渡す
+// 全体・チーム・品番一覧・品番詳細のすべてでこの1関数を共通利用する
+function mqOfParts(parts, teamWages) {
+  // 人件費 = Σ(その品番の作業時間 × 担当チームの平均時給)
+  // 社長決定（実装メモ4節の「記録者の所属チーム」を上書き）: メンバーにはチーム所属の項目が無いため、
+  // 記録者ではなく「品番の担当チーム」(part.assignee / assigneeType)の平均時給を使う。
+  // 外注品番・チーム未設定（未割当）・平均時給が未設定/0のチームは、その品番の人件費を0として扱う
+  const wageOf = (p) => {
+    if (!p || p.assigneeType === "outsource") return 0;
+    if (!p.assignee || TEAMS.indexOf(p.assignee) < 0) return 0;
+    const w = teamWages && teamWages[p.assignee];
+    return (typeof w === "number" && w > 0) ? w : 0;
+  };
+  let pq = 0, vq = 0, labor = 0, hours = 0;
+  (parts || []).forEach((p) => {
+    pq += p.totalSales || 0;
+    vq += mqVqOf(p);
+    hours += p.totalHours || 0;
+    labor += (p.totalHours || 0) * wageOf(p);
+  });
+  const mq = pq - vq;
+  const g = mq - labor;
+  return { pq: pq, vq: vq, mq: mq, labor: labor, g: g, hours: hours };
+}
+
 // 成績表（管理者向け）の期間集計を1人ぶん計算する。member_stats・個人推移画面で共通利用
 function memberPeriodStats(data, hasSheet, mid, from, to) {
   const filt = (d) => (d || "") >= from && (d || "") <= to;
@@ -448,6 +490,86 @@ function memberPeriodStats(data, hasSheet, mid, from, to) {
   const otherH = rs.reduce((a, r) => a + (r.otherHours || 0), 0); // 工程外（芯貼り・裁断・サポート等）
   // 1時間あたりは共通計算（工程表あり時間のみ・工程外の内数と工程枚数が入っていない日は除外）
   return { hoursAll: hoursAll, noSheetH: hoursAll - sheetH, otherH: otherH, value: value, qty: qty, days: Object.keys(dset).length, rate: rateOf(rs, ks, data.parts, hasSheet).rate };
+}
+
+// ── MQ分析（段階1）STRAC図の共通部品 ────────────────────────────
+// 承認済みモック(mq-box-mock.html)をそのまま移植。div+flexboxのみ（ライブラリ禁止）。
+// props: { pq(売上高), vq(変動費), f(人件費 or 段階2の経費), fLabel, gLabel, lossLabel, hours }
+// 段階2予告: 将来mqSettings.monthlyF(月次経費)を導入したら、呼び出し側がf・fLabel・gLabelを
+// 「経費」「利益」用に差し替えるだけでよいよう、これらは引数化してある（このコンポーネント自体は変更不要）
+function MqBox(props) {
+  const pq = props.pq || 0, vq = props.vq || 0, f = props.f || 0, hours = props.hours || 0;
+  const fLabel = props.fLabel || "人件費(時給換算)";
+  const gLabel = props.gLabel || "残り(家賃・光熱費等)";
+  const lossLabel = props.lossLabel || "人件費割れ";
+  const mq = pq - vq;
+  const g = mq - f;
+  const loss = g < 0;
+  const yen = (n) => "¥" + Math.round(n).toLocaleString();
+  // 高さ比率(%)。最小12%を保証してラベルが読めるようにする（モック踏襲）。pq/mqが0以下でもNaN/Infinityにしない
+  const pct = pq > 0 ? Math.max(12, Math.round(vq / pq * 100)) : 12;
+  const fH = mq > 0 ? (loss ? 100 : Math.max(15, Math.round(f / mq * 100))) : 100;
+  const mqRate = hours > 0 ? mq / hours : 0;
+  const beRate = hours > 0 ? f / hours : 0;
+  const diff = mqRate - beRate;
+  const fontFamily = "'BIZ UDPGothic','BIZ UDGothic','Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif";
+  const boxBase = { border: "2px solid #9aa1ad", borderRadius: 6, background: "#f7f8fb", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", overflow: "hidden", padding: 4, textAlign: "center" };
+  const nm = (small) => ({ fontSize: small ? 10 : 12, fontWeight: 700 });
+  const vv = (small) => ({ fontSize: small ? 10 : 13, fontWeight: 700 });
+  const stCard = { flex: 1, background: "#f7f8fb", borderRadius: 8, padding: "8px 10px", minWidth: 0 };
+  return React.createElement("div", { style: { fontFamily: fontFamily } },
+    React.createElement("div", { style: { display: "flex", gap: 6, height: 280 } },
+      React.createElement("div", { style: { width: "38%" } },
+        React.createElement("div", { style: Object.assign({}, boxBase, { height: "100%", background: "#eaf0fd", borderColor: "var(--iquta)" }) },
+          React.createElement("div", { style: nm(false) }, "売上高"),
+          React.createElement("div", { style: vv(false) }, yen(pq))
+        )
+      ),
+      React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", gap: 6 } },
+        React.createElement("div", { style: Object.assign({}, boxBase, { height: pct + "%", background: "#fff" }) },
+          React.createElement("div", { style: nm(pct <= 14) }, "変動費(原価)"),
+          React.createElement("div", { style: vv(pct <= 14) }, yen(vq))
+        ),
+        React.createElement("div", { style: { flex: 1, display: "flex", gap: 6 } },
+          React.createElement("div", { style: Object.assign({}, boxBase, { width: "46%", background: "#eaf0fd", borderColor: "var(--iquta)" }) },
+            React.createElement("div", { style: nm(false) }, "粗利(MQ)"),
+            React.createElement("div", { style: vv(false) }, yen(mq))
+          ),
+          React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", gap: 6 } },
+            React.createElement("div", { style: Object.assign({}, boxBase, { height: fH + "%", background: "#fff" }) },
+              React.createElement("div", { style: nm(false) }, fLabel),
+              React.createElement("div", { style: vv(false) }, yen(f))
+            ),
+            React.createElement("div", { style: Object.assign({}, boxBase, { flex: 1 }, loss ? { background: "#fdecea", borderColor: "#d93025", color: "#d93025" } : { background: "#e9f5ec", borderColor: "#1e8e3e" }) },
+              React.createElement("div", { style: nm(false) }, loss ? lossLabel : gLabel),
+              React.createElement("div", { style: vv(false) }, yen(g))
+            )
+          )
+        )
+      )
+    ),
+    React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" } },
+      React.createElement("div", { style: stCard },
+        React.createElement("div", { style: { fontSize: 10, color: "#6b7280" } }, "時間"),
+        React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, (Math.round(hours * 10) / 10).toLocaleString() + "h")
+      ),
+      React.createElement("div", { style: stCard },
+        React.createElement("div", { style: { fontSize: 10, color: "#6b7280" } }, "時間あたりMQ"),
+        React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, yen(mqRate))
+      ),
+      React.createElement("div", { style: stCard },
+        React.createElement("div", { style: { fontSize: 10, color: "#6b7280" } }, "人件費ライン"),
+        React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, yen(beRate) + "/h")
+      ),
+      React.createElement("div", { style: stCard },
+        React.createElement("div", { style: { fontSize: 10, color: "#6b7280" } }, "差"),
+        React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: diff < 0 ? "#d93025" : undefined } }, (diff >= 0 ? "+" : "") + yen(diff))
+      )
+    ),
+    React.createElement("div", { style: { marginTop: 10, fontSize: 11, color: "#6b7280", lineHeight: 1.7 } },
+      "※人件費=チーム別平均時給×作業時間(個人の時給は使わない)。家賃・光熱費等の経費は未算入のため、「残り」がそのまま利益ではない。月次経費の入力を始めたら正式なMQ図(経費・利益)に切り替わる。"
+    )
+  );
 }
 
 // 金額のカウントアップ演出（表示のみ）。値が変わったら前の値からスーッと伸びる。
@@ -502,6 +624,7 @@ function App() {
       if (!Array.isArray(merged.koteiSheets)) merged.koteiSheets = [];
       if (!Array.isArray(merged.koteiRecords)) merged.koteiRecords = [];
       if (!merged.companyCalendar || typeof merged.companyCalendar !== "object") merged.companyCalendar = {};
+      if (!merged.mqSettings || typeof merged.mqSettings !== "object") merged.mqSettings = {};
       // 二重送信・再送でシートに重複行があっても、画面と集計はIDで1件に正規化する
       merged.records = dedupById(merged.records);
       merged.qtyRecords = dedupById(merged.qtyRecords);
@@ -533,6 +656,7 @@ function App() {
       if (!Array.isArray(merged.koteiSheets)) merged.koteiSheets = [];
       if (!Array.isArray(merged.koteiRecords)) merged.koteiRecords = [];
       if (!merged.companyCalendar || typeof merged.companyCalendar !== "object") merged.companyCalendar = {};
+      if (!merged.mqSettings || typeof merged.mqSettings !== "object") merged.mqSettings = {};
       // 二重送信・再送でシートに重複行があっても、画面と集計はIDで1件に正規化する
       merged.records = dedupById(merged.records);
       merged.qtyRecords = dedupById(merged.qtyRecords);
@@ -720,6 +844,8 @@ function App() {
       // ガント: 開始日+稼働日数のみ保存。完了予定日は保存しない（常に計算で導出）
       ganttStart: f.ganttStart || null,
       ganttDays: (parseInt(f.ganttDays, 10) > 0) ? parseInt(f.ganttDays, 10) : null,
+      // MQ分析用の変動費3項目（品番の総額・円。未入力=0）。プリーツ加工賃(pleatsPrice)とは別枠
+      vMaterial: parseFloat(f.vMaterial) || 0, vOutsource: parseFloat(f.vOutsource) || 0, vShipping: parseFloat(f.vShipping) || 0,
     });
     const nd = Object.assign({}, data, { parts: data.parts.map((p) => p.id === f.id ? updatedPart : p) });
     setData(nd);
@@ -816,7 +942,9 @@ function App() {
   }
 
   function startEdit(part) {
-    set({ editPartForm: { id: part.id, partName: part.partName || "", unitPrice: part.unitPrice || "", pleatsPrice: part.pleatsPrice || "", qty: part.qty || "", estMinPerUnit: part.estMinPerUnit || "", deadline: part.deadline || "", status: part.status || "未着手", note: part.note || "", sellPrice: part.sellPrice || "", vendorPrice: part.vendorPrice || "", assigneeType: part.assigneeType || "team", workMonth: part.workMonth || "", brandId: part.brandId || "", plan: normPlan(part.plan), ganttStart: part.ganttStart || "", ganttDays: part.ganttDays || "" }, screen: "edit_part" });
+    set({ editPartForm: { id: part.id, partName: part.partName || "", unitPrice: part.unitPrice || "", pleatsPrice: part.pleatsPrice || "", qty: part.qty || "", estMinPerUnit: part.estMinPerUnit || "", deadline: part.deadline || "", status: part.status || "未着手", note: part.note || "", sellPrice: part.sellPrice || "", vendorPrice: part.vendorPrice || "", assigneeType: part.assigneeType || "team", workMonth: part.workMonth || "", brandId: part.brandId || "", plan: normPlan(part.plan), ganttStart: part.ganttStart || "", ganttDays: part.ganttDays || "",
+      // MQ分析用の変動費3項目（品番の総額・円。未入力=0）
+      vMaterial: part.vMaterial || "", vOutsource: part.vOutsource || "", vShipping: part.vShipping || "" }, screen: "edit_part" });
   }
 
   // ── ガント編集ポップアップ（開始日+稼働日数+担当チームの3つだけ）──
@@ -1424,6 +1552,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         React.createElement(BigBtn, { label: "品番マスター", sub: "進行中の品番の登録・割当管理" + (unassigned > 0 ? "　未割当 " + unassigned + "件" : ""), onClick: () => set({ screen: "master", masterFilter: "all" }) }),
         React.createElement(Spacer, { h: 8 }),
         React.createElement(BigBtn, { label: "完了ボックス", sub: "完了した品番を納品月別・客先別・チーム別に確認", onClick: () => set({ screen: "kanryo_box", kbMode: "month", kbSearch: "", kbOpen: null }) }),
+        React.createElement(Spacer, { h: 8 }),
+        React.createElement(BigBtn, { label: "MQ分析", sub: "売上・変動費・粗利・人件費をSTRAC図で確認（閲覧コード付き）", onClick: () => set({ screen: "mq_analysis", mqTab: "all", mqPartId: null, mqCodeInput: "", mqCodeError: false }) }),
         React.createElement(Spacer, { h: 12 }),
         React.createElement(Divider, { label: "チームを選ぶ" }),
         TEAMS.map((team) => {
@@ -1619,6 +1749,15 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             React.createElement(FormRow, { label: "外注単価（円）" }, React.createElement("input", { style: st.input, type: "number", value: f.vendorPrice, onChange: (e) => setEP({ vendorPrice: e.target.value }) }))
           ),
           React.createElement(FormRow, { label: "備考" }, React.createElement("input", { style: st.input, value: f.note, onChange: (e) => setEP({ note: e.target.value }) })),
+          // MQ分析用の変動費3項目。通常入力の邪魔にならないよう折りたたみ、既定は閉じておく
+          React.createElement("div", { style: { marginBottom: 14 } },
+            React.createElement("button", { type: "button", style: { minHeight: 44, width: "100%", textAlign: "left", background: "#fff", border: "1px solid var(--line)", borderRadius: 8, padding: "10px 12px", fontSize: 13, fontWeight: 600, color: "var(--iquta)", cursor: "pointer" }, onClick: () => set({ epVOpen: !ui.epVOpen }) }, "変動費(MQ分析用) " + (ui.epVOpen ? "▾" : "▸")),
+            ui.epVOpen && React.createElement("div", { style: { marginTop: 10 } },
+              React.createElement(FormRow, { label: "糸・副資材（品番の総額・円）" }, React.createElement("input", { style: st.input, type: "number", min: "0", value: f.vMaterial, onChange: (e) => setEP({ vMaterial: e.target.value }) })),
+              React.createElement(FormRow, { label: "外注加工費（品番の総額・円）" }, React.createElement("input", { style: st.input, type: "number", min: "0", value: f.vOutsource, onChange: (e) => setEP({ vOutsource: e.target.value }) })),
+              React.createElement(FormRow, { label: "運賃・送料（自社負担・品番の総額・円）" }, React.createElement("input", { style: st.input, type: "number", min: "0", value: f.vShipping, onChange: (e) => setEP({ vShipping: e.target.value }) }))
+            )
+          ),
           React.createElement("button", { style: st.primaryBtn, onClick: savePart }, "保存する")
         )
       )
@@ -4738,6 +4877,228 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       ),
       dlModal,
       modal,
+      React.createElement(SI)
+    );
+  }
+
+  // ── MQ分析（段階1）: 閲覧コード付き。既存画面（完了分析等）とは完全に独立した追加画面 ──────
+  // 絞り込み・集計は完了分析の既存ロジック(kanryoFiltered/kanryoTotals/allSummary)をそのまま再利用し、
+  // 新しい絞り込みロジックは作らない（実装メモ4節）。人件費・VQの計算だけmqOfParts/mqVqOfで追加する。
+  if (ui.screen === "mq_analysis") {
+    const mqSettings = data.mqSettings || {};
+    const viewCode = mqSettings.viewCode || "";
+    const teamWages = mqSettings.teamWages || {};
+    let unlocked = false;
+    try { unlocked = !!viewCode && localStorage.getItem(MQ_UNLOCK_KEY) === viewCode; } catch (e) { unlocked = false; }
+
+    // ── ゲート1: 閲覧コードが未設定 ──
+    // 注意: 設定画面(mq_settings)自体がこのゲートの先にあるため、誰も未来永劫コードを設定できなくなる。
+    // そのため未設定時だけ、この場で最初の1回のコードを作れるようにする（メモ6-1節）
+    if (!viewCode) {
+      const setInitCode = () => {
+        const code = (ui.mqInitCode || "").trim();
+        if (!code) return;
+        const nms = Object.assign({}, mqSettings, { viewCode: code, teamWages: mqSettings.teamWages || {}, monthlyF: mqSettings.monthlyF || {} });
+        const nd = Object.assign({}, data, { mqSettings: nms });
+        applyLocal({ mqSettings: nms }, () => gasSave(nd));
+        try { localStorage.setItem(MQ_UNLOCK_KEY, code); } catch (e) {}
+        set({ mqInitCode: "", mqUnlockTick: Date.now() });
+      };
+      return React.createElement(Shell, null,
+        React.createElement(Header, { title: "MQ分析", back: () => set({ screen: "home" }) }),
+        React.createElement(Body, null,
+          React.createElement("div", { style: { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, padding: 24, textAlign: "center", color: "var(--soft)", fontSize: 14, marginBottom: 16 } }, "MQ設定で閲覧コードを設定してください"),
+          React.createElement("div", { style: st.card },
+            React.createElement(FormRow, { label: "閲覧コードを設定する（最初の1回のみ）" },
+              React.createElement("input", { style: st.input, type: "password", value: ui.mqInitCode || "", onChange: (e) => set({ mqInitCode: e.target.value }) })
+            ),
+            React.createElement("button", { style: st.primaryBtn, onClick: setInitCode }, "設定して開く")
+          )
+        ),
+        React.createElement(SI)
+      );
+    }
+
+    // ── ゲート2: 閲覧コード入力（この端末で未照合） ──
+    if (!unlocked) {
+      const tryOpen = () => {
+        if ((ui.mqCodeInput || "") === viewCode) {
+          try { localStorage.setItem(MQ_UNLOCK_KEY, viewCode); } catch (e) {}
+          set({ mqCodeInput: "", mqCodeError: false, mqUnlockTick: Date.now() });
+        } else {
+          set({ mqCodeError: true });
+        }
+      };
+      return React.createElement(Shell, null,
+        React.createElement(Header, { title: "MQ分析", back: () => set({ screen: "home" }) }),
+        React.createElement(Body, null,
+          React.createElement("div", { style: st.card },
+            React.createElement(FormRow, { label: "閲覧コード" },
+              React.createElement("input", { style: st.input, type: "password", value: ui.mqCodeInput || "", onChange: (e) => set({ mqCodeInput: e.target.value, mqCodeError: false }), onKeyDown: (e) => { if (e.key === "Enter") tryOpen(); } })
+            ),
+            ui.mqCodeError && React.createElement("div", { style: { color: "var(--aka)", fontSize: 12, marginBottom: 10, fontWeight: 600 } }, "閲覧コードが違います"),
+            React.createElement("button", { style: st.primaryBtn, onClick: tryOpen }, "開く")
+          )
+        ),
+        React.createElement(SI)
+      );
+    }
+
+    // ── 通過後: 本体 ──
+    const kaAll = allSummary.filter((p) => p.closedAt);
+    const curTeam = TEAMS.indexOf(ui.mqTab) >= 0 ? ui.mqTab : "all"; // "list"（品番一覧）タブは常にkaTeam=all
+    const mqFilterResult = kanryoFiltered(kaAll, { kaTeam: curTeam, kaBrand: "all", kaMonth: ui.mqMonth, kaFrom: ui.mqFrom, kaTo: ui.mqTo });
+    const mqFiltered = mqFilterResult.filtered;
+    const mqMonths = Array.from(new Set(mqFilterResult.teamFiltered.map((p) => (p.closedAt || "").slice(0, 7)).filter(Boolean))).sort().reverse();
+    const periodLabel = ui.mqMonth === "all" ? "全期間"
+      : ui.mqMonth === "custom" ? ((ui.mqFrom || "") + "〜" + (ui.mqTo || ""))
+      : ui.mqMonth.slice(0, 4) + "年" + (+ui.mqMonth.slice(5)) + "月";
+    const wageMissing = TEAMS.some((t) => !(teamWages[t] > 0));
+
+    const mqTabs = ["all"].concat(TEAMS).concat(["list"]);
+    const mqTabLabel = (t) => t === "all" ? "全体" : t === "list" ? "品番一覧" : t;
+    const mqTabBtn = (t) => {
+      const active = ui.mqTab === t;
+      const color = (t === "all" || t === "list") ? "var(--iquta)" : TEAM_COLORS[t];
+      return React.createElement("button", {
+        key: t,
+        style: { height: 44, padding: "0 16px", borderRadius: 22, fontSize: 14, cursor: "pointer", border: "1px solid " + (active ? color : "var(--line)"), background: active ? color : "#fff", color: active ? "#fff" : "var(--ink)", fontWeight: active ? 700 : 400, flex: "none" },
+        onClick: () => set({ mqTab: t, mqPartId: null }),
+      }, mqTabLabel(t));
+    };
+
+    // 品番一覧タブの中身（一覧 or タップ後の品番詳細）
+    function mqListBody() {
+      if (ui.mqPartId) {
+        const part = kaAll.find((p) => p.id === ui.mqPartId);
+        if (!part) return React.createElement("div", { style: { color: "var(--soft)", fontSize: 13, textAlign: "center", padding: 24 } }, "品番が見つかりません");
+        const r = mqOfParts([part], teamWages);
+        return React.createElement("div", { style: st.card },
+          React.createElement("button", { style: st.ghostBtn, onClick: () => set({ mqPartId: null }) }, "‹ 一覧に戻る"),
+          React.createElement("div", { style: { fontSize: 14, fontWeight: 700, marginTop: 10 } }, "品番 " + part.partNo + (part.partName ? " " + part.partName : "")),
+          React.createElement("div", { style: { fontSize: 12, color: "var(--soft)", marginBottom: 12 } }, (part.qty || 0) + "枚 / 人件費=担当チーム平均時給×この品番の時間"),
+          React.createElement(MqBox, { pq: r.pq, vq: r.vq, f: r.labor, hours: r.hours })
+        );
+      }
+      // 時間あたりMQ順（高い順）。記録なしは末尾（完了分析の並び順ルールを踏襲）
+      const withRates = mqFiltered.filter((p) => p.totalHours > 0).map((p) => {
+        const r = mqOfParts([p], teamWages);
+        return Object.assign({}, p, { _mqRate: r.mq / p.totalHours, _laborRate: r.labor / p.totalHours, _g: r.g });
+      }).sort((a, b) => b._mqRate - a._mqRate);
+      const noHours = mqFiltered.filter((p) => !(p.totalHours > 0));
+      const sorted = withRates.concat(noHours);
+      if (sorted.length === 0) return React.createElement("div", { style: { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, padding: 24, textAlign: "center", color: "var(--soft)", fontSize: 14 } }, "該当する完了品番はありません");
+      return React.createElement("div", { style: { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, overflow: "hidden" } },
+        sorted.map((p) => {
+          const isRed = p.totalHours > 0 && p._g < 0; // 粗利(MQ)が人件費ラインを下回る品番（人件費割れ）
+          const teamLabel = p.assigneeType === "outsource" ? "外注" : (p.assignee && p.assignee !== "未割当" ? p.assignee : "未割当");
+          return React.createElement("div", {
+            key: p.id, onClick: () => set({ mqPartId: p.id }),
+            style: { display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderBottom: "1px solid var(--line-soft)", cursor: "pointer", minHeight: 44, background: isRed ? "#fdecea" : "#fff" },
+          },
+            React.createElement("div", { style: { flex: 1, minWidth: 150 } },
+              React.createElement("div", { style: { fontWeight: 700, fontSize: 15, color: isRed ? "var(--aka)" : "var(--ink)" } }, p.partNo),
+              React.createElement("div", { style: { fontSize: 12, color: isRed ? "var(--aka)" : "var(--soft)" } }, (p.partName || "") + "　" + teamLabel)
+            ),
+            p.totalHours > 0
+              ? React.createElement("div", { style: { textAlign: "right", minWidth: 150 } },
+                  React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: isRed ? "var(--aka)" : "var(--ink)" } }, "MQ/h ¥" + Math.round(p._mqRate).toLocaleString()),
+                  React.createElement("div", { style: { fontSize: 12, color: isRed ? "var(--aka)" : "var(--soft)" } }, "人件費 ¥" + Math.round(p._laborRate).toLocaleString() + "/h")
+                )
+              : React.createElement("div", { style: { fontSize: 12, color: "var(--soft)" } }, "時間記録なし")
+          );
+        })
+      );
+    }
+
+    let mqBody;
+    if (ui.mqTab === "list") {
+      mqBody = mqListBody();
+    } else {
+      const r = mqOfParts(mqFiltered, teamWages);
+      const title = (curTeam === "all" ? "全体" : curTeam) + "(" + periodLabel + ")";
+      const sub = curTeam === "all" ? "人件費=各チーム平均時給×時間の合計" : "人件費=" + curTeam + "平均時給×時間";
+      mqBody = React.createElement("div", { style: st.card },
+        React.createElement("div", { style: { fontSize: 14, fontWeight: 700 } }, title),
+        React.createElement("div", { style: { fontSize: 12, color: "var(--soft)", marginBottom: 12 } }, sub),
+        React.createElement(MqBox, { pq: r.pq, vq: r.vq, f: r.labor, hours: r.hours })
+      );
+    }
+
+    return React.createElement(Shell, null,
+      React.createElement(Header, {
+        title: "MQ分析", back: () => set({ screen: "home" }),
+        actions: [
+          { label: "MQ設定", onClick: () => set({ screen: "mq_settings", mqSettingsForm: { teamWages: Object.assign({}, teamWages), viewCode: viewCode } }) },
+          { label: "ロック", onClick: () => { try { localStorage.removeItem(MQ_UNLOCK_KEY); } catch (e) {} set({ mqUnlockTick: Date.now() }); } },
+        ],
+      }),
+      React.createElement(Body, null,
+        React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" } }, mqTabs.map(mqTabBtn)),
+        React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" } },
+          React.createElement("select", { style: Object.assign({}, st.input, { height: 44, width: 180, maxWidth: "100%" }), value: ui.mqMonth, onChange: (e) => set({ mqMonth: e.target.value }) },
+            React.createElement("option", { value: "all" }, "全期間"),
+            mqMonths.map((m) => React.createElement("option", { key: m, value: m }, m.slice(0, 4) + "年" + (+m.slice(5)) + "月")),
+            React.createElement("option", { value: "custom" }, "期間を指定…")
+          )
+        ),
+        ui.mqMonth === "custom" && React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" } },
+          React.createElement("input", { type: "date", style: Object.assign({}, st.input, { height: 44, width: 150 }), value: ui.mqFrom, onChange: (e) => set({ mqFrom: e.target.value }) }),
+          React.createElement("span", { style: { color: "var(--soft)" } }, "〜"),
+          React.createElement("input", { type: "date", style: Object.assign({}, st.input, { height: 44, width: 150 }), value: ui.mqTo, onChange: (e) => set({ mqTo: e.target.value }) })
+        ),
+        wageMissing && React.createElement("div", { style: { background: "#fdf6f6", border: "1px solid #f0dbdb", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 13, color: "var(--aka)", fontWeight: 600 } }, "チーム平均時給が未設定です（MQ設定）"),
+        mqBody
+      ),
+      React.createElement(SI)
+    );
+  }
+
+  // ── MQ設定: チーム別平均時給・閲覧コード。閲覧コード通過後のみ到達できる ──
+  if (ui.screen === "mq_settings") {
+    const mqSettings = data.mqSettings || {};
+    const viewCode = mqSettings.viewCode || "";
+    let unlocked = false;
+    try { unlocked = !!viewCode && localStorage.getItem(MQ_UNLOCK_KEY) === viewCode; } catch (e) { unlocked = false; }
+    if (!unlocked) {
+      // 直接この画面へ遷移された場合（ブラウザ戻る等）はゲートへ差し戻す
+      return React.createElement(Shell, null,
+        React.createElement(Header, { title: "MQ設定", back: () => set({ screen: "mq_analysis" }) }),
+        React.createElement(Body, null,
+          React.createElement("div", { style: { color: "var(--soft)", fontSize: 14, textAlign: "center", padding: 24 } }, "先にMQ分析の閲覧コードで開いてください")
+        ),
+        React.createElement(SI)
+      );
+    }
+    const form = ui.mqSettingsForm || { teamWages: Object.assign({}, mqSettings.teamWages || {}), viewCode: viewCode };
+    const setForm = (patch) => set({ mqSettingsForm: Object.assign({}, form, patch) });
+    const saveMqSettings = () => {
+      const wages = {};
+      TEAMS.forEach((t) => { wages[t] = parseFloat(form.teamWages[t]) || 0; });
+      // 空欄保存は不可（空にするとゲート1に戻り、誰でも新しいコードを設定できてしまうため）
+      const newCode = (form.viewCode || "").trim();
+      if (!newCode) { window.alert("閲覧コードを入力してください"); return; }
+      const nms = Object.assign({}, mqSettings, { teamWages: wages, viewCode: newCode, monthlyF: mqSettings.monthlyF || {} });
+      const nd = Object.assign({}, data, { mqSettings: nms });
+      applyLocal({ mqSettings: nms }, () => gasSave(nd));
+      // 閲覧コードを変更した場合、保存した本人がロックアウトされないようlocalStorageも合わせて更新
+      try { localStorage.setItem(MQ_UNLOCK_KEY, newCode); } catch (e) {}
+      set({ screen: "mq_analysis", mqSettingsForm: null, mqUnlockTick: Date.now() });
+    };
+    return React.createElement(Shell, null,
+      React.createElement(Header, { title: "MQ設定", back: () => set({ screen: "mq_analysis", mqSettingsForm: null }) }),
+      React.createElement(Body, null,
+        React.createElement("div", { style: st.card },
+          React.createElement("div", { style: { fontSize: 12, color: "var(--soft)", marginBottom: 14, lineHeight: 1.6 } }, "チーム別の平均時給とMQ分析ページの閲覧コードを設定します。個人別の時給はここに追加しないでください（全データが各端末に配信されるため、個人情報は入れない設計です）。"),
+          TEAMS.map((t) => React.createElement(FormRow, { key: t, label: t + " 平均時給（円/時）" },
+            React.createElement("input", { style: st.input, type: "number", min: "0", value: form.teamWages[t] != null ? form.teamWages[t] : "", onChange: (e) => setForm({ teamWages: Object.assign({}, form.teamWages, { [t]: e.target.value }) }) })
+          )),
+          React.createElement(FormRow, { label: "閲覧コード" },
+            React.createElement("input", { style: st.input, type: "text", value: form.viewCode, onChange: (e) => setForm({ viewCode: e.target.value }) })
+          ),
+          React.createElement("button", { style: st.primaryBtn, onClick: saveMqSettings }, "保存する")
+        )
+      ),
       React.createElement(SI)
     );
   }
