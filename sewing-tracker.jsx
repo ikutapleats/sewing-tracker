@@ -21,6 +21,19 @@ function diffDays(a, b) {
   if (!a || !b) return null;
   return Math.ceil((new Date(b) - new Date(a)) / 86400000);
 }
+// 一覧をキーごとに束ねる（完了ボックス・サンプル管理の月別グループで共用）
+function groupByKey(items, keyOf) {
+  const groups = {};
+  items.forEach((p) => { const k = keyOf(p); (groups[k] = groups[k] || []).push(p); });
+  return groups;
+}
+// "YYYY-MM" → "YYYY年M月"。それ以外のキー（未設定など）はそのまま返す
+function ymLabel(k) { return /^\d{4}-\d{2}$/.test(k) ? k.slice(0, 4) + "年" + (+k.slice(5)) + "月" : k; }
+// 月キーを新しい順に並べ、日付のないグループ（noDateKey）は最後に置く
+function sortMonthKeys(keys, noDateKey) {
+  const months = keys.filter((k) => k !== noDateKey).sort().reverse();
+  return keys.indexOf(noDateKey) >= 0 ? months.concat([noDateKey]) : months;
+}
 
 const EMPTY_DATA = {
   parts: [], records: [], qtyRecords: [], members: [], vendors: [], brands: [], monthlyTargets: {}, saidanReports: [], koteiSheets: [], koteiRecords: [], companyCalendar: {},
@@ -150,6 +163,7 @@ const INIT_UI = {
   ganttDlDate: null, // 納期行バッジで選択中の日（YYYY-MM-DD）。null=ポップオーバー非表示
   ccalMonth: null, // 会社カレンダー設定の表示月 YYYY-MM
   kbMode: "month", kbSearch: "", kbOpen: null, // 完了ボックス（表示切替・検索・グループ開閉。null=先頭のみ開く）
+  smOpen: null, // サンプル管理 月グループ開閉（null=最新月のみ開く）
   kaTeam: "all", kaMonth: "all", kaSort: "closed", // 完了分析（チーム絞り込み・納品月絞り込み・並び順）
   kaDetailId: null, // 完了分析: 詳細グラフ画面を表示中の品番ID（nullなら非表示）
   kaDetailFrom: null, // 詳細グラフ画面の戻り先（"kanryo_analysis" or "kanryo_box"。null=完了分析）
@@ -1565,7 +1579,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         React.createElement(Spacer, { h: 8 }),
         React.createElement(BigBtn, { label: "ブランド別仕事一覧", sub: "客先ごとの納品前・納品済みを確認", onClick: () => set({ screen: "brand_jobs", selectedBrandId: null }) }),
         React.createElement(Spacer, { h: 8 }),
-        React.createElement(BigBtn, { label: "サンプル管理", sub: "サンプル作成の記録・実働時間・サンプル代", onClick: () => set({ screen: "sample_list" }) }),
+        React.createElement(BigBtn, { label: "サンプル管理", sub: "サンプル作成の記録・実働時間・サンプル代", onClick: () => set({ screen: "sample_list", smOpen: null }) }),
         React.createElement(Spacer, { h: 8 }),
         React.createElement(BigBtn, { label: "工程分析表", sub: "品番ごとの工程・時間・図を一覧／作成・印刷", onClick: () => set({ screen: "kotei_list", koteiSearch: "" }) }),
         React.createElement(Spacer, { h: 8 }),
@@ -3873,12 +3887,17 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const done = samples.filter((p) => p.closedAt);
     const totalSamplePrice = samples.reduce((a, p) => a + (p.unitPrice || 0) * (p.qty || 0), 0);
     const doneSamplePrice = done.reduce((a, p) => a + (p.unitPrice || 0) * (p.qty || 0), 0);
+    const NO_DATE = "日付未設定";
+    const doneGroups = groupByKey(done, (p) => (p.createdAt || "").slice(0, 7) || NO_DATE);
+    const doneKeys = sortMonthKeys(Object.keys(doneGroups), NO_DATE);
+    const smOpenMap = ui.smOpen || (doneKeys.length ? { [doneKeys[0]]: true } : {});
 
     const renderSample = (p) => React.createElement("div", { key: p.id, style: Object.assign({}, st.card, { padding: "14px 16px", marginBottom: 10, opacity: p.closedAt ? 0.8 : 1 }) },
       React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 } },
         React.createElement("div", null,
           React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, p.partNo + (p.partName ? " " + p.partName : "")),
-          p.brandName && React.createElement("div", { style: { fontSize: 11, color: "#888", marginTop: 2 } }, "🏷 " + p.brandName)
+          p.brandName && React.createElement("div", { style: { fontSize: 11, color: "#888", marginTop: 2 } }, "🏷 " + p.brandName),
+          React.createElement("div", { style: { fontSize: 11, color: "#888", marginTop: 2 } }, "📅 作成日 " + (p.createdAt ? p.createdAt.replace(/-/g, "/") : "未設定"))
         ),
         p.closedAt
           ? React.createElement("span", { style: { background: "#e8f5e8", color: "#2a7a2a", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700 } }, "完了")
@@ -3923,7 +3942,21 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8, marginTop: 20 } },
           React.createElement("div", { style: { background: "#e8f5e8", color: "#2a7a2a", fontSize: 12, fontWeight: 700, padding: "4px 12px", borderRadius: 20 } }, "✅ 完了　" + done.length + "件")
         ),
-        done.length === 0 ? React.createElement(Empty, null, "完了したサンプルはありません") : done.map(renderSample)
+        doneKeys.length === 0 ? React.createElement(Empty, null, "完了したサンプルはありません") : doneKeys.map((k) => {
+          const items = doneGroups[k];
+          const hours = items.reduce((a, p) => a + (p.actualHours || 0), 0);
+          const price = items.reduce((a, p) => a + (p.unitPrice || 0) * (p.qty || 0), 0);
+          const open = !!smOpenMap[k];
+          return React.createElement("div", { key: k, style: { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, marginBottom: 10, overflow: "hidden" } },
+            React.createElement(GroupHead, { open, label: ymLabel(k), onClick: () => set({ smOpen: Object.assign({}, smOpenMap, { [k]: !open }) }) },
+              React.createElement("span", { style: { color: "var(--ink)", fontWeight: 700 } }, items.length + "件"),
+              " / 実働 " + (Math.round(hours * 10) / 10) + "h",
+              React.createElement("br"),
+              "サンプル代 ¥" + Math.round(price).toLocaleString()
+            ),
+            open && React.createElement("div", { style: { borderTop: "1px solid var(--line)", padding: "10px 10px 0" } }, items.map(renderSample))
+          );
+        })
       ),
       React.createElement(SI)
     );
@@ -4187,9 +4220,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       if (kbMode === "brand") return p.brandName || "客先未設定";
       return teamLabel(p);
     };
-    const labelOf = (k) => (kbMode === "month" && /^\d{4}-\d{2}$/.test(k)) ? k.slice(0, 4) + "年" + (+k.slice(5)) + "月" : k;
-    const groups = {};
-    kbFiltered.forEach((p) => { const k = keyOf(p); (groups[k] = groups[k] || []).push(p); });
+    const labelOf = (k) => kbMode === "month" ? ymLabel(k) : k;
+    const groups = groupByKey(kbFiltered, keyOf);
     const keys = Object.keys(groups);
     if (kbMode === "month") keys.sort().reverse(); else keys.sort((a, b) => a.localeCompare(b, "ja"));
     // 表示切替直後（kbOpen=null）は先頭グループのみ開いた状態
@@ -4221,18 +4253,11 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           const sales = items.reduce((a, p) => a + (p.totalSales || 0), 0);
           const open = !!openMap[k];
           return React.createElement("div", { key: k, style: { background: "#fff", border: "1px solid var(--line)", borderRadius: 12, marginBottom: 10, overflow: "hidden" } },
-            React.createElement("button", {
-              style: { display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", minHeight: 52, width: "100%", background: "none", border: "none", cursor: "pointer", textAlign: "left" },
-              onClick: () => set({ kbOpen: Object.assign({}, openMap, { [k]: !open }) }),
-            },
-              React.createElement("span", { style: { color: "var(--iquta)", fontSize: 13, width: 16, flex: "none", display: "inline-block", transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" } }, "▶"),
-              React.createElement("b", { style: { fontSize: 15 } }, labelOf(k)),
-              React.createElement("div", { style: { marginLeft: "auto", fontSize: 12, color: "var(--soft)", textAlign: "right", lineHeight: 1.5 } },
-                React.createElement("span", { style: { color: "var(--ink)", fontWeight: 700 } }, items.length + "件"),
-                " / " + totalQty + "枚",
-                React.createElement("br"),
-                "売上 ¥" + Math.round(sales).toLocaleString()
-              )
+            React.createElement(GroupHead, { open, label: labelOf(k), onClick: () => set({ kbOpen: Object.assign({}, openMap, { [k]: !open }) }) },
+              React.createElement("span", { style: { color: "var(--ink)", fontWeight: 700 } }, items.length + "件"),
+              " / " + totalQty + "枚",
+              React.createElement("br"),
+              "売上 ¥" + Math.round(sales).toLocaleString()
             ),
             open && React.createElement("div", { style: { borderTop: "1px solid var(--line)" } },
               // 行タップでその品番の詳細分析（グラフ）画面へ。kaDetailFromで戻り先を完了ボックスに指定
@@ -5479,6 +5504,17 @@ function SectionLabel(p) { return React.createElement("div", { style: st.section
 function Empty(p) { return React.createElement("div", { style: st.empty }, p.children); }
 function FormRow(p) { return React.createElement("div", { style: { marginBottom: 14 } }, React.createElement("div", { style: { fontSize: 11, color: "#888", marginBottom: 4 } }, p.label), p.children); }
 function SBox(p) { return React.createElement("div", { style: Object.assign({}, st.sBox, { background: p.dark ? "#1a1a1a" : "#fff" }) }, React.createElement("div", { style: { fontSize: 10, color: p.dark ? "#777" : "#aaa", marginBottom: 5 } }, p.label), React.createElement("div", { style: { fontSize: 15, fontWeight: 700, color: p.dark ? "#fff" : "#1a1a1a" } }, p.value)); }
+// 折りたたみグループの見出し行（完了ボックス・サンプル管理で共用）。見出し全体がタップ領域、高さ56px以上
+function GroupHead(p) {
+  return React.createElement("button", {
+    style: { display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", minHeight: 56, width: "100%", background: "none", border: "none", cursor: "pointer", textAlign: "left" },
+    onClick: p.onClick,
+  },
+    React.createElement("span", { style: { color: "var(--iquta)", fontSize: 13, width: 16, flex: "none", display: "inline-block", transform: p.open ? "rotate(90deg)" : "none", transition: "transform .15s" } }, "▶"),
+    React.createElement("b", { style: { fontSize: 15 } }, p.label),
+    React.createElement("div", { style: { marginLeft: "auto", fontSize: 12, color: "var(--soft)", textAlign: "right", lineHeight: 1.5 } }, p.children)
+  );
+}
 function Badge(p) {
   if (p.part) {
     if (p.part.closedAt) return React.createElement("span", { style: { background: "#e8f5e8", color: "#2a7a2a", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 700, whiteSpace: "nowrap" } }, "完了");
