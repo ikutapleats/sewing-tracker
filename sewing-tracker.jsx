@@ -10,6 +10,8 @@ const TEAM_COLORS = {
   "サンプルチーム": "#7a2a7a",
 };
 const STATUSES = ["未着手", "裁断済み", "仕掛り中", "完了"];
+// 作業区分「サンプル」の記録開始日。これより前の期間はサンプル未計上
+const SAMPLE_KUBUN_START = "2026-10-01";
 
 function today() { return new Date().toISOString().slice(0, 10); }
 function daysAgo(n) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); }
@@ -95,7 +97,7 @@ const INIT_UI = {
   screen: "home", selectedTeam: null, userRole: null,
   addPartForm: { partNo: "", partName: "", unitPrice: "", pleatsPrice: "", qty: "", estMinPerUnit: "", deadline: "", status: "未着手", note: "", assignee: "未割当", assigneeType: "team", vendorId: "", sellPrice: "", vendorPrice: "", brandId: "", workMonth: today().slice(0, 7), plan: emptyPlan() },
   editPartForm: null,
-  memberForm: { memberId: "", partId: "", hours: "", other: "", otherOn: false, date: today() },
+  memberForm: { memberId: "", partId: "", hours: "", other: "", otherOn: false, date: today(), kubun: "mass", sampleQty: "" },
   qtyForm: { partId: "", qty: "", date: today() },
   addMemberForm: { name: "" }, addVendorForm: { name: "" },
   targetForm: { month: today().slice(0, 7), team: TEAMS[0], sales: "", members: "", workDays: "", hoursPerDay: "" },
@@ -389,12 +391,61 @@ function koteiValue(rec, parts) {
   return (rec.stepSec || 0) * (rec.qty || 0) * rate;
 }
 
+// 日報レコードの作業区分。kubunを持たない古いレコード（＝サンプル区分の導入前）は
+// 量産として扱う（後方互換）。
+function kubunOf(r) { return (r && r.kubun === "sample") ? "sample" : "mass"; }
+
+// サンプル代合計（無償サンプルなら0円）。単価は品番マスターの値をそのままコードで計算する
+// （AIが金額を作文しない）。
+function sampleTotalOf(part) {
+  if (!part || part.freeSample) return 0;
+  return Math.max(0, (part.unitPrice || 0) * (part.qty || 0));
+}
+
+// サンプルの生産価値は、そのサンプル案件に関わった全員の時間で按分する（円未満は丸めない。
+// 丸めは表示側だけで行う）。合計時間が0または品番が見つからない場合は0円。
+function sampleValueMap(records, parts) {
+  const totalHoursByPart = {};
+  (records || []).forEach(function (r) {
+    if (kubunOf(r) !== "sample") return;
+    const h = Math.max(0, Number(r.hours) || 0);
+    totalHoursByPart[r.partId] = (totalHoursByPart[r.partId] || 0) + h;
+  });
+  const map = {};
+  (records || []).forEach(function (r) {
+    if (kubunOf(r) !== "sample") return;
+    const h = Math.max(0, Number(r.hours) || 0);
+    const part = (parts || []).find(function (p) { return p.id === r.partId; });
+    const total = sampleTotalOf(part);
+    const denom = totalHoursByPart[r.partId] || 0;
+    map[r.id] = (total > 0 && denom > 0) ? total * h / denom : 0;
+  });
+  return map;
+}
+
+// サンプル記録ぶんの集計（時間・価値・枚数）
+function sampleStatsOf(recs, valueMap) {
+  const vm = valueMap || {};
+  return (recs || []).reduce(function (a, r) {
+    return { hours: a.hours + (r.hours || 0), value: a.value + (vm[r.id] || 0), qty: a.qty + (r.sampleQty || 0) };
+  }, { hours: 0, value: 0, qty: 0 });
+}
+
 // 1時間あたりの共通計算。（人×日）単位で「生産価値」と「工程表あり品番の時間」の両方が
 // 入っている日だけを対象にする。時間だけで工程枚数が入っていない日（工程表が間に合わなかった
 // 等）は、数字を不当に下げないよう分母からも分子からも外す。
-function rateOf(recsArr, kersArr, parts, hasSheet) {
-  const cell = {}; // key: memberId|date
+// サンプル区分の記録は、この人×日の絞り込み対象にせず時間・価値をそのまま合算する
+// （valueMapは sampleValueMap(全レコード, parts) を呼び出し側で渡す。省略時は価値0円で
+// 時間だけ分母に足す）。massRateは従来のrateと完全に同じ値になる。
+function rateOf(recsArr, kersArr, parts, hasSheet, valueMap) {
+  const cell = {}; // key: memberId|date（量産のみ）
+  let sampleHours = 0, sampleValue = 0;
   (recsArr || []).forEach(function (r) {
+    if (kubunOf(r) === "sample") {
+      sampleHours += (r.hours || 0);
+      sampleValue += (valueMap || {})[r.id] || 0;
+      return;
+    }
     if (!hasSheet[r.partId]) return;
     const k = r.memberId + "|" + r.date;
     // 工程外の作業時間（otherHours・内数）は分母に入れない
@@ -404,9 +455,12 @@ function rateOf(recsArr, kersArr, parts, hasSheet) {
     const k = r.memberId + "|" + r.date;
     (cell[k] = cell[k] || { h: 0, v: 0 }).v += koteiValue(r, parts);
   });
-  let h = 0, v = 0;
-  Object.keys(cell).forEach(function (k) { if (cell[k].h > 0 && cell[k].v > 0) { h += cell[k].h; v += cell[k].v; } });
-  return { hours: h, value: v, rate: h > 0 ? v / h : 0 };
+  let massHours = 0, massValue = 0;
+  Object.keys(cell).forEach(function (k) { if (cell[k].h > 0 && cell[k].v > 0) { massHours += cell[k].h; massValue += cell[k].v; } });
+  const massRate = massHours > 0 ? massValue / massHours : 0;
+  const hours = massHours + sampleHours;
+  const value = massValue + sampleValue;
+  return { hours: hours, value: value, rate: hours > 0 ? value / hours : 0, massHours: massHours, massValue: massValue, massRate: massRate, sampleHours: sampleHours, sampleValue: sampleValue };
 }
 
 // 縫製売上(プリーツ加工賃を除いた売上)と、それベースの1時間当たり。
@@ -476,20 +530,46 @@ function mqOfParts(parts, teamWages) {
 }
 
 // 成績表（管理者向け）の期間集計を1人ぶん計算する。member_stats・個人推移画面で共通利用
-function memberPeriodStats(data, hasSheet, mid, from, to) {
+function memberPeriodStats(data, hasSheet, mid, from, to, svmIn) {
   const filt = (d) => (d || "") >= from && (d || "") <= to;
   const rs = data.records.filter((r) => r.memberId === mid && filt(r.date));
   const ks = (data.koteiRecords || []).filter((r) => r.memberId === mid && filt(r.date));
+  // サンプルの按分は品番ぶん全レコードが要るので全体から作る。呼び出し側で使い回すときはsvmInで渡す
+  const svm = svmIn || sampleValueMap(data.records, data.parts);
+  const sampleRs = rs.filter((r) => kubunOf(r) === "sample");
+  const sampleStats = sampleStatsOf(sampleRs, svm);
   const hoursAll = rs.reduce((a, r) => a + (r.hours || 0), 0);
-  const sheetH = rs.reduce((a, r) => a + (hasSheet[r.partId] ? (r.hours || 0) : 0), 0);
-  const value = ks.reduce((a, r) => a + koteiValue(r, data.parts), 0);
-  const qty = ks.reduce((a, r) => a + (r.qty || 0), 0);
+  const sheetH = rs.reduce((a, r) => a + (kubunOf(r) !== "sample" && hasSheet[r.partId] ? (r.hours || 0) : 0), 0);
+  const koteiValueSum = ks.reduce((a, r) => a + koteiValue(r, data.parts), 0);
+  const value = koteiValueSum + sampleStats.value;
+  const qty = ks.reduce((a, r) => a + (r.qty || 0), 0); // 量産枚数のみ（サンプル枚数は含めない）
   const dset = {};
   rs.forEach((r) => { if (r.date) dset[r.date] = 1; });
   ks.forEach((r) => { if (r.date) dset[r.date] = 1; });
   const otherH = rs.reduce((a, r) => a + (r.otherHours || 0), 0); // 工程外（芯貼り・裁断・サポート等）
-  // 1時間あたりは共通計算（工程表あり時間のみ・工程外の内数と工程枚数が入っていない日は除外）
-  return { hoursAll: hoursAll, noSheetH: hoursAll - sheetH, otherH: otherH, value: value, qty: qty, days: Object.keys(dset).length, rate: rateOf(rs, ks, data.parts, hasSheet).rate };
+  // 1時間あたりは共通計算（工程表あり時間のみ・工程外の内数と工程枚数が入っていない日は除外。サンプルは常に合算）
+  const ro = rateOf(rs, ks, data.parts, hasSheet, svm);
+  return {
+    hoursAll: hoursAll, noSheetH: hoursAll - sheetH - sampleStats.hours, otherH: otherH, value: value, qty: qty,
+    days: Object.keys(dset).length, rate: ro.rate, massRate: ro.massRate,
+    sampleH: sampleStats.hours, sampleValue: sampleStats.value, sampleQty: sampleStats.qty,
+    sampleRatio: hoursAll > 0 ? sampleStats.hours / hoursAll * 100 : 0,
+  };
+}
+
+// 月次のサンプル集計（若手ブランド型時間比率・サンプル1点あたり時間の元データ）。UIは持たない。
+function sampleMonthlyStats(data, ym) {
+  const recs = (data.records || []).filter(function (r) { return kubunOf(r) === "sample" && (r.date || "").indexOf(ym + "-") === 0; });
+  const svm = sampleValueMap(data.records, data.parts);
+  const stats = sampleStatsOf(recs, svm);
+  const byMember = {};
+  recs.forEach(function (r) {
+    const m = byMember[r.memberId] || (byMember[r.memberId] = { name: r.memberName || "", hours: 0, value: 0, qty: 0 });
+    m.hours += (r.hours || 0);
+    m.value += svm[r.id] || 0;
+    m.qty += (r.sampleQty || 0);
+  });
+  return { month: ym, hours: stats.hours, value: stats.value, qty: stats.qty, hoursPerSample: stats.qty > 0 ? stats.hours / stats.qty : null, byMember: byMember };
 }
 
 // ── MQ分析（段階1）STRAC図の共通部品 ────────────────────────────
@@ -1078,6 +1158,27 @@ function App() {
     const member = data.members.find((m) => m.id === f.memberId);
     if (!member || !f.partId) return;
     const date = f.date || today();
+
+    // サンプル区分：工程表を持たないため時間のみを記録する（枚数は任意の実績メモ）
+    if (f.kubun === "sample") {
+      if (!(parseFloat(f.hours) > 0)) return;
+      const newSampleRecord = {
+        id: genId(), partId: f.partId, memberId: f.memberId, memberName: member.name,
+        hours: parseFloat(f.hours), otherHours: 0, date: date, kubun: "sample",
+        sampleQty: Math.max(0, parseInt(f.sampleQty) || 0),
+      };
+      const nd = Object.assign({}, data, { records: data.records.concat([newSampleRecord]) });
+      setData(nd);
+      setMF({ hours: "", sampleQty: "" });
+      setSaving(true); setSaveError(false);
+      gasAddRecord(newSampleRecord).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
+      setTimeout(() => {
+        const el = document.getElementById("entry-hero");
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 80);
+      return;
+    }
+
     let newRecord = null;
     const koteiRecs = [];
     // 時間（工程外＝芯貼り・裁断・サポートなど工程表に載らない作業の時間を内数で持つ）
@@ -1420,11 +1521,11 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
   }
 
   function openSampleNew() {
-    set({ sampleForm: { id: null, partNo: "", partName: "", brandId: "", qty: "", samplePrice: "", actualHours: "", massEstMin: "", assignee: "サンプルチーム", tantousha: "", note: "", workMonth: today().slice(0, 7), deadline: "", closedAt: null }, screen: "sample_edit" });
+    set({ sampleForm: { id: null, partNo: "", partName: "", brandId: "", qty: "", samplePrice: "", actualHours: "", massEstMin: "", assignee: "サンプルチーム", tantousha: "", note: "", workMonth: today().slice(0, 7), deadline: "", closedAt: null, freeSample: false }, screen: "sample_edit" });
   }
 
   function openSampleEdit(part) {
-    set({ sampleForm: { id: part.id, partNo: part.partNo || "", partName: part.partName || "", brandId: part.brandId || "", qty: part.qty || "", samplePrice: part.unitPrice || "", actualHours: part.actualHours || "", massEstMin: part.massEstMin || "", assignee: part.assignee || "サンプルチーム", tantousha: part.tantousha || "", note: part.note || "", workMonth: part.workMonth || today().slice(0, 7), deadline: part.deadline || "", closedAt: part.closedAt || null }, screen: "sample_edit" });
+    set({ sampleForm: { id: part.id, partNo: part.partNo || "", partName: part.partName || "", brandId: part.brandId || "", qty: part.qty || "", samplePrice: part.unitPrice || "", actualHours: part.actualHours || "", massEstMin: part.massEstMin || "", assignee: part.assignee || "サンプルチーム", tantousha: part.tantousha || "", note: part.note || "", workMonth: part.workMonth || today().slice(0, 7), deadline: part.deadline || "", closedAt: part.closedAt || null, freeSample: !!part.freeSample }, screen: "sample_edit" });
   }
 
   function saveSample() {
@@ -1433,10 +1534,10 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     if (f.id) {
       const updated = Object.assign({}, data.parts.find((p) => p.id === f.id), {
         partNo: f.partNo.trim(), partName: f.partName.trim(), brandId: f.brandId || null,
-        qty: parseFloat(f.qty) || 0, unitPrice: parseFloat(f.samplePrice) || 0,
+        qty: parseFloat(f.qty) || 0, unitPrice: f.freeSample ? 0 : (parseFloat(f.samplePrice) || 0),
         actualHours: parseFloat(f.actualHours) || 0, massEstMin: parseFloat(f.massEstMin) || 0,
         assignee: f.assignee || "サンプルチーム", tantousha: (f.tantousha || "").trim(), note: f.note.trim(),
-        workMonth: f.workMonth || null, deadline: f.deadline || null,
+        workMonth: f.workMonth || null, deadline: f.deadline || null, freeSample: !!f.freeSample,
       });
       const nd = Object.assign({}, data, { parts: data.parts.map((p) => p.id === f.id ? updated : p) });
       setData(nd);
@@ -1446,11 +1547,11 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     } else {
       const np = {
         id: genId(), kind: "sample", partNo: f.partNo.trim(), partName: f.partName.trim(),
-        brandId: f.brandId || null, qty: parseFloat(f.qty) || 0, unitPrice: parseFloat(f.samplePrice) || 0,
+        brandId: f.brandId || null, qty: parseFloat(f.qty) || 0, unitPrice: f.freeSample ? 0 : (parseFloat(f.samplePrice) || 0),
         actualHours: parseFloat(f.actualHours) || 0, massEstMin: parseFloat(f.massEstMin) || 0,
         estMinPerUnit: 0, assignee: f.assignee || "サンプルチーム", assigneeType: "team", tantousha: (f.tantousha || "").trim(),
         note: f.note.trim(), workMonth: f.workMonth || null, deadline: f.deadline || null,
-        status: "未着手", sellPrice: 0, vendorPrice: 0, createdAt: today(), closedAt: null,
+        status: "未着手", sellPrice: 0, vendorPrice: 0, createdAt: today(), closedAt: null, freeSample: !!f.freeSample,
       };
       const nd = Object.assign({}, data, { parts: data.parts.concat([np]) });
       setData(nd);
@@ -1565,7 +1666,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             ),
             React.createElement("div", { style: { display: "flex", gap: 8 } },
               React.createElement(RoleBtn, { label: "リーダー", onClick: () => set({ selectedTeam: team, userRole: "leader", screen: "team_leader" }) }),
-              React.createElement(RoleBtn, { label: "メンバー", onClick: () => set({ selectedTeam: team, userRole: "member", screen: "member_entry", memberForm: { memberId: "", partId: "", hours: "", other: "", otherOn: false, date: today() } }) })
+              React.createElement(RoleBtn, { label: "メンバー", onClick: () => set({ selectedTeam: team, userRole: "member", screen: "member_entry", memberForm: { memberId: "", partId: "", hours: "", other: "", otherOn: false, date: today(), kubun: "mass", sampleQty: "" } }) })
             )
           );
         }),
@@ -2163,17 +2264,24 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           ? kQtyVals.map((q) => kPicked.filter((x) => qtyOf(x.id) === q).length + "工程 × " + q + "枚").join(" ＋ ")
           : kPicked.length + "工程 ・のべ" + kPicked.reduce((a, x) => a + qtyOf(x.id), 0) + "枚")
         + " を記録します（計 約" + kMinutes + "分ぶんの生産価値）";
-    const ready = f.memberId && f.partId && hoursOk && !kWarn && (hoursEntered || kPicked.length > 0);
+    const isSample = f.kubun === "sample";
+    const sampleOptions = sampleSummary.filter((p) => !p.closedAt); // サンプルはチーム問わず全件から選ぶ
+    const ready = isSample
+      ? !!(f.memberId && f.partId && parseFloat(f.hours) > 0)
+      : (f.memberId && f.partId && hoursOk && !kWarn && (hoursEntered || kPicked.length > 0));
 
     // 本日・本人の記録
     const myRecs = f.memberId ? data.records.filter((r) => r.memberId === f.memberId && r.date === f.date) : [];
     const myKotei = f.memberId ? (data.koteiRecords || []).filter((r) => r.memberId === f.memberId && r.date === f.date) : [];
     const dayHours = myRecs.reduce((a, r) => a + (r.hours || 0), 0);
-    const dayValue = myKotei.reduce((a, r) => a + koteiValue(r, data.parts), 0);
-    // 1時間あたり = 生産価値 ÷ 工程表がある品番の時間（生産価値が付かない時間は分母に入れない）
+    // サンプルの按分は品番ぶん全レコードが要るので、期間で絞る前の全レコードから作る
+    const heroSvm = sampleValueMap(data.records, data.parts);
+    const mySampleRecs = myRecs.filter((r) => kubunOf(r) === "sample");
+    const dayValue = myKotei.reduce((a, r) => a + koteiValue(r, data.parts), 0) + mySampleRecs.reduce((a, r) => a + (heroSvm[r.id] || 0), 0);
+    // 1時間あたり = 生産価値 ÷（工程表がある品番の時間 ＋ サンプルの時間）（生産価値が付かない時間は分母に入れない）
     const hasSheetMap = {};
     (data.koteiSheets || []).forEach((s) => { hasSheetMap[s.partId] = true; });
-    const daySheetHours = myRecs.reduce((a, r) => a + (hasSheetMap[r.partId] ? Math.max(0, (r.hours || 0) - (r.otherHours || 0)) : 0), 0);
+    const daySheetHours = myRecs.reduce((a, r) => a + (kubunOf(r) === "sample" ? (r.hours || 0) : (hasSheetMap[r.partId] ? Math.max(0, (r.hours || 0) - (r.otherHours || 0)) : 0)), 0);
     const dayRate = daySheetHours > 0 ? dayValue / daySheetHours : 0;
     const dayOther = myRecs.reduce((a, r) => a + (r.otherHours || 0), 0); // 工程外（芯貼り・裁断・サポート等）の内数
     const myMemberName = (data.members.find((m) => m.id === f.memberId) || {}).name || "";
@@ -2181,8 +2289,9 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     // ── 前向きになれる一言（表示のみ）──
     // 優先: 週ベスト → 昨日超え → 日替わりの励まし（日付×人で固定なので、その日は同じ言葉が出続ける）
     const rateOn = (ds) => {
-      const v = (data.koteiRecords || []).reduce((a, r) => a + (r.memberId === f.memberId && r.date === ds ? koteiValue(r, data.parts) : 0), 0);
-      const h = data.records.reduce((a, r) => a + (r.memberId === f.memberId && r.date === ds && hasSheetMap[r.partId] ? Math.max(0, (r.hours || 0) - (r.otherHours || 0)) : 0), 0);
+      const v = (data.koteiRecords || []).reduce((a, r) => a + (r.memberId === f.memberId && r.date === ds ? koteiValue(r, data.parts) : 0), 0)
+        + data.records.reduce((a, r) => a + (r.memberId === f.memberId && r.date === ds && kubunOf(r) === "sample" ? (heroSvm[r.id] || 0) : 0), 0);
+      const h = data.records.reduce((a, r) => a + (r.memberId === f.memberId && r.date === ds ? (kubunOf(r) === "sample" ? (r.hours || 0) : (hasSheetMap[r.partId] ? Math.max(0, (r.hours || 0) - (r.otherHours || 0)) : 0)) : 0), 0);
       return (h > 0 && v > 0) ? v / h : 0;
     };
     const dsAt = (off) => { const d = new Date((f.date || today()) + "T00:00:00"); d.setDate(d.getDate() - off); return d.toISOString().slice(0, 10); };
@@ -2224,26 +2333,53 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                 ))
               ),
 
-              prevGroups.length > 0 && React.createElement("div", { style: st.card },
+              React.createElement("div", { style: st.card },
+                React.createElement(FormRow, { label: "区分" },
+                  React.createElement("div", { style: { display: "flex", gap: 8 } },
+                    React.createElement("button", {
+                      style: Object.assign({}, st.filterBtn, { flex: 1, textAlign: "center" }, !isSample ? st.filterBtnActive : {}),
+                      onClick: () => { setMF({ kubun: "mass", partId: "", hours: "", other: "", otherOn: false, sampleQty: "" }); set({ kEntryQty: {}, kEntryOff: {} }); },
+                    }, "量産"),
+                    React.createElement("button", {
+                      style: Object.assign({}, st.filterBtn, { flex: 1, textAlign: "center" }, isSample ? st.filterBtnActive : {}),
+                      onClick: () => { setMF({ kubun: "sample", partId: "", hours: "", other: "", otherOn: false, sampleQty: "" }); set({ kEntryQty: {}, kEntryOff: {} }); },
+                    }, "サンプル")
+                  )
+                ),
+                React.createElement("div", { style: { fontSize: 11, color: "var(--soft)", marginTop: 6, lineHeight: 1.6 } }, "サンプル・見本の作業はこちら。量産の合間に手伝った場合も、その時間はサンプルで記録します")
+              ),
+
+              prevGroups.length > 0 && !isSample && React.createElement("div", { style: st.card },
                 React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: "var(--iquta)" } }, "前回の続き"),
                 React.createElement("div", { style: { fontSize: 11, color: "var(--soft)", margin: "4px 0 10px", lineHeight: 1.6 } }, fmt(prevDate) + "に記録したぶんです。押すと品番と工程のチェックがそのまま入ります（枚数は今日のぶんを入れてください）"),
                 React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 } }, prevGroups.map(prevChip))
               ),
 
               React.createElement("div", { style: st.card },
-                React.createElement(FormRow, { label: "品番を選ぶ" },
-                  teamParts.length === 0
-                    ? React.createElement("div", { style: { color: "#bbb", fontSize: 13, padding: "8px 0" } }, "進行中の品番がありません")
-                    : React.createElement("select", { style: st.input, value: f.partId, onChange: (e) => { setMF({ partId: e.target.value }); set({ kEntryQty: {}, kEntryOff: {} }); } },
-                        React.createElement("option", { value: "" }, "選択してください"),
-                        teamParts.map((p) => React.createElement("option", { key: p.id, value: p.id }, p.partNo + (p.partName ? " (" + p.partName + ")" : "")))
-                      )
-                ),
-                f.partId && React.createElement(FormRow, { label: doneHours > 0 ? "作業時間（h）" : "作業時間（h）＊必須" }, React.createElement("input", { style: st.input, type: "number", placeholder: doneHours > 0 ? "追加の時間があれば" : "例: 3.5", min: "0", step: "0.5", value: f.hours, onChange: (e) => setMF({ hours: e.target.value }) })),
+                isSample
+                  ? React.createElement(FormRow, { label: "サンプル案件を選ぶ" },
+                      sampleOptions.length === 0
+                        ? React.createElement("div", { style: { color: "#bbb", fontSize: 13, padding: "8px 0" } }, "作成中のサンプルがありません")
+                        : React.createElement("select", { style: st.input, value: f.partId, onChange: (e) => { setMF({ partId: e.target.value }); set({ kEntryQty: {}, kEntryOff: {} }); } },
+                            React.createElement("option", { value: "" }, "選択してください"),
+                            sampleOptions.map((p) => React.createElement("option", { key: p.id, value: p.id }, p.partNo + (p.partName ? " (" + p.partName + ")" : "") + (p.brandName ? " (" + p.brandName + ")" : "")))
+                          )
+                    )
+                  : React.createElement(FormRow, { label: "品番を選ぶ" },
+                      teamParts.length === 0
+                        ? React.createElement("div", { style: { color: "#bbb", fontSize: 13, padding: "8px 0" } }, "進行中の品番がありません")
+                        : React.createElement("select", { style: st.input, value: f.partId, onChange: (e) => { setMF({ partId: e.target.value }); set({ kEntryQty: {}, kEntryOff: {} }); } },
+                            React.createElement("option", { value: "" }, "選択してください"),
+                            teamParts.map((p) => React.createElement("option", { key: p.id, value: p.id }, p.partNo + (p.partName ? " (" + p.partName + ")" : "")))
+                          )
+                    ),
+                isSample && f.partId && React.createElement(FormRow, { label: "作業時間（h）＊必須" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 3.5", min: "0", step: "0.5", value: f.hours, onChange: (e) => setMF({ hours: e.target.value }) })),
+                isSample && f.partId && React.createElement(FormRow, { label: "仕上がった点数（任意）" }, React.createElement("input", { style: st.input, type: "number", placeholder: "例: 1", min: "0", step: "1", value: f.sampleQty, onChange: (e) => setMF({ sampleQty: e.target.value }) })),
+                !isSample && f.partId && React.createElement(FormRow, { label: doneHours > 0 ? "作業時間（h）" : "作業時間（h）＊必須" }, React.createElement("input", { style: st.input, type: "number", placeholder: doneHours > 0 ? "追加の時間があれば" : "例: 3.5", min: "0", step: "0.5", value: f.hours, onChange: (e) => setMF({ hours: e.target.value }) })),
                 // 枚数が違う工程を続けて記録するときは、時間は空欄のまま。入れると同じ時間がもう一度積まれる
-                f.partId && doneHours > 0 && React.createElement("div", { style: { fontSize: 12, color: "var(--iquta)", background: "var(--iquta-bg)", borderRadius: 8, padding: "8px 12px", margin: "-4px 0 10px", lineHeight: 1.6 } }, "この品番の時間は今日すでに " + (Math.round(doneHours * 10) / 10) + "時間 記録済みです。枚数だけ足すときは空欄のままで記録できます"),
-                // 工程外の作業（芯貼り・裁断・サポートなど）は内数で申告 → 1時間あたりの分母から除外される
-                f.partId && React.createElement("div", { style: { margin: "2px 0 10px" } },
+                !isSample && f.partId && doneHours > 0 && React.createElement("div", { style: { fontSize: 12, color: "var(--iquta)", background: "var(--iquta-bg)", borderRadius: 8, padding: "8px 12px", margin: "-4px 0 10px", lineHeight: 1.6 } }, "この品番の時間は今日すでに " + (Math.round(doneHours * 10) / 10) + "時間 記録済みです。枚数だけ足すときは空欄のままで記録できます"),
+                // 工程外の作業（芯貼り・裁断・サポートなど）は内数で申告 → 1時間あたりの分母から除外される（サンプルは工程外の概念がないため出さない）
+                !isSample && f.partId && React.createElement("div", { style: { margin: "2px 0 10px" } },
                   React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--ink)", cursor: "pointer" } },
                     React.createElement("input", { type: "checkbox", checked: !!f.otherOn, onChange: (e) => setMF({ otherOn: e.target.checked, other: e.target.checked ? (f.other || "") : "" }) }),
                     "工程以外の作業があった（芯貼り・裁断・サポートなど）"
@@ -2254,8 +2390,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                     React.createElement("span", { style: { fontSize: 13, color: "var(--soft)" } }, "時間")
                   )
                 ),
-                // 作業時間を入れるまで工程枚数の入力は出さない（必須項目の入力忘れ防止・案内文は出さない）
-                f.partId && selSheet && hoursOk && React.createElement("div", null,
+                // 作業時間を入れるまで工程枚数の入力は出さない（必須項目の入力忘れ防止・案内文は出さない）。サンプルには工程枚数の概念がない
+                !isSample && f.partId && selSheet && hoursOk && React.createElement("div", null,
                   usualSteps.length > 0 && React.createElement("div", { style: { background: "var(--iquta-bg)", borderRadius: 10, padding: "10px 12px", marginBottom: 10, border: "1px solid var(--line)" } },
                     React.createElement("div", { style: { fontSize: 12, color: "var(--iquta)", fontWeight: 700, marginBottom: 8 } }, "最近やった工程"),
                     // パーツごとに区切る：作業はパーツ単位で進む＝同パーツは同枚数・パーツが違えば枚数が変わることが
@@ -2295,9 +2431,9 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                     );
                   })
                 ),
-                f.partId && !selSheet && React.createElement("div", { style: { fontSize: 11, color: "#bbb", margin: "4px 0 8px" } }, "この品番は工程表がないため、時間のみ記録します"),
-                f.partId && selSheet && hoursOk && kWarn && React.createElement("div", { style: { background: "#fdf6f6", border: "1px solid #f0dbdb", borderRadius: 10, padding: "10px 12px", margin: "4px 0 8px", fontSize: 13, fontWeight: 600, color: "var(--aka)" } }, kWarn),
-                f.partId && selSheet && hoursOk && !kWarn && kSummary && React.createElement("div", { style: { background: "var(--iquta-bg)", borderRadius: 10, padding: "10px 12px", margin: "4px 0 8px", fontSize: 13, fontWeight: 700, color: "var(--iquta)" } }, kSummary),
+                !isSample && f.partId && !selSheet && React.createElement("div", { style: { fontSize: 11, color: "#bbb", margin: "4px 0 8px" } }, "この品番は工程表がないため、時間のみ記録します"),
+                !isSample && f.partId && selSheet && hoursOk && kWarn && React.createElement("div", { style: { background: "#fdf6f6", border: "1px solid #f0dbdb", borderRadius: 10, padding: "10px 12px", margin: "4px 0 8px", fontSize: 13, fontWeight: 600, color: "var(--aka)" } }, kWarn),
+                !isSample && f.partId && selSheet && hoursOk && !kWarn && kSummary && React.createElement("div", { style: { background: "var(--iquta-bg)", borderRadius: 10, padding: "10px 12px", margin: "4px 0 8px", fontSize: 13, fontWeight: 700, color: "var(--iquta)" } }, kSummary),
                 f.partId && React.createElement("button", { style: Object.assign({}, st.primaryBtn, { opacity: ready ? 1 : 0.35 }), disabled: !ready, onClick: saveEntry }, "記録する")
               )
             ),
@@ -2326,8 +2462,10 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
               d.setDate(d.getDate() - i);
               const ds = d.toISOString().slice(0, 10);
               const recs = (data.koteiRecords || []).filter(function (r) { return r.memberId === f.memberId && r.date === ds; });
-              const yenSum = recs.reduce(function (a, r) { return a + koteiValue(r, data.parts); }, 0);
-              const hSum = data.records.reduce(function (a, r) { return a + (r.memberId === f.memberId && r.date === ds && hasSheetMap[r.partId] ? Math.max(0, (r.hours || 0) - (r.otherHours || 0)) : 0); }, 0);
+              // サンプルの価値・時間もヒーローと同じ計算で足す（heroSvmを再利用）
+              const sYen = data.records.reduce(function (a, r) { return a + (r.memberId === f.memberId && r.date === ds && kubunOf(r) === "sample" ? (heroSvm[r.id] || 0) : 0); }, 0);
+              const yenSum = recs.reduce(function (a, r) { return a + koteiValue(r, data.parts); }, 0) + sYen;
+              const hSum = data.records.reduce(function (a, r) { return a + (r.memberId === f.memberId && r.date === ds ? (kubunOf(r) === "sample" ? (r.hours || 0) : (hasSheetMap[r.partId] ? Math.max(0, (r.hours || 0) - (r.otherHours || 0)) : 0)) : 0); }, 0);
               week.push({ ds: ds, label: i === 0 ? (ds === today() ? "今日" : ds.slice(5).replace("-", "/")) : "日月火水木金土"[d.getDay()],
                 yen: yenSum,
                 // 時間だけで工程枚数が入っていない日は1時間あたりの計算対象外（0本にする）
@@ -2451,6 +2589,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       : (d || "").slice(0, 7) === ui.vvMonth;
     const recs = data.records.filter((r) => inPeriod(r.date));
     const kers = (data.koteiRecords || []).filter((r) => inPeriod(r.date));
+    // サンプルの按分は品番ぶん全レコードが要るので、期間で絞る前の全レコードから作る
+    const svm = sampleValueMap(data.records, data.parts);
     const yen = (v) => "¥" + Math.round(v).toLocaleString();
     const partLabel = (id) => { const p = data.parts.find((x) => x.id === id); return p ? (p.partNo + (p.partName ? " " + p.partName : "")) : "（削除済み品番）"; };
     const memberLabel = (id) => (data.members.find((m) => m.id === id) || {}).name || "（不明）";
@@ -2466,6 +2606,8 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const ensureSub = (p, k) => { if (!p.sub[k]) p.sub[k] = { hours: 0, value: 0 }; return p.sub[k]; };
     recs.forEach((r) => { const p = ensure(prim, primKey(r)); p.hours += (r.hours || 0); ensureSub(p, secKey(r)).hours += (r.hours || 0); });
     kers.forEach((r) => { const p = ensure(prim, primKey(r)); const v = koteiValue(r, data.parts); p.value += v; ensureSub(p, secKey(r)).value += v; });
+    // サンプルの価値も同じ集計に足す（時間はrecs.forEachで既に加算済み）
+    recs.forEach((r) => { if (kubunOf(r) === "sample") { const v = svm[r.id] || 0; const p = ensure(prim, primKey(r)); p.value += v; ensureSub(p, secKey(r)).value += v; } });
 
     let primKeys = Object.keys(prim);
     if (ui.vvAxis === "date") primKeys.sort((a, b) => b.localeCompare(a));
@@ -2477,12 +2619,13 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     // 期間全体の日平均（記録がある日で割る。休みの日を混ぜて平均を薄めない）
     const dayTotals = {};
     kers.forEach((r) => { dayTotals[r.date] = (dayTotals[r.date] || 0) + koteiValue(r, data.parts); });
+    recs.forEach((r) => { if (kubunOf(r) === "sample") dayTotals[r.date] = (dayTotals[r.date] || 0) + (svm[r.id] || 0); });
     const recDaysAll = Object.keys(dayTotals).filter((d) => dayTotals[d] > 0).length;
 
     // 「1時間あたり」は共通計算rateOf: 工程表あり品番の時間のみ・工程枚数が入っていない日は除外
     const hasSheet = {};
     (data.koteiSheets || []).forEach((s) => { hasSheet[s.partId] = true; });
-    const rateAll = rateOf(recs, kers, data.parts, hasSheet);
+    const rateAll = rateOf(recs, kers, data.parts, hasSheet, svm);
 
     // ── 人ごとの日別棒グラフ（金額のみ・表示専用）──
     // 記録がない日も高さ0の棒として必ず並べ、休み・記録漏れ・生産の谷が見えるようにする。
@@ -2512,8 +2655,10 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       const gmode = ui.vvGraphMode === "yen" ? "yen" : "rate"; // 棒の値: 1時間あたり（既定） or 金額
       const byDay = {};
       kers.forEach((r) => { if (r.memberId === pk) byDay[r.date] = (byDay[r.date] || 0) + koteiValue(r, data.parts); });
-      const hByDay = {}; // その日の工程表あり品番の時間（1時間あたりの分母。工程外の内数は除く）
-      recs.forEach((r) => { if (r.memberId === pk && hasSheet[r.partId]) hByDay[r.date] = (hByDay[r.date] || 0) + Math.max(0, (r.hours || 0) - (r.otherHours || 0)); });
+      recs.forEach((r) => { if (r.memberId === pk && kubunOf(r) === "sample") byDay[r.date] = (byDay[r.date] || 0) + (svm[r.id] || 0); });
+      const hByDay = {}; // その日の工程表あり品番の時間＋サンプルの時間（1時間あたりの分母。工程外の内数は除く）
+      recs.forEach((r) => { if (r.memberId === pk && hasSheet[r.partId] && kubunOf(r) !== "sample") hByDay[r.date] = (hByDay[r.date] || 0) + Math.max(0, (r.hours || 0) - (r.otherHours || 0)); });
+      recs.forEach((r) => { if (r.memberId === pk && kubunOf(r) === "sample") hByDay[r.date] = (hByDay[r.date] || 0) + (r.hours || 0); });
       // 1時間あたりは「生産価値と時間の両方がある日」だけで計算（時間のみの日は0本＝対象外）
       const dayRateOf = (ds) => (byDay[ds] > 0 && hByDay[ds] > 0) ? byDay[ds] / hByDay[ds] : 0;
       const monthly = days.length > 92;
@@ -2538,7 +2683,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
       const workedDays = Object.keys(byDay).filter((ds) => byDay[ds] > 0).length;
       const avg = workedDays > 0 ? total / workedDays : 0;
       // この人の1時間あたり（共通計算: 工程表あり時間のみ・工程枚数が入っていない日は除外）
-      const mrate = rateOf(recs.filter((r) => r.memberId === pk), kers.filter((r) => r.memberId === pk), data.parts, hasSheet);
+      const mrate = rateOf(recs.filter((r) => r.memberId === pk), kers.filter((r) => r.memberId === pk), data.parts, hasSheet, svm);
       const maxV = Math.max.apply(null, bars.map((b) => b.v).concat([1]));
       const few = bars.length <= 10;
       const scroll = bars.length > 40;
@@ -3015,10 +3160,11 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     (data.koteiSheets || []).forEach((s) => { hasSheet[s.partId] = true; });
     const spanDays = Math.max(1, Math.round((new Date(ui.msTo + "T00:00:00") - new Date(ui.msFrom + "T00:00:00")) / 86400000) + 1);
     const pFrom = shiftDate(ui.msFrom, -spanDays), pTo = shiftDate(ui.msFrom, -1); // 直前の同じ長さの期間（前期比の物差し）
+    const svm = sampleValueMap(data.records, data.parts); // 全員ぶん使い回す（人数分作り直さない）
     const rows = data.members.map((m) => {
       // 期間集計は個人推移画面と共通の関数を使う（DRY・数字を絶対にズレさせない）
-      const cur = memberPeriodStats(data, hasSheet, m.id, ui.msFrom, ui.msTo);
-      const prev = memberPeriodStats(data, hasSheet, m.id, pFrom, pTo);
+      const cur = memberPeriodStats(data, hasSheet, m.id, ui.msFrom, ui.msTo, svm);
+      const prev = memberPeriodStats(data, hasSheet, m.id, pFrom, pTo, svm);
       return Object.assign({ id: m.id, name: m.name, trend: (cur.rate > 0 && prev.rate > 0) ? (cur.rate / prev.rate - 1) * 100 : null }, cur);
     });
     const sortKey = ui.msSort || "rate";
@@ -3047,7 +3193,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         data.members.length === 0
           ? React.createElement(Empty, null, "メンバーがいません")
           : React.createElement("div", { style: { overflowX: "auto", WebkitOverflowScrolling: "touch", background: "#fff", border: "1px solid var(--line-soft)", borderRadius: 12 } },
-              React.createElement("table", { style: { borderCollapse: "collapse", width: "100%", minWidth: 620 } },
+              React.createElement("table", { style: { borderCollapse: "collapse", width: "100%", minWidth: 820 } },
                 React.createElement("thead", null, React.createElement("tr", null,
                   th(null, "", "center"),
                   th(null, "名前", "left"),
@@ -3058,7 +3204,10 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                   th("days", "稼働日"),
                   th("qty", "枚数"),
                   th("otherH", "工程外"),
-                  th("noSheetH", "工程表なし")
+                  th("noSheetH", "工程表なし"),
+                  th("sampleH", "うちサンプル"),
+                  th("sampleRatio", "サンプル比率"),
+                  th("massRate", "量産のみ円/h")
                 )),
                 React.createElement("tbody", null, rows.map((r, i) => React.createElement("tr", { key: r.id, onClick: () => set({ screen: "member_trend", mtMemberId: r.id }), style: { cursor: "pointer" } },
                   React.createElement("td", { style: Object.assign({}, tdBase, { textAlign: "center", color: "var(--faint)", fontSize: 11 }) }, i + 1),
@@ -3070,12 +3219,17 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                   React.createElement("td", { style: tdBase }, r.days > 0 ? r.days + "日" : "—"),
                   React.createElement("td", { style: tdBase }, r.qty > 0 ? r.qty + "枚" : "—"),
                   React.createElement("td", { style: Object.assign({}, tdBase, { color: r.otherH > 0 ? "var(--ink)" : "var(--faint)" }) }, r.otherH > 0 ? r.otherH.toFixed(1) + "h" : "—"),
-                  React.createElement("td", { style: Object.assign({}, tdBase, { color: r.noSheetH > 0 ? "var(--ink)" : "var(--faint)" }) }, r.noSheetH > 0 ? r.noSheetH.toFixed(1) + "h" : "—")
+                  React.createElement("td", { style: Object.assign({}, tdBase, { color: r.noSheetH > 0 ? "var(--ink)" : "var(--faint)" }) }, r.noSheetH > 0 ? r.noSheetH.toFixed(1) + "h" : "—"),
+                  React.createElement("td", { style: Object.assign({}, tdBase, { color: r.sampleH > 0 ? "var(--ink)" : "var(--faint)" }) }, r.sampleH > 0 ? r.sampleH.toFixed(1) + "h" : "—"),
+                  React.createElement("td", { style: Object.assign({}, tdBase, { color: r.sampleH > 0 ? "var(--ink)" : "var(--faint)" }) }, r.sampleH > 0 ? Math.round(r.sampleRatio) + "%" : "—"),
+                  React.createElement("td", { style: Object.assign({}, tdBase, { color: r.massRate > 0 ? "var(--ink)" : "var(--faint)" }) }, r.massRate > 0 ? yen(r.massRate) : "—")
                 )))
               )
             ),
-        React.createElement("div", { style: { fontSize: 10.5, color: "var(--faint)", marginTop: 10, lineHeight: 1.7 } },
-          "1時間あたり＝生産価値÷工程表がある品番の時間。作業時間だけで工程枚数が入っていない日は計算から除外。「工程外」は芯貼り・裁断・サポートなど工程表に載らない作業の時間（内数。1時間あたりの分母に入れない）。「工程表なし」はその期間に工程表未登録の品番へ使った時間。")
+        ui.msFrom < SAMPLE_KUBUN_START && React.createElement("div", { style: { fontSize: 10.5, color: "var(--faint)", marginTop: 10, lineHeight: 1.7 } },
+          "※ 2026/10/1より前の期間はサンプル未計上（区分の記録開始前）"),
+        React.createElement("div", { style: { fontSize: 10.5, color: "var(--faint)", marginTop: ui.msFrom < SAMPLE_KUBUN_START ? 2 : 10, lineHeight: 1.7 } },
+          "1時間あたり＝生産価値÷工程表がある品番の時間。作業時間だけで工程枚数が入っていない日は計算から除外。「工程外」は芯貼り・裁断・サポートなど工程表に載らない作業の時間（内数。1時間あたりの分母に入れない）。「工程表なし」はその期間に工程表未登録の品番へ使った時間。「うちサンプル」は作業区分サンプルで記録した時間（1時間あたりの分母に含む。サンプル代は関わった人の時間で按分、無償は0円）。「量産のみ円/h」は従来どおりサンプルを除いた数字。")
       ),
       React.createElement(SI)
     );
@@ -3100,8 +3254,9 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     // 直近30日／その前の30日（前期比の物差し）。前期の境界は成績表と同じshiftDateで求め、
     // 「過去1ヶ月」プリセット選択時の成績表の前期比と完全に一致させる（独自計算だとタイムゾーンで1日ズレる）
     const mtFrom = daysAgo(29), mtTo = today();
-    const cur = memberPeriodStats(data, hasSheet, member.id, mtFrom, mtTo);
-    const prev = memberPeriodStats(data, hasSheet, member.id, shiftDate(mtFrom, -30), shiftDate(mtFrom, -1));
+    const svm = sampleValueMap(data.records, data.parts); // この画面のmemberPeriodStats呼び出し全部で使い回す
+    const cur = memberPeriodStats(data, hasSheet, member.id, mtFrom, mtTo, svm);
+    const prev = memberPeriodStats(data, hasSheet, member.id, shiftDate(mtFrom, -30), shiftDate(mtFrom, -1), svm);
     const trend = (cur.rate > 0 && prev.rate > 0) ? (cur.rate / prev.rate - 1) * 100 : null;
     // 月別推移: 当月＋直前6ヶ月の7本（古い→新しい）。当月だけ「月初〜本日」で締め、それ以外は月末まで
     const curYm = today().slice(0, 7);
@@ -3112,7 +3267,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const series = months.map((m) => {
       const from = m + "-01";
       const to = m === curYm ? today() : monthEnd(m);
-      return Object.assign({ month: m, isCurrent: m === curYm }, memberPeriodStats(data, hasSheet, member.id, from, to));
+      return Object.assign({ month: m, isCurrent: m === curYm }, memberPeriodStats(data, hasSheet, member.id, from, to, svm));
     });
     // 前月比: 直前の月（配列の1つ前）との比較。先頭（一番古い月）は比較対象がないのでnull
     const withMom = series.map((s, i) => {
@@ -3873,7 +4028,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         ),
         React.createElement("div", { style: { background: "#f5f4f0", borderRadius: 8, padding: "8px", textAlign: "center" } },
           React.createElement("div", { style: { fontSize: 10, color: "#aaa" } }, "サンプル代"),
-          React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: "#14555a" } }, "¥" + Math.round((p.unitPrice || 0) * (p.qty || 0)).toLocaleString())
+          React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: "#14555a" } }, p.freeSample ? "無償" : "¥" + Math.round((p.unitPrice || 0) * (p.qty || 0)).toLocaleString())
         )
       ),
       (p.massEstMin > 0) && React.createElement("div", { style: { fontSize: 12, color: "#555", background: "#eef4ff", borderRadius: 8, padding: "8px 10px", marginBottom: 10 } },
@@ -3928,7 +4083,14 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement(FormRow, { label: "仕掛り月" }, React.createElement("input", { style: st.input, type: "month", value: f.workMonth || "", onChange: (e) => setSampleF({ workMonth: e.target.value }) })),
           React.createElement(FormRow, { label: "納期" }, React.createElement("input", { style: st.input, type: "date", value: f.deadline || "", onChange: (e) => setSampleF({ deadline: e.target.value }) })),
           React.createElement(FormRow, { label: "枚数" }, React.createElement("input", { style: st.input, type: "number", min: "0", placeholder: "例: 2", value: f.qty, onChange: (e) => setSampleF({ qty: e.target.value }) })),
-          React.createElement(FormRow, { label: "サンプル代（円・1着あたり）" }, React.createElement("input", { style: st.input, type: "number", min: "0", placeholder: "例: 8000", value: f.samplePrice, onChange: (e) => setSampleF({ samplePrice: e.target.value }) })),
+          React.createElement("div", { style: { margin: "2px 0 10px" } },
+            React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--ink)", cursor: "pointer" } },
+              React.createElement("input", { type: "checkbox", checked: !!f.freeSample, onChange: (e) => setSampleF({ freeSample: e.target.checked }) }),
+              "無償サンプル（請求なし）"
+            )
+          ),
+          React.createElement(FormRow, { label: "サンプル代（円・1着あたり）" }, React.createElement("input", { style: st.input, type: "number", min: "0", placeholder: "例: 8000", disabled: !!f.freeSample, value: f.samplePrice, onChange: (e) => setSampleF({ samplePrice: e.target.value }) })),
+          f.freeSample && React.createElement("div", { style: { fontSize: 11, color: "var(--soft)", margin: "-6px 0 10px", lineHeight: 1.6 } }, "無償サンプルは生産価値0円で計上します（時間は記録されます）"),
           React.createElement(FormRow, { label: "実働時間（h・合計）" }, React.createElement("input", { style: st.input, type: "number", min: "0", step: "0.5", placeholder: "例: 6", value: f.actualHours, onChange: (e) => setSampleF({ actualHours: e.target.value }) })),
           React.createElement(FormRow, { label: "量産時の見積もり時間（分/着）" },
             React.createElement("input", { style: st.input, type: "number", min: "0", placeholder: "例: 45", value: f.massEstMin, onChange: (e) => setSampleF({ massEstMin: e.target.value }) }),
@@ -3953,7 +4115,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
                 )
           ),
           React.createElement(FormRow, { label: "備考" }, React.createElement("input", { style: st.input, value: f.note, onChange: (e) => setSampleF({ note: e.target.value }) })),
-          (parseFloat(f.samplePrice) > 0 && parseFloat(f.qty) > 0) && React.createElement("div", { style: { background: "#f0f8f0", borderRadius: 8, padding: "10px 14px", marginBottom: 12, display: "flex", justifyContent: "space-between" } },
+          (!f.freeSample && parseFloat(f.samplePrice) > 0 && parseFloat(f.qty) > 0) && React.createElement("div", { style: { background: "#f0f8f0", borderRadius: 8, padding: "10px 14px", marginBottom: 12, display: "flex", justifyContent: "space-between" } },
             React.createElement("span", { style: { fontSize: 13, color: "#555" } }, "サンプル代合計"),
             React.createElement("b", null, "¥" + Math.round(parseFloat(f.samplePrice) * parseFloat(f.qty)).toLocaleString())
           ),
