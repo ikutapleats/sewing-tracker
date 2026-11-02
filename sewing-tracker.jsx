@@ -168,7 +168,7 @@ const INIT_UI = {
   ccalMonth: null, // 会社カレンダー設定の表示月 YYYY-MM
   kbMode: "month", kbSearch: "", kbOpen: null, // 完了ボックス（表示切替・検索・グループ開閉。null=先頭のみ開く）
   smOpen: null, // サンプル管理 月グループ開閉（null=最新月のみ開く）
-  kaTeam: "all", kaMonth: "all", kaSort: "closed", // 完了分析（チーム絞り込み・納品月絞り込み・並び順）
+  kaTeams: [], kaMonth: "all", kaSort: "closed", // 完了分析（チーム絞り込み=複数選択の配列・空なら「全体」／納品月絞り込み・並び順）
   kaDetailId: null, // 完了分析: 詳細グラフ画面を表示中の品番ID（nullなら非表示）
   kaDetailFrom: null, // 詳細グラフ画面の戻り先（"kanryo_analysis" or "kanryo_box"。null=完了分析）
   kaBrand: "all", kaFrom: "", kaTo: "", // 完了分析（客先絞り込み・期間指定の開始日/終了日）
@@ -457,11 +457,17 @@ function rateOf(recsArr, kersArr, parts, hasSheet) {
 function sewSalesOf(x) { return Math.max(0, (x.unitPrice || 0) - (x.pleatsPrice || 0)) * (x.qty || 0); }
 function sewRateOf(x) { return x.totalHours > 0 ? sewSalesOf(x) / x.totalHours : 0; }
 
-// 完了分析の絞り込み（チーム→客先→期間の順）。f にはui（kaTeam/kaBrand/kaMonth/kaFrom/kaTo）をそのまま渡せる。
+// 完了分析の絞り込み（チーム→客先→期間の順）。f にはui（kaTeams/kaBrand/kaMonth/kaFrom/kaTo）をそのまま渡せる。
 // 段階ごとの中間結果（teamFiltered/brandFiltered）も返す: 絞り込み後の選択肢(客先・月)づくりに使うため
+// チームは複数選択（配列）。空配列=「全体」。旧形式の f.kaTeam（文字列）が来ても動くようにしておく（MQ等の呼び出し元の互換）
+function kanryoTeamsOf(f) {
+  if (Array.isArray(f.kaTeams)) return f.kaTeams;
+  return (f.kaTeam && f.kaTeam !== "all") ? [f.kaTeam] : [];
+}
 function kanryoFiltered(kaAll, f) {
-  // チーム絞り込み: 「全体」は外注も含む全件。チーム選択時はそのチームの自社分のみ（外注は除く）
-  const teamFiltered = f.kaTeam === "all" ? kaAll : kaAll.filter((p) => p.assigneeType !== "outsource" && p.assignee === f.kaTeam);
+  // チーム絞り込み: 「全体」(未選択)は外注も含む全件。チーム選択時は選んだチームの自社分のみ（外注は除く）
+  const teams = kanryoTeamsOf(f);
+  const teamFiltered = teams.length === 0 ? kaAll : kaAll.filter((p) => p.assigneeType !== "outsource" && teams.indexOf(p.assignee) >= 0);
   // 客先絞り込み: all=全件、none=客先未設定のみ、それ以外はbrandId一致
   const brandFiltered = f.kaBrand === "all" ? teamFiltered
     : f.kaBrand === "none" ? teamFiltered.filter((p) => !p.brandId)
@@ -4367,20 +4373,24 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     const kaWithHours = kaTotals.withHours, kaAvgRate = kaTotals.avgRate;
     // 総時間の表示: 小数1桁までだが、ちょうど整数なら整数で表示（見た目をすっきりさせる）
     const fmtHours = (h) => { const r = Math.round(h * 10) / 10; return (Number.isInteger(r) ? "" + r : r.toFixed(1)) + "h"; };
+    // チームは複数選択。「全体」= 何も選んでいない状態（kaTeams が空）。チームをタップで追加/解除、全部解除すると「全体」に戻る
+    const kaTeams = ui.kaTeams || [];
     const kaTeamBtn = (team, label, color) => {
-      const active = ui.kaTeam === team;
+      const active = team === "all" ? kaTeams.length === 0 : kaTeams.indexOf(team) >= 0;
+      const next = team === "all" ? [] : (active ? kaTeams.filter((t) => t !== team) : kaTeams.concat([team]));
       return React.createElement("button", {
         key: team,
         style: { height: 44, padding: "0 16px", borderRadius: 22, fontSize: 14, cursor: "pointer", border: "1px solid " + (active ? color : "var(--line)"), background: active ? color : "#fff", color: active ? "#fff" : "var(--ink)", fontWeight: active ? 700 : 400, flex: "none" },
-        onClick: () => set({ kaTeam: team, kaMonth: "all", kaBrand: "all" }),
-      }, label);
+        onClick: () => set({ kaTeams: next, kaMonth: "all", kaBrand: "all" }),
+      }, (team !== "all" && active ? "✓ " : "") + label);
     };
     return React.createElement(Shell, null,
       React.createElement(Header, { title: "完了分析", back: () => set({ screen: "kanryo_box" }) }),
       React.createElement(Body, null,
         React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap", alignItems: "center" } },
           kaTeamBtn("all", "全体", "var(--iquta)"),
-          TEAMS.map((t) => kaTeamBtn(t, t, TEAM_COLORS[t]))
+          TEAMS.map((t) => kaTeamBtn(t, t, TEAM_COLORS[t])),
+          kaTeams.length > 0 && React.createElement("span", { style: { fontSize: 11, color: "var(--soft)" } }, "複数選択できます")
         ),
         React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" } },
           React.createElement("select", { style: Object.assign({}, st.input, { height: 44, width: 160, maxWidth: "100%" }), value: ui.kaBrand, onChange: (e) => set({ kaBrand: e.target.value, kaMonth: "all" }) },
@@ -4471,7 +4481,10 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
   if (ui.screen === "kanryo_share") {
     const kaAll = allSummary.filter((p) => p.closedAt);
     const filterResult = kanryoFiltered(kaAll, ui);
-    const filtered = filterResult.filtered;
+    // 印刷(共有用出力)では売上0円（単価未入力）の品番を集計・一覧から外す（社長決定 2026-11-02）。
+    // 画面の完了分析には影響させない。何件外したかは出力内に注記する
+    const unpriced = filterResult.filtered.filter((p) => !((p.unitPrice || 0) > 0));
+    const filtered = filterResult.filtered.filter((p) => (p.unitPrice || 0) > 0);
     const t = kanryoTotals(filtered);
     const sewSalesSum = filtered.reduce((a, p) => a + sewSalesOf(p), 0);
     // 並び順は完了分析画面のkaSort==="rate"と同じルール（時間記録のある品番を高い順→記録なしは完了日順で末尾）
@@ -4520,7 +4533,10 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement("div", { style: { fontSize: 18, fontWeight: 700, marginBottom: 4 } }, "完了品番 実績レポート"),
           // 条件行: 承認済みモックの表記に統一（対象: チーム / 客先 / 期間(完了日基準) ・ 出力日 YYYY-MM-DD）
           React.createElement("div", { style: { fontSize: 12, color: "var(--soft)", marginBottom: 16 } },
-            "対象: " + (ui.kaTeam === "all" ? "全体" : ui.kaTeam) + " / " + brandLabel + " / " + periodLabel + "(完了日基準)" + " ・ 出力日 " + today()
+            "対象: " + ((ui.kaTeams || []).length === 0 ? "全体" : ui.kaTeams.join("・")) + " / " + brandLabel + " / " + periodLabel + "(完了日基準)" + " ・ 出力日 " + today()
+          ),
+          unpriced.length > 0 && React.createElement("div", { style: { fontSize: 11, color: "var(--soft)", marginTop: -10, marginBottom: 14 } },
+            "※単価未入力(売上0円)の品番 " + unpriced.length + "件は集計・一覧から除外"
           ),
           // サマリーカード
           React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 } },
@@ -4587,7 +4603,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
               )
             )
           ),
-          sorted.length === 0 && React.createElement("div", { style: { textAlign: "center", color: "var(--soft)", fontSize: 14, padding: 24 } }, "該当する完了品番はありません"),
+          sorted.length === 0 && React.createElement("div", { style: { textAlign: "center", color: "var(--soft)", fontSize: 14, padding: 24 } }, unpriced.length > 0 ? "単価の入った完了品番はありません" : "該当する完了品番はありません"),
           // 注記: 承認済みモックの文言に統一（金額なし時は指数の説明のみ）
           React.createElement("div", { style: { fontSize: 10.5, color: "var(--faint)", marginTop: 10, lineHeight: 1.7 } },
             money
@@ -4662,6 +4678,15 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     return React.createElement(Shell, null,
       React.createElement(Header, { title: p.partNo, back: () => set({ screen: ui.kaDetailFrom || "kanryo_analysis", kaDetailId: null, kaDetailFrom: null }) }),
       React.createElement(Body, null,
+        // 印刷ボタン: 画面のグラフをそのままの見た目で印刷/PDF保存する（.print-area の外なので印刷時は自動的に除外される）
+        React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end" } },
+          React.createElement("button", { style: { height: 44, padding: "0 16px", borderRadius: 22, fontSize: 14, cursor: "pointer", border: "1px solid var(--line)", background: "#fff", color: "var(--ink)" }, onClick: () => window.print() }, "🖨 印刷 / PDF保存")
+        ),
+        // 以下のカード（成績・工程別・日別・担当者別）を print-area で囲み、画面表示のまま印刷対象にする
+        React.createElement("div", { className: "print-area" },
+        // 印刷時のみ見出し（画面では Header に品番が出ているので非表示）
+        React.createElement("div", { className: "print-only", style: { fontSize: 18, fontWeight: 700, marginBottom: 2 } }, "完了分析　" + p.partNo),
+        React.createElement("div", { className: "print-only", style: { fontSize: 11, color: "var(--soft)", marginBottom: 12 } }, "出力日 " + today()),
         // 成績カード
         React.createElement("div", { style: cardStyle },
           React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, p.partName || ""),
@@ -4711,13 +4736,14 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement("div", { style: cardTitle }, "日別の作業時間"),
           dayBars.length === 0
             ? React.createElement("div", { style: { fontSize: 13, color: "var(--soft)" } }, "作業記録がありません")
-            : React.createElement("div", { style: { overflowX: dayScroll ? "auto" : "visible", WebkitOverflowScrolling: "touch" } },
-                React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: dayScroll ? 4 : 6, height: 110, minWidth: dayScroll ? dayBars.length * 18 : 0 } },
+            // 日数が多いときは画面では横スクロール。印刷時は ka-dayscroll/ka-daybars/ka-daybar のCSSで紙幅に収める
+            : React.createElement("div", { className: "ka-dayscroll", style: { overflowX: dayScroll ? "auto" : "visible", WebkitOverflowScrolling: "touch" } },
+                React.createElement("div", { className: "ka-daybars", style: { display: "flex", alignItems: "flex-end", gap: dayScroll ? 4 : 6, height: 110, minWidth: dayScroll ? dayBars.length * 18 : 0 } },
                   dayBars.map((d, i) => {
                     // maxVを100%として棒の高さを最大80pxに正規化（0時間でも見えるよう最小2px）
                     const h = d.hours > 0 ? Math.max(2, Math.round(80 * d.hours / dayMaxV)) : 2;
                     const showLabel = !dayScroll || i % Math.ceil(dayBars.length / 15) === 0 || i === dayBars.length - 1;
-                    return React.createElement("div", { key: d.date, style: { flex: dayScroll ? "none" : 1, width: dayScroll ? 14 : "auto", minWidth: 14, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" } },
+                    return React.createElement("div", { key: d.date, className: "ka-daybar", style: { flex: dayScroll ? "none" : 1, width: dayScroll ? 14 : "auto", minWidth: 14, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" } },
                       React.createElement("div", { style: { fontSize: 9, color: "var(--ink)", marginBottom: 3, whiteSpace: "nowrap" } }, dayBars.length <= 15 ? fmtHours(d.hours) : ""),
                       React.createElement("div", { style: { width: "100%", maxWidth: 15, height: h, borderRadius: "4px 4px 0 0", background: "var(--iquta)" } }),
                       React.createElement("div", { style: { fontSize: 9, color: "var(--soft)", marginTop: 4, whiteSpace: "nowrap", visibility: showLabel ? "visible" : "hidden" } }, dayLabel(d.date))
@@ -4731,6 +4757,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement("div", { style: cardTitle }, "担当者別の時間"),
           workerBars.map((w) => hBarRow(w.name, w.name, w.hours, workerMaxV))
         )
+        ) // print-area ここまで
       ),
       React.createElement(SI)
     );
@@ -5033,7 +5060,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
     // ── 通過後: 本体 ──
     const kaAll = allSummary.filter((p) => p.closedAt);
     const curTeam = TEAMS.indexOf(ui.mqTab) >= 0 ? ui.mqTab : "all"; // "list"（品番一覧）タブは常にkaTeam=all
-    const mqFilterResult = kanryoFiltered(kaAll, { kaTeam: curTeam, kaBrand: "all", kaMonth: ui.mqMonth, kaFrom: ui.mqFrom, kaTo: ui.mqTo });
+    const mqFilterResult = kanryoFiltered(kaAll, { kaTeams: curTeam === "all" ? [] : [curTeam], kaBrand: "all", kaMonth: ui.mqMonth, kaFrom: ui.mqFrom, kaTo: ui.mqTo });
     const mqFiltered = mqFilterResult.filtered;
     const mqMonths = Array.from(new Set(mqFilterResult.teamFiltered.map((p) => (p.closedAt || "").slice(0, 7)).filter(Boolean))).sort().reverse();
     const periodLabel = ui.mqMonth === "all" ? "全期間"
@@ -5685,7 +5712,11 @@ styleEl.textContent =
   // 注意: 「隠す」側のセレクタ body:has(.print-area) * は詳細度が(0,1,1)あり、
   // 「見せる」側を .print-area * だけにすると(0,1,0)で負けて全部非表示＝白紙印刷になる(2026-10-05に発生)。
   // そのため見せる側にも body:has(.print-area) を付けて詳細度を(0,2,1)にし、必ず勝たせる。
-  "@media print{body:has(.print-area) *{visibility:hidden}body:has(.print-area) .print-area,body:has(.print-area) .print-area *{visibility:visible}.print-area{position:absolute;left:0;top:0;width:100%}}@page{size:A4 portrait;margin:12mm}";
+  // print-color-adjust: グラフの棒や合計カードは背景色で描いているため、ブラウザの「背景を印刷しない」設定でも色が出るように強制する。
+  // .print-only は印刷時だけ出す見出し。.ka-dayscroll/.ka-daybars/.ka-daybar は日別グラフの横スクロールを印刷時に解除して紙幅に収める
+  "@media print{body:has(.print-area) *{visibility:hidden}body:has(.print-area) .print-area,body:has(.print-area) .print-area *{visibility:visible}.print-area{position:absolute;left:0;top:0;width:100%;-webkit-print-color-adjust:exact;print-color-adjust:exact}.print-area *{-webkit-print-color-adjust:exact;print-color-adjust:exact}.print-only{display:block!important}.ka-dayscroll{overflow:visible!important}.ka-daybars{min-width:0!important}.ka-daybar{flex:1 1 0!important;width:auto!important;min-width:0!important}}" +
+  ".print-only{display:none}" +
+  "@page{size:A4 portrait;margin:12mm}";
 document.head.appendChild(styleEl);
 
 
