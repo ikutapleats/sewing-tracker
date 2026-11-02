@@ -3270,7 +3270,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             })
           ),
           React.createElement("div", { style: { fontSize: 13, fontWeight: 700, marginBottom: 10 } }, "月別の数字(数字を見ると同じ計算)"),
-          React.createElement("div", { style: { overflowX: "auto", WebkitOverflowScrolling: "touch" } },
+          React.createElement("div", { className: "ka-tablescroll", style: { overflowX: "auto", WebkitOverflowScrolling: "touch" } },
             React.createElement("table", { style: { borderCollapse: "collapse", width: "100%", minWidth: 520 } },
               React.createElement("thead", null, React.createElement("tr", null,
                 th("月", "left"), th("1時間あたり"), th("前月比"), th("生産価値"), th("時間")
@@ -4585,7 +4585,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           // 一覧表
           sorted.length > 0 && React.createElement(React.Fragment, null,
             React.createElement("div", { style: { fontSize: 13, fontWeight: 700, marginBottom: 10 } }, "品番一覧"),
-            React.createElement("div", { style: { overflowX: "auto", WebkitOverflowScrolling: "touch" } },
+            React.createElement("div", { className: "ka-tablescroll", style: { overflowX: "auto", WebkitOverflowScrolling: "touch" } },
               React.createElement("table", { style: { borderCollapse: "collapse", width: "100%", minWidth: money ? 560 : 480 } },
                 React.createElement("thead", null, React.createElement("tr", null,
                   th("品番", "left"), th("客先", "left"), th("枚数"), th("時間"),
@@ -5714,7 +5714,9 @@ styleEl.textContent =
   // そのため見せる側にも body:has(.print-area) を付けて詳細度を(0,2,1)にし、必ず勝たせる。
   // print-color-adjust: グラフの棒や合計カードは背景色で描いているため、ブラウザの「背景を印刷しない」設定でも色が出るように強制する。
   // .print-only は印刷時だけ出す見出し。.ka-dayscroll/.ka-daybars/.ka-daybar は日別グラフの横スクロールを印刷時に解除して紙幅に収める
-  "@media print{body:has(.print-area) *{visibility:hidden}body:has(.print-area) .print-area,body:has(.print-area) .print-area *{visibility:visible}.print-area{position:absolute;left:0;top:0;width:100%;-webkit-print-color-adjust:exact;print-color-adjust:exact}.print-area *{-webkit-print-color-adjust:exact;print-color-adjust:exact}.print-only{display:block!important}.ka-dayscroll{overflow:visible!important}.ka-daybars{min-width:0!important}.ka-daybar{flex:1 1 0!important;width:auto!important;min-width:0!important}}" +
+  // 印刷時の右端切れ対策(2026-11-02): .print-area は画面用に padding16px+枠線1px を持つので、width:100% に足すと紙幅を超える。
+  // 印刷時は box-sizing:border-box にし、余白・枠線・角丸も外して紙の幅ぴったりに収める。表の横スクロール枠(.ka-tablescroll)も印刷時は解除する
+  "@media print{body:has(.print-area) *{visibility:hidden}body:has(.print-area) .print-area,body:has(.print-area) .print-area *{visibility:visible}.print-area{position:absolute;left:0;top:0;width:100%;box-sizing:border-box;padding:0!important;border:none!important;border-radius:0!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}.print-area *{-webkit-print-color-adjust:exact;print-color-adjust:exact}.print-area table{width:100%!important;min-width:0!important}.ka-tablescroll{overflow:visible!important}.print-only{display:block!important}.ka-dayscroll{overflow:visible!important}.ka-daybars{min-width:0!important}.ka-daybar{flex:1 1 0!important;width:auto!important;min-width:0!important}}" +
   ".print-only{display:none}" +
   "@page{size:A4 portrait;margin:12mm}";
 document.head.appendChild(styleEl);
