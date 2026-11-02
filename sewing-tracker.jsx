@@ -12,6 +12,10 @@ const TEAM_COLORS = {
 const STATUSES = ["未着手", "裁断済み", "仕掛り中", "完了"];
 
 function today() { return new Date().toISOString().slice(0, 10); }
+// 端末ローカルの今日(YYYY-MM-DD)。today()はUTC基準なのでJSTの朝9時前は前日になる。
+// 完了日の未来日チェックにはこちらを使い、当日を誤って弾かないようにする（保存する値の形式はtoday()と同じ）
+function localToday() { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+function isFutureDate(ds) { return !!ds && ds > localToday(); }
 function daysAgo(n) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); }
 // 日付文字列(YYYY-MM-DD)をn日ずらす。成績表と個人推移で前期比の期間定義を一致させるため共通化
 function shiftDate(ds, n) { const d = new Date(ds + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
@@ -173,6 +177,7 @@ const INIT_UI = {
   mqTab: "all", mqMonth: "all", mqFrom: "", mqTo: "", mqPartId: null,
   mqCodeInput: "", mqCodeError: false, mqInitCode: "", mqUnlockTick: 0, mqSettingsForm: null,
   epVOpen: false, // 品番編集フォームの「変動費(MQ分析用)」折りたたみの開閉
+  closeDateFor: null, closeDateInput: "", // 品番詳細の「完了にする」の完了日入力（対象品番ID・入力値。空=今日）
 };
 
 async function gasSave(data) {
@@ -868,6 +873,11 @@ function App() {
     const f = ui.editPartForm;
     if (!f) return;
     const isOut = f.assigneeType === "outsource";
+    // 完了済み品番だけ完了日を修正できる。空にして進行中へ戻すのは「再開する」の仕事なのでここでは不可。未来日も不可
+    if (f.isClosed) {
+      if (!f.closedAt) { window.alert("完了日は空にできません。進行中に戻すには「再開する」を使ってください"); return; }
+      if (isFutureDate(f.closedAt)) { window.alert("完了日に未来の日付は入れられません"); return; }
+    }
     const updatedPart = Object.assign({}, data.parts.find((p) => p.id === f.id), {
       partName: f.partName.trim(), unitPrice: parseFloat(f.unitPrice) || 0,
       pleatsPrice: parseFloat(f.pleatsPrice) || 0,
@@ -883,6 +893,8 @@ function App() {
       // MQ分析用の変動費3項目（品番の総額・円。未入力=0）。プリーツ加工賃(pleatsPrice)とは別枠
       vMaterial: parseFloat(f.vMaterial) || 0, vOutsource: parseFloat(f.vOutsource) || 0, vShipping: parseFloat(f.vShipping) || 0,
     });
+    // 完了日の修正（完了済みのみ）。進行中の品番は closedAt に触れない（この欄から完了にする裏口は作らない）
+    if (f.isClosed) updatedPart.closedAt = f.closedAt;
     const nd = Object.assign({}, data, { parts: data.parts.map((p) => p.id === f.id ? updatedPart : p) });
     setData(nd);
     set({ editPartForm: null, screen: "part_detail" });
@@ -950,12 +962,24 @@ function App() {
     gasUpdatePart(updatedPart).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
   }
 
-  function closePart(id) {
-    const updatedPart = Object.assign({}, data.parts.find((p) => p.id === id), { closedAt: today() });
+  // 完了にする。closedAt のみ設定（statusは触らない・従来どおり）。
+  // closedAt は省略可で、省略時は従来と同じ今日。形式は既存レコードと同じ "YYYY-MM-DD"（完了分析・完了ボックス・CSVが文字列比較するため揃える）
+  function closePart(id, closedAt) {
+    const updatedPart = Object.assign({}, data.parts.find((p) => p.id === id), { closedAt: closedAt || today() });
     const nd = Object.assign({}, data, { parts: data.parts.map((p) => p.id === id ? updatedPart : p) });
     setData(nd);
     setSaving(true); setSaveError(false);
     gasUpdatePart(updatedPart).catch((e) => { console.error(e); setSaveError(true); }).finally(() => setSaving(false));
+  }
+
+  // 「完了にする」ボタンの入口（品番詳細・チームリーダー画面で共用）。
+  // 完了日が未入力なら今日＝従来と同じ1タップ。未来日は保存せず知らせる。保存できたら true
+  function submitClose(id, dateStr) {
+    const d = dateStr || today();
+    if (isFutureDate(d)) { window.alert("完了日に未来の日付は入れられません"); return false; }
+    closePart(id, d);
+    set({ closeDateFor: null, closeDateInput: "" });
+    return true;
   }
 
   function reopenPart(id) {
@@ -980,7 +1004,9 @@ function App() {
   function startEdit(part) {
     set({ editPartForm: { id: part.id, partName: part.partName || "", unitPrice: part.unitPrice || "", pleatsPrice: part.pleatsPrice || "", qty: part.qty || "", estMinPerUnit: part.estMinPerUnit || "", deadline: part.deadline || "", status: part.status || "未着手", note: part.note || "", sellPrice: part.sellPrice || "", vendorPrice: part.vendorPrice || "", assigneeType: part.assigneeType || "team", workMonth: part.workMonth || "", brandId: part.brandId || "", plan: normPlan(part.plan), ganttStart: part.ganttStart || "", ganttDays: part.ganttDays || "",
       // MQ分析用の変動費3項目（品番の総額・円。未入力=0）
-      vMaterial: part.vMaterial || "", vOutsource: part.vOutsource || "", vShipping: part.vShipping || "" }, screen: "edit_part" });
+      vMaterial: part.vMaterial || "", vOutsource: part.vOutsource || "", vShipping: part.vShipping || "",
+      // 完了日の修正用。isClosed は「フォームを開いた時点で完了済みか」（入力欄を空にしても欄が消えないよう値とは別に持つ）
+      isClosed: !!part.closedAt, closedAt: part.closedAt || "" }, screen: "edit_part" });
   }
 
   // ── ガント編集ポップアップ（開始日+稼働日数+担当チームの3つだけ）──
@@ -1761,6 +1787,11 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
           React.createElement(FormRow, { label: "数量（枚）" }, React.createElement("input", { style: st.input, type: "number", value: f.qty, onChange: (e) => setEP({ qty: e.target.value }) })),
           renderPlanEditor(f.plan, (np) => { const patch = { plan: np }; const t = planTotal(np); if (t > 0) patch.qty = "" + t; setEP(patch); }),
           React.createElement(FormRow, { label: "納期" }, React.createElement("input", { style: st.input, type: "date", value: f.deadline || "", onChange: (e) => setEP({ deadline: e.target.value }) })),
+          // 完了日の修正。完了済み（closedAtあり）の品番だけ表示。進行中の品番には出さない（完了は必ず「完了にする」操作から）
+          f.isClosed && React.createElement(FormRow, { label: "完了日（さかのぼって修正できます・未来日は不可）" },
+            React.createElement("input", { style: Object.assign({}, st.input, { minHeight: 44 }), type: "date", max: localToday(), value: f.closedAt || "", onChange: (e) => setEP({ closedAt: e.target.value }) }),
+            React.createElement("div", { style: { fontSize: 11, color: "var(--soft)", marginTop: 4, lineHeight: 1.5 } }, "完了分析・完了ボックスの月はこの日付で集計されます。進行中に戻すには品番詳細の「再開する」を使ってください")
+          ),
           !isOut && React.createElement("div", { style: { display: "flex", gap: 10 } },
             React.createElement("div", { style: { flex: 1 } },
               React.createElement(FormRow, { label: "スケジュール開始日（未設定=未配置）" }, React.createElement("input", { style: st.input, type: "date", value: f.ganttStart || "", onChange: (e) => setEP({ ganttStart: e.target.value }) }))
@@ -1967,7 +1998,15 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
             });
           })()
         ),
-        !p.closedAt && React.createElement("button", { style: Object.assign({}, st.closeBtn, { marginTop: 20 }), onClick: () => { closePart(p.id); set({ screen: "master" }); } }, "この品番を完了にする"),
+        // 完了にする（完了日つき）。既定は今日なので、そのままボタンを押せば従来と同じ1タップ。
+        // 完了を忘れていた品番は日付を実際の完了日に変えてから押す（さかのぼり登録）。入力値は品番IDに紐づけ、別の品番に持ち越さない
+        !p.closedAt && React.createElement("div", { style: { marginTop: 20 } },
+          React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 8 } },
+            React.createElement("div", { style: { fontSize: 12, color: "#888", whiteSpace: "nowrap" } }, "完了日"),
+            React.createElement("input", { style: Object.assign({}, st.input, { flex: 1, minHeight: 44 }), type: "date", max: localToday(), value: (ui.closeDateFor === p.id && ui.closeDateInput) || today(), onChange: (e) => set({ closeDateFor: p.id, closeDateInput: e.target.value }) })
+          ),
+          React.createElement("button", { style: Object.assign({}, st.closeBtn, { minHeight: 44 }), onClick: () => { if (submitClose(p.id, ui.closeDateFor === p.id ? ui.closeDateInput : "")) set({ screen: "master" }); } }, "この品番を完了にする")
+        ),
         React.createElement("button", { style: Object.assign({}, st.closeBtn, { background: "#14555a", marginTop: 8 }), onClick: () => openSaidan(p) }, "✂️ 裁断報告書" + ((data.saidanReports || []).find((r) => r.partId === p.id) ? "　（登録済み）" : "")),
         React.createElement("button", { style: Object.assign({}, st.closeBtn, { background: "var(--iquta)", marginTop: 8 }), onClick: () => openKotei(p) }, "工程分析表" + ((data.koteiSheets || []).find((r) => r.partId === p.id) ? "　（登録済み）" : "")),
         p.closedAt && React.createElement("button", { style: Object.assign({}, st.closeBtn, { background: "#e8e6e0", color: "#777", marginTop: 16 }), onClick: () => reopenPart(p.id) }, "再開する"),
@@ -2045,7 +2084,7 @@ ${f.note ? "<div style='margin-bottom:4mm'><div style='font-size:9pt;color:#888;
         ),
         React.createElement(SectionLabel, null, "進行中の品番"),
         myOpen.length === 0 && React.createElement(Empty, null, "進行中の品番はありません"),
-        myOpen.map((p) => React.createElement(PartCard, { key: p.id, p, onDetail: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "team_leader" }), onClose: () => closePart(p.id) })),
+        myOpen.map((p) => React.createElement(PartCard, { key: p.id, p, onDetail: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "team_leader" }), onClose: (closeDate) => submitClose(p.id, closeDate) })),
         React.createElement(SectionLabel, null, "完了済み"),
         myDone.length === 0 && React.createElement(Empty, null, "完了済みの品番はありません"),
         myDone.map((p) => React.createElement(PartCard, { key: p.id, p, done: true, onDetail: () => set({ activePartId: p.id, screen: "part_detail", prevScreen: "team_leader" }), onReopen: () => reopenPart(p.id) }))
@@ -5553,6 +5592,8 @@ function DashCard(p) {
 }
 function PartCard(p) {
   const part = p.p;
+  // 「完了にする」の完了日（空=今日）。カードごとに持つので他の品番へ持ち越さない。onClose には日付を渡す
+  const [closeDate, setCloseDate] = useState("");
   return React.createElement("div", { style: Object.assign({}, st.leaderCard, { opacity: p.done ? 0.75 : 1 }) },
     React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 } },
       React.createElement("div", null,
@@ -5571,7 +5612,11 @@ function PartCard(p) {
       React.createElement("span", { style: { color: "#ddd" } }, "｜"),
       React.createElement("span", { style: { color: p.done ? "#2a7a2a" : "#555", fontWeight: p.done ? 700 : 400 } }, part.totalHours > 0 ? "¥" + Math.round(part.hourlyRate).toLocaleString() + "/h" : "—", p.done ? " 確定" : "")
     ),
-    !p.done && React.createElement("button", { style: st.closeBtn, onClick: p.onClose }, "この品番を完了にする"),
+    // 完了日つきの完了ボタン。既定は今日なので従来どおりボタン1タップで完了できる
+    !p.done && React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+      React.createElement("input", { style: Object.assign({}, st.input, { width: 150, flex: "0 0 auto", minHeight: 44, fontSize: 14, padding: "8px 10px" }), type: "date", max: localToday(), value: closeDate || today(), onChange: (e) => setCloseDate(e.target.value), "aria-label": "完了日" }),
+      React.createElement("button", { style: Object.assign({}, st.closeBtn, { flex: 1, minHeight: 44 }), onClick: () => { if (p.onClose(closeDate)) setCloseDate(""); } }, "この品番を完了にする")
+    ),
     p.done && React.createElement("button", { style: Object.assign({}, st.closeBtn, { background: "#e8e6e0", color: "#777" }), onClick: p.onReopen }, "再開する")
   );
 }
