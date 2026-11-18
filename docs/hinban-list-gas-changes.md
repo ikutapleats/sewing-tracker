@@ -5,23 +5,38 @@
 目的: 納品書アプリ(seikyu-kanri)が、品番欄の候補として生産管理の品番を**読むだけ**のための入口。
 
 **下記の2箇所以外は一切変更しないこと。データ構造・既存アクション・フロント(sewing-tracker.jsx)には触らない。**
-このアクションはシートに何も書き込まない(`readData()` で読むだけ)。
+このアクションはシートに何も書き込まない(`readRaw()` で読むだけ)。
 
-> 注意: この手順書は GAS 本体のコードを見ずに書いている。`readData()` という関数名は
-> `docs/gantt-gas-changes.md` の記載に基づく。実際の関数名や `doGet` の形が違う場合は、
-> 貼り付ける前に GAS のコード(`doGet` と `readData`)を Claude に見せて確認すること。
+> 2026-11-18: 実際の GAS のコード(社長が貼り付けたもの)と照合済み。照合で直した点:
+> - `readData` は引数にシートが要る(`readData(sheet)`)。引数なしで呼ぶとエラーになるため、
+>   `getOrCreateSheet(SHEET_NAME)` と `readRaw(sheet)` を使う形に直した。
+> - データが空で読めたとき(他の端末の保存の途中など)は、空の一覧ではなくエラーを返すようにした。
 
-## 1. `doGet(e)` の先頭に分岐を1つ追加
+## 1. `doGet(e)` の `try {` の直後に分岐を1つ追加
 
-`doGet` の最初の行(既存の `imgKotei` の分岐より前でよい)に追加する。
+`doGet` の `try {` のすぐ下、既存の `if (e && e.parameter && e.parameter.imgKotei) {` の**上**に追加する。
 `action=listHinban` が付いていないアクセスは、これまでと全く同じ動きになる。
 
 ```javascript
-// 納品書アプリ向け: 品番一覧(読み取り専用)。?action=listHinban のときだけ動く
-if (e && e.parameter && e.parameter.action === "listHinban") {
-  return ContentService.createTextOutput(JSON.stringify(listHinban_()))
-    .setMimeType(ContentService.MimeType.JSON);
-}
+    // 納品書アプリ向け: 品番一覧(読み取り専用)。?action=listHinban のときだけ動く
+    if (e && e.parameter && e.parameter.action === "listHinban") {
+      return makeResponse(listHinban_());
+    }
+```
+
+追加後の `doGet` の冒頭はこうなる:
+
+```javascript
+function doGet(e) {
+  try {
+    // 納品書アプリ向け: 品番一覧(読み取り専用)。?action=listHinban のときだけ動く
+    if (e && e.parameter && e.parameter.action === "listHinban") {
+      return makeResponse(listHinban_());
+    }
+    if (e && e.parameter && e.parameter.imgKotei) {
+      return getKoteiImage(e.parameter.imgKotei);
+    }
+    // (以下は変更なし)
 ```
 
 ## 2. 関数 `listHinban_()` を追加(ファイルの末尾でよい)
@@ -32,7 +47,12 @@ if (e && e.parameter && e.parameter.action === "listHinban") {
 // 返す項目は下に書いたものだけ。時間記録・時給・MQ設定などは返さない。
 function listHinban_() {
   try {
-    var data = readData();                       // 既存の読み込み関数をそのまま使う(書き込みなし)
+    // 既存の読み込み関数(doGet と同じもの)をそのまま使う。書き込みはしない
+    var raw = readRaw(getOrCreateSheet(SHEET_NAME));
+    // 空で読めた場合(他の端末の保存の途中など)は、空の一覧ではなくエラーにする。
+    // 納品書アプリ側は「読み込めませんでした[再読込]」を出す
+    if (!raw) return { ok: false, error: "データが空でした。もう一度読み込んでください" };
+    var data = JSON.parse(raw);
     var tz = "Asia/Tokyo";
     var now = new Date();
     var cut = new Date(now.getTime());
